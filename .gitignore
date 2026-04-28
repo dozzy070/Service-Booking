@@ -8,6 +8,26 @@ coverage/
 .cache/
 .vscode/
 
+# dependencies
+node_modules/
 
+# env files
+.env
+.env.*
 
+# logs
+*.log
 
+# uploads (IMPORTANT)
+Backend/uploads/
+
+# build
+dist/
+build/
+
+# editor
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
