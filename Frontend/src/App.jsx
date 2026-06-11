@@ -25,9 +25,9 @@ import Solutions from './pages/Solutions';
 
 
 // Dashboard Pages
-import CustomerDashboard from './pages/dashboard/CustomerDashboard';
-import ProviderDashboard from './pages/dashboard/ProviderDashboard';
-import AdminDashboard from './pages/dashboard/AdminDashboard';
+import CustomerDashboard from './pages/Dashboard/CustomerDashboard';
+import ProviderDashboard from './pages/Dashboard/ProviderDashboard';
+import AdminDashboard from './pages/Dashboard/AdminDashboard';
 
 // User Pages
 import Profile from './pages/Profile';
