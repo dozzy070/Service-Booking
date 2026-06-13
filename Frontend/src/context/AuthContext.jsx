@@ -1,17 +1,8 @@
 // src/context/AuthContext.jsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-
-// Create axios instance with base URL
-const api = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+import api from '../api/api'; // Import the shared api instance
 
 // Create the context
 const AuthContext = createContext(null);
@@ -49,10 +40,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } else {
       delete api.defaults.headers.common['Authorization'];
-      delete axios.defaults.headers.common['Authorization'];
     }
   }, [token]);
 

@@ -1,108 +1,169 @@
+// backend/socket/index.js
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import pool from '../config/db.js';
 
-let io;
-// ✅ New code with caching
-let cachedProviders = {};
+// Store online users
+const onlineUsersMap = new Map();
 
 export const initializeSocket = (httpServer) => {
-  io = new Server(httpServer, {
+  const io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        const allowedOrigins = [
+          'http://localhost:5173',
+          'http://localhost:3000',
+          'http://localhost:5000',
+          'https://service-booking-snowy.vercel.app',
+          'https://service-booking-3l1j.onrender.com'
+        ];
+        
+        if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app') || origin.includes('render.com')) {
+          callback(null, true);
+        } else {
+          console.log('Socket CORS blocked origin:', origin);
+          callback(null, true); // Allow all for debugging
+        }
+      },
       credentials: true,
+      methods: ['GET', 'POST']
     },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
   });
 
-  // 🔐 Auth middleware
-  io.use(async (socket, next) => {
-    const token = socket.handshake.auth.token;
-    if (!token) return next(new Error('Authentication error'));
+  // Authentication middleware
+  io.use((socket, next) => {
+    const token = socket.handshake.auth.token || socket.handshake.query.token;
+    
+    if (!token) {
+      console.log('⚠️ Socket connection attempt without token');
+      return next(new Error('Authentication required'));
+    }
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const userRes = await pool.query(
-        'SELECT id, name, role FROM users WHERE id = $1',
-        [decoded.id]
-      );
-      if (userRes.rows.length === 0) throw new Error('User not found');
-      socket.user = userRes.rows[0];
+      socket.userId = decoded.id;
+      socket.userRole = decoded.role;
+      console.log(`✅ Socket authenticated for user: ${socket.userId} (${socket.userRole})`);
       next();
     } catch (err) {
-      next(new Error('Authentication error'));
+      console.error('❌ Socket authentication error:', err.message);
+      next(new Error('Invalid token'));
     }
   });
 
   io.on('connection', (socket) => {
-    // Use cached provider info if available, otherwise fetch once
-    if (!cachedProviders[socket.user.id]) {
-      cachedProviders[socket.user.id] = socket.user;
-    }
-    // Removed noisy log – connection already cached
-    socket.join(`user:${socket.user.id}`);
+    console.log(`🟢 New client connected: ${socket.id} (User: ${socket.userId})`);
+    
+    // Add user to online users
+    onlineUsersMap.set(socket.userId, {
+      socketId: socket.id,
+      userId: socket.userId,
+      role: socket.userRole,
+      connectedAt: new Date()
+    });
+    
+    // Broadcast updated online users list
+    const onlineUsersList = Array.from(onlineUsersMap.values());
+    io.emit('online-users', onlineUsersList);
+    console.log(`👥 Online users: ${onlineUsersList.length}`);
 
-    // Join conversation room
-    socket.on('join-conversation', (conversationId) => {
-      socket.join(`conv:${conversationId}`);
+    // Join user to their personal room
+    socket.join(`user-${socket.userId}`);
+    console.log(`📡 User ${socket.userId} joined room: user-${socket.userId}`);
+
+    // Handle joining provider room
+    socket.on('join-provider', (providerId) => {
+      socket.join(`provider-${providerId}`);
+      console.log(`📡 User ${socket.userId} joined provider room: provider-${providerId}`);
     });
 
-    // Send message
-    socket.on('send-message', async (data) => {
-      const { conversationId, message, receiverId } = data;
-      const senderId = socket.user.id;
+    // Handle joining booking room
+    socket.on('join-booking', (bookingId) => {
+      socket.join(`booking-${bookingId}`);
+      console.log(`📡 User ${socket.userId} joined booking room: booking-${bookingId}`);
+    });
 
-      try {
-        // Insert into DB
-        const result = await pool.query(
-          `INSERT INTO messages (conversation_id, sender_id, receiver_id, message)
-           VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-          [conversationId, senderId, receiverId, message]
-        );
-
-        const newMessage = {
-          id: result.rows[0].id,
-          conversation_id: conversationId,
-          sender_id: senderId,
-          receiver_id: receiverId,
-          message,
-          created_at: result.rows[0].created_at,
-          sender_name: socket.user.name,
-        };
-
-        // Update conversation last message
-        await pool.query(
-          `UPDATE conversations SET last_message = $1, last_message_time = NOW()
-           WHERE id = $2`,
-          [message, conversationId]
-        );
-
-        // Emit to conversation room
-        io.to(`conv:${conversationId}`).emit('new-message', newMessage);
-        // Notify receiver individually
-        io.to(`user:${receiverId}`).emit('message-notification', {
-          conversationId,
-          message: message.substring(0, 50),
-          senderName: socket.user.name,
+    // Handle sending messages
+    socket.on('send-message', (data) => {
+      console.log(`💬 Message from ${socket.userId} to ${data.recipientId}:`, data.message);
+      
+      const { recipientId, message, bookingId, senderName } = data;
+      
+      // Emit to recipient's personal room
+      io.to(`user-${recipientId}`).emit('new-message', {
+        id: Date.now(),
+        senderId: socket.userId,
+        senderName: senderName,
+        recipientId: recipientId,
+        message: message,
+        bookingId: bookingId,
+        timestamp: new Date(),
+        read: false
+      });
+      
+      // Also emit to booking room if bookingId exists
+      if (bookingId) {
+        io.to(`booking-${bookingId}`).emit('booking-message', {
+          senderId: socket.userId,
+          message: message,
+          timestamp: new Date()
         });
-      } catch (error) {
-        console.error('Send message error:', error);
       }
+      
+      // Acknowledge message sent
+      socket.emit('message-sent', { success: true, timestamp: new Date() });
     });
 
-    socket.on('typing', ({ conversationId, isTyping }) => {
-      socket.to(`conv:${conversationId}`).emit('user-typing', {
-        userId: socket.user.id,
-        userName: socket.user.name,
-        isTyping,
+    // Handle typing indicators
+    socket.on('typing', (data) => {
+      const { recipientId, bookingId, isTyping } = data;
+      socket.to(`user-${recipientId}`).emit('user-typing', {
+        userId: socket.userId,
+        bookingId: bookingId,
+        isTyping: isTyping
       });
     });
 
-    socket.on('disconnect', () => {
-      // Removed noisy disconnect log
+    // Handle notifications
+    socket.on('send-notification', (data) => {
+      console.log(`🔔 Notification from ${socket.userId} to ${data.recipientId}:`, data.message);
+      
+      io.to(`user-${data.recipientId}`).emit('new-notification', {
+        id: Date.now(),
+        senderId: socket.userId,
+        recipientId: data.recipientId,
+        message: data.message,
+        type: data.type || 'info',
+        bookingId: data.bookingId,
+        timestamp: new Date(),
+        read: false
+      });
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', (reason) => {
+      console.log(`🔴 Client disconnected: ${socket.id} (User: ${socket.userId}) - Reason: ${reason}`);
+      
+      // Remove user from online users
+      onlineUsersMap.delete(socket.userId);
+      
+      // Broadcast updated online users list
+      const updatedOnlineUsersList = Array.from(onlineUsersMap.values());
+      io.emit('online-users', updatedOnlineUsersList);
+      console.log(`👥 Online users now: ${updatedOnlineUsersList.length}`);
+    });
+
+    // Handle errors
+    socket.on('error', (error) => {
+      console.error(`❌ Socket error for user ${socket.userId}:`, error.message);
     });
   });
 
+  // Return io instance for use in other parts of the app
   return io;
 };
 
-export const getIo = () => io;
+export default initializeSocket;

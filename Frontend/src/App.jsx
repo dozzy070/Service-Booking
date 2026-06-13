@@ -1,5 +1,5 @@
 // src/App.jsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
@@ -23,7 +23,6 @@ import ServiceDetail from './pages/ServiceDetail';
 import Settings from './pages/Settings';
 import Solutions from './pages/Solutions';
 
-
 // Dashboard Pages
 import CustomerDashboard from './pages/Dashboard/CustomerDashboard';
 import ProviderDashboard from './pages/Dashboard/ProviderDashboard';
@@ -42,7 +41,6 @@ import Wallet from './pages/Wallet';
 import BookingHistory from './pages/BookingHistory';
 import HelpCenter from './pages/HelpCenter';
 import CustomerSettings from './pages/CustomerSettings';
-
 
 // Payment Pages
 import PaymentMethods from './pages/PaymentMethods';
@@ -70,10 +68,38 @@ import Unauthorized from './pages/Unauthorized';
 
 // Context
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { SocketProvider } from './context/SocketContext';
+import { SocketProvider, useSocket } from './context/SocketContext';
 
-// ================= APP CONTENT =================
-// In App.jsx – add this before App component
+// WebSocket Status Component
+const WebSocketStatus = () => {
+  const { isConnected, onlineUsers } = useSocket();
+  
+  // Don't show on login/register pages
+  const location = useLocation();
+  if (location.pathname === '/login' || location.pathname === '/register') {
+    return null;
+  }
+  
+  return (
+    <div className="fixed bottom-4 right-4 z-50">
+      <div className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 ${
+        isConnected 
+          ? 'bg-green-500 text-white' 
+          : 'bg-red-500 text-white'
+      }`}>
+        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-white animate-pulse' : 'bg-red-200'}`} />
+        <span>{isConnected ? 'Connected' : 'Reconnecting...'}</span>
+        {isConnected && onlineUsers.length > 0 && (
+          <span className="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-xs">
+            {onlineUsers.length}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Token initialization helper
 const initializeToken = () => {
   let token = localStorage.getItem('token');
   if (token && (token.includes('Bearer ') || token.includes(' '))) {
@@ -82,24 +108,43 @@ const initializeToken = () => {
     console.log('🧹 Token cleaned automatically');
   }
 };
-initializeToken();
-function AppContent() {
-  const { user } = useAuth();
-  const location = useLocation();
 
+// Call token initialization
+initializeToken();
+
+function AppContent() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
   const pathname = location.pathname;
 
   // Determine if navbar/footer should be hidden
-  const shouldHideNavbarFooter = React.useMemo(() => {
-    // Show footer only on home page
-    return pathname !== '/';
+  const shouldShowNavbarFooter = React.useMemo(() => {
+    // Hide navbar/footer on admin, provider, customer dashboards and auth pages
+    const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
+    const dashboardPaths = ['/admin', '/provider', '/customer'];
+    
+    if (hiddenPaths.includes(pathname)) return false;
+    if (dashboardPaths.some(path => pathname.startsWith(path))) return false;
+    return true;
   }, [pathname]);
 
-  const shouldShowNavbarFooter = !shouldHideNavbarFooter;
+  // Loading state
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center min-vh-100">
+        <div className="text-center">
+          <div className="spinner-border text-primary mb-3" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="text-muted">Loading your experience...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="d-flex flex-column min-vh-100">
-      {/* Navbar */}
+      {/* Navbar - only show on public pages */}
       {shouldShowNavbarFooter && <Navbar />}
 
       <div className="flex-grow-1">
@@ -233,11 +278,6 @@ function AppContent() {
               <CustomerLayout><PaymentCancel /></CustomerLayout>
             </ProtectedRoute>
           } />
-          <Route path="/customer/settings" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><CustomerSettings /></CustomerLayout>
-            </ProtectedRoute>
-          } />
 
           {/* ========== PROVIDER ROUTES ========== */}
           <Route path="/provider/dashboard" element={
@@ -266,7 +306,7 @@ function AppContent() {
             </ProtectedRoute>
           } />
           <Route path="/provider/bookings/:id" element={
-            <ProtectedRoute allowedRoles={['provider']}>
+            <ProtectedRoute allowedRoles={'provider'}>
               <ProviderLayout><Bookings /></ProviderLayout>
             </ProtectedRoute>
           } />
@@ -330,7 +370,6 @@ function AppContent() {
               <ProviderLayout><PaymentCancel /></ProviderLayout>
             </ProtectedRoute>
           } />
-
 
           {/* ========== ADMIN ROUTES ========== */}
           <Route path="/admin/dashboard" element={
@@ -413,10 +452,13 @@ function AppContent() {
         </Routes>
       </div>
 
-      {/* Footer */}
+      {/* Footer - only show on public pages */}
       {shouldShowNavbarFooter && <Footer />}
 
-      {/* Toast */}
+      {/* WebSocket Status Indicator */}
+      <WebSocketStatus />
+
+      {/* Toast Notifications */}
       <Toaster
         position="top-right"
         toastOptions={{
@@ -428,9 +470,14 @@ function AppContent() {
           },
           success: {
             iconTheme: { primary: '#10b981', secondary: '#fff' },
+            duration: 3000,
           },
           error: {
             iconTheme: { primary: '#ef4444', secondary: '#fff' },
+            duration: 4000,
+          },
+          loading: {
+            duration: 2000,
           },
         }}
       />
@@ -441,7 +488,7 @@ function AppContent() {
 // ================= MAIN APP =================
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
         <SocketProvider>
           <AppContent />
