@@ -113,7 +113,7 @@ app.use(cors({
   maxAge: 86400 // 24 hours
 }));
 
-// Session middleware for passport
+// Session middleware for passport - FIXED for production
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
   resave: false,
@@ -124,7 +124,8 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   },
-  name: 'sessionId'
+  name: 'sessionId',
+  proxy: true, // Added for Render deployment
 }));
 
 // Passport middleware
@@ -134,7 +135,8 @@ app.use(passport.session());
 // Security middleware
 app.use(helmet({ 
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  contentSecurityPolicy: false // Allows better CORS handling
 }));
 
 // Logging
@@ -154,6 +156,7 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/health' || req.path === '/' // Skip rate limiting for health checks
 });
 
 // Apply rate limiting to API routes
@@ -169,9 +172,11 @@ app.get('/', (req, res) => {
     name: 'Service Booking API',
     status: 'online',
     version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
+    environment: process.env.NODE_ENV || 'production',
     frontend: process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app',
+    backend: process.env.VITE_API_URL || 'https://service-booking-3l1j.onrender.com',
     timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
     endpoints: {
       api: '/api',
       health: '/health',
@@ -186,9 +191,11 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
+    environment: process.env.NODE_ENV || 'production',
     database: 'connected',
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    version: '1.0.0'
   });
 });
 
@@ -199,7 +206,8 @@ app.get('/api/db-status', async (req, res) => {
     res.json({ 
       connected: true, 
       time: result.rows[0],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
     });
   } catch (err) {
     console.error('Database connection error:', err.message);
@@ -216,8 +224,9 @@ app.get('/api/info', (req, res) => {
   res.json({
     name: 'Service Booking API',
     version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
-    frontendUrl: process.env.FRONTEND_URL,
+    environment: process.env.NODE_ENV || 'production',
+    frontendUrl: process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app',
+    backendUrl: process.env.VITE_API_URL || 'https://service-booking-3l1j.onrender.com',
     endpoints: {
       auth: '/api/auth',
       services: '/api/services',
@@ -306,17 +315,19 @@ const startServer = async () => {
     // Start HTTP server
     httpServer.listen(PORT, () => {
       console.log(`
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║   🚀 Server is running!                                 ║
-║                                                          ║
-║   📡 Port: ${PORT}                                          ║
-║   🌍 Environment: ${process.env.NODE_ENV || 'development'}                    ║
-║   🔗 API URL: https://service-booking-3l1j.onrender.com/api                    ║
-║   ❤️  Health: https://service-booking-3l1j.onrender.com/health                 ║
-║   🎨 Frontend: ${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}                    ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   🚀 Server is running!                                             ║
+║                                                                      ║
+║   📡 Port: ${PORT}                                                      ║
+║   🌍 Environment: ${process.env.NODE_ENV || 'production'}                                ║
+║   🔗 API URL: https://service-booking-3l1j.onrender.com/api          ║
+║   ❤️  Health: https://service-booking-3l1j.onrender.com/health       ║
+║   🎨 Frontend: ${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}              ║
+║   💾 Database: PostgreSQL (Connected)                                ║
+║   🔌 WebSocket: Ready                                                ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
       `);
     });
   } catch (error) {
