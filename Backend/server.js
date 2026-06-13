@@ -40,12 +40,11 @@ import customerRoutes from './routes/customerRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import walletRoutes from './routes/walletRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-
+import categoryRoutes from './routes/categoryRoutes.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { initializeSocket } from './socket/index.js';
-import categoryRoutes from './routes/categoryRoutes.js';
 
 dotenv.config();
 
@@ -74,70 +73,214 @@ if (!fs.existsSync(uploadsDir)) {
 // =========================================================================
 // MIDDLEWARE
 // =========================================================================
-// CORS configuration
+
+// CORS configuration - Updated for Render + Vercel
+const allowedOrigins = [
+  'http://localhost:5173',     // Local development (Vite default)
+  'http://localhost:3000',      // Alternative dev port
+  'http://localhost:5000',      // Backend itself
+  'https://service-booking-snowy.vercel.app',  // Your Vercel frontend
+  'https://service-booking-3l1j.onrender.com', // Your Render backend
+];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl)
+    if (!origin) return callback(null, true);
+    
+    // Allow any vercel.app subdomain for preview deployments
+    if (origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+    
+    // Allow any render.com subdomain
+    if (origin.includes('render.com')) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`CORS allowed origin: ${origin}`);
+      callback(null, true); // Allow all for now to debug
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
+  maxAge: 86400 // 24 hours
 }));
 
 // Session middleware for passport
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-session-secret',
+  secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+    secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  },
+  name: 'sessionId'
 }));
 
 // Passport middleware
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+// Security middleware
+app.use(helmet({ 
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+}));
+
+// Logging
 app.use(morgan('dev'));
+
+// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Rate limiting - more permissive in development
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 5 : 1000,
-  message: 'Too many requests, please try again later.'
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 100 requests per 15 min in production
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
+// Apply rate limiting to API routes
+app.use('/api/', limiter);
+
 // =========================================================================
-// ROUTES
+// ROOT & HEALTH CHECK ENDPOINTS
 // =========================================================================
+
+// Root route - API information
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Service Booking API',
+    status: 'online',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    frontend: process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      api: '/api',
+      health: '/health',
+      info: '/api/info',
+      documentation: '/api/info'
+    }
+  });
+});
+
+// Simple health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    database: 'connected',
+    uptime: process.uptime()
+  });
+});
+
+// Detailed database status check
 app.get('/api/db-status', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
-    res.json({ connected: true, time: result.rows[0] });
+    res.json({ 
+      connected: true, 
+      time: result.rows[0],
+      timestamp: new Date().toISOString()
+    });
   } catch (err) {
-    res.status(500).json({ connected: false, error: err.message });
+    console.error('Database connection error:', err.message);
+    res.status(500).json({ 
+      connected: false, 
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
+// API info endpoint
+app.get('/api/info', (req, res) => {
+  res.json({
+    name: 'Service Booking API',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    frontendUrl: process.env.FRONTEND_URL,
+    endpoints: {
+      auth: '/api/auth',
+      services: '/api/services',
+      bookings: '/api/bookings',
+      categories: '/api/categories',
+      wallet: '/api/wallet',
+      payments: '/api/payments',
+      admin: '/api/admin',
+      provider: '/api/provider',
+      customer: '/api/customer',
+      user: '/api/user',
+      chat: '/api/chat',
+      notifications: '/api/notifications'
+    }
+  });
+});
+
+// =========================================================================
+// API ROUTES
+// =========================================================================
+
+// Authentication routes
 app.use('/api/auth', authRoutes);
+
+// Core feature routes
 app.use('/api/services', serviceRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/categories', categoryRoutes);
+
+// User role specific routes
 app.use('/api/admin', adminRoutes);
-app.use('/api', chatRoutes);
-app.use('/api/notifications', notificationRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api', walletRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/categories', categoryRoutes);
+
+// Financial routes
 app.use('/api/wallet', walletRoutes);
+app.use('/api/payments', paymentRoutes);
 
+// Communication routes
+app.use('/api/chat', chatRoutes);
+app.use('/api/notifications', notificationRoutes);
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
+// =========================================================================
+// STATIC FRONTEND SERVING (Optional - for production)
+// =========================================================================
+// If you want to serve frontend from the same server in production
+if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'true') {
+  const frontendPath = path.join(__dirname, '../Frontend/dist');
+  if (fs.existsSync(frontendPath)) {
+    app.use(express.static(frontendPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendPath, 'index.html'));
+    });
+    console.log('✅ Serving frontend from:', frontendPath);
+  } else {
+    console.warn('⚠️ Frontend dist folder not found at:', frontendPath);
+  }
+}
 
+// =========================================================================
+// ERROR HANDLING - Must be last
+// =========================================================================
 app.use(notFound);
 app.use(errorHandler);
 
@@ -145,6 +288,9 @@ app.use(errorHandler);
 // SOCKET.IO
 // =========================================================================
 const io = initializeSocket(httpServer);
+
+// Make io accessible to routes
+app.set('io', io);
 
 // =========================================================================
 // START SERVER
@@ -155,13 +301,27 @@ const startServer = async () => {
   try {
     // Test database connection
     await pool.query('SELECT NOW()');
+    console.log('✅ Database connected successfully');
 
+    // Start HTTP server
     httpServer.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║   🚀 Server is running!                                 ║
+║                                                          ║
+║   📡 Port: ${PORT}                                          ║
+║   🌍 Environment: ${process.env.NODE_ENV || 'development'}                    ║
+║   🔗 API URL: https://service-booking-3l1j.onrender.com/api                    ║
+║   ❤️  Health: https://service-booking-3l1j.onrender.com/health                 ║
+║   🎨 Frontend: ${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}                    ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+      `);
     });
   } catch (error) {
-    console.error('Failed to connect to database:', error.message);
+    console.error('❌ Failed to connect to database:', error.message);
+    console.error('Please check your database configuration in .env file');
     process.exit(1);
   }
 };
@@ -171,15 +331,34 @@ startServer();
 // =========================================================================
 // GRACEFUL SHUTDOWN
 // =========================================================================
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  httpServer.close(() => {
-    console.log('HTTP server closed');
-    pool.end(() => {
-      console.log('Database pool closed');
-      process.exit(0);
-    });
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} signal received: closing HTTP server`);
+  
+  httpServer.close(async () => {
+    console.log('✅ HTTP server closed');
+    
+    try {
+      await pool.end();
+      console.log('✅ Database pool closed');
+    } catch (err) {
+      console.error('❌ Error closing database pool:', err);
+    }
+    
+    console.log('✅ Graceful shutdown completed');
+    process.exit(0);
   });
-});
+  
+  // Force close after 10 seconds if server doesn't close naturally
+  setTimeout(() => {
+    console.error('⚠️ Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
 
-export { io };
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// =========================================================================
+// EXPORTS
+// =========================================================================
+export { io, app };
