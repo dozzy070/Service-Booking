@@ -6,16 +6,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Split vendor libraries into separate chunks
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-ui': ['@mui/material', '@emotion/react', '@emotion/styled'],
-          'vendor-charts': ['recharts', 'chart.js'],
-          'vendor-utils': ['axios', 'date-fns', 'lodash']
+        // Split node_modules into per-package chunks to reduce large single bundles
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            const parts = id.toString().split('node_modules/')[1].split('/');
+            // handle scoped packages like @mui/material
+            if (parts[0].startsWith('@')) return `${parts[0]}/${parts[1]}`;
+            return parts[0];
+          }
         }
       }
     },
-    // Increase warning limit (optional)
-    chunkSizeWarningLimit: 1000
+    // Raise warning limit slightly while chunks get rebalanced
+    chunkSizeWarningLimit: 2000
   }
 })

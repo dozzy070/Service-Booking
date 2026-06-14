@@ -27,6 +27,8 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import passport from 'passport';
 import session from 'express-session';
+import connectRedis from 'connect-redis';
+import IORedis from 'ioredis';
 
 import pool from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
@@ -124,7 +126,15 @@ app.use(cors({
 }));
 
 // Session middleware for passport - FIXED for production
+// Use Redis for session storage in production to avoid MemoryStore
+const RedisStore = connectRedis(session);
+const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST || 'redis://127.0.0.1:6379';
+const redisClient = new IORedis(redisUrl);
+
+redisClient.on('error', (err) => console.error('Redis error:', err));
+
 app.use(session({
+  store: new RedisStore({ client: redisClient, prefix: 'sess:' }),
   secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
   resave: false,
   saveUninitialized: false,

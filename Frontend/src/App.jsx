@@ -48,14 +48,14 @@ import PaymentSuccess from './pages/PaymentSuccess';
 import PaymentCancel from './pages/PaymentCancel';
 import PaymentPage from './pages/PaymentPage';
 
-// Admin Pages
-import UserManagement from './pages/admin/UserManagement';
-import ServiceManagement from './pages/admin/ServiceManagement';
-import AdminBookings from './pages/admin/AdminBookings';
-import AdminCategories from './pages/admin/AdminCategories';
-import Analytics from './pages/admin/Analytics';
-import AdminPayments from './pages/admin/AdminPayments';
-import AdminReports from './pages/admin/AdminReports';
+// Admin Pages (lazy-loaded to reduce initial bundle size)
+const UserManagement = React.lazy(() => import('./pages/admin/UserManagement'));
+const ServiceManagement = React.lazy(() => import('./pages/admin/ServiceManagement'));
+const AdminBookings = React.lazy(() => import('./pages/admin/AdminBookings'));
+const AdminCategories = React.lazy(() => import('./pages/admin/AdminCategories'));
+const Analytics = React.lazy(() => import('./pages/admin/Analytics'));
+const AdminPayments = React.lazy(() => import('./pages/admin/AdminPayments'));
+const AdminReports = React.lazy(() => import('./pages/admin/AdminReports'));
 
 // Info Pages
 import FAQ from './pages/FAQ';
@@ -374,57 +374,79 @@ function AppContent() {
           {/* ========== ADMIN ROUTES ========== */}
           <Route path="/admin/dashboard" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminDashboard /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminDashboard /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/users" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><UserManagement /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><UserManagement /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/users/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><UserManagement /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><UserManagement /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/services" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><ServiceManagement /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><ServiceManagement /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/services/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><ServiceManagement /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><ServiceManagement /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/bookings" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminBookings /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminBookings /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/bookings/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminBookings /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminBookings /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/categories" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminCategories /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminCategories /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/analytics" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><Analytics /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><Analytics /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/payments" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminPayments /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminPayments /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/reports" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><AdminReports /></AdminLayout>
+                <React.Suspense fallback={<div>Loading admin…</div>}>
+                  <AdminLayout><AdminReports /></AdminLayout>
+                </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/settings" element={

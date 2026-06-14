@@ -55,7 +55,6 @@ import {
   FaFileExcel,
   FaFileAlt
 } from 'react-icons/fa';
-import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -426,6 +425,7 @@ const Analytics = () => {
   };
 
   const exportToExcel = () => {
+    // XLSX removed for security reasons; export as CSV instead
     const wsData = [
       ['Analytics Report', '', ''],
       [`Generated: ${new Date().toLocaleString()}`, '', ''],
@@ -449,11 +449,9 @@ const Analytics = () => {
       ['Service', 'Category', 'Bookings', 'Rating', 'Revenue'],
       ...performance.topServices.map(s => [s.title, s.category, s.bookings, s.rating, s.revenue])
     ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Analytics Report');
-    XLSX.writeFile(wb, `analytics-report-${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast('Excel exported', 'success');
+    // fallback to CSV export for security
+    exportToCSV();
+    showToast('Excel export replaced by CSV for security', 'warning');
   };
 
   const exportToCSV = () => {

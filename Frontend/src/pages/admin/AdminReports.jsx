@@ -53,7 +53,6 @@ import {
   FaThumbsDown,
   FaCalendarAlt
 } from 'react-icons/fa';
-import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -460,11 +459,19 @@ const Analytics = () => {
       ['Service', 'Category', 'Bookings', 'Rating', 'Revenue'],
       ...performance.topServices.map(s => [s.title, s.category, s.bookings, s.rating, s.revenue])
     ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Analytics Report');
-    XLSX.writeFile(wb, `analytics-report-${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast('Excel exported', 'success');
+    // XLSX removed for security; fallback to CSV export
+    const csvRows = [
+      ['Metric', 'Value'].join(','),
+      ...wsData.filter(r => Array.isArray(r)).map(r => r.join(','))
+    ];
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Excel export replaced by CSV for security', 'warning');
   };
 
   const exportToCSV = () => {

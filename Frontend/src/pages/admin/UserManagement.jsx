@@ -376,34 +376,9 @@ const UserManagement = () => {
   };
 
   const exportToExcel = () => {
-    try {
-      import('xlsx').then(XLSX => {
-        const wsData = [
-          ['User Management Report', '', '', '', '', '', ''],
-          [`Generated: ${new Date().toLocaleString()}`, '', '', '', '', '', ''],
-          [`Total Users: ${filteredUsers.length}`, '', '', '', '', '', ''],
-          ['', '', '', '', '', '', ''],
-          ['User List', '', '', '', '', '', ''],
-          ['ID', 'Name', 'Email', 'Role', 'Status', 'Verified', 'Joined', 'Last Active', 'Bookings', 'Revenue', 'Rating'],
-          ...filteredUsers.map(user => [
-            user.id, user.name, user.email, user.role, user.status, user.verified ? 'Yes' : 'No',
-            user.joined, user.lastActive, user.bookings || 0,
-            user.role === 'provider' ? `₦${user.revenue || 0}` : `₦${user.spent || 0}`,
-            user.rating || 0
-          ])
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Users');
-        XLSX.writeFile(wb, `users_export_${new Date().toISOString().split('T')[0]}.xlsx`);
-        showAlert('success', 'Users exported to Excel successfully');
-      }).catch(err => {
-        console.error('Failed to load xlsx:', err);
-        showAlert('danger', 'Excel export requires xlsx package. Please install it with: npm install xlsx');
-      });
-    } catch (error) {
-      showAlert('danger', 'Excel export failed. Please install xlsx package.');
-    }
+    // XLSX removed for security reasons; export CSV instead
+    exportToCSV();
+    showAlert('warning', 'Excel export replaced by CSV for security');
   };
 
   const exportToPDF = () => {
