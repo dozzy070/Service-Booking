@@ -127,7 +127,7 @@ app.use(cors({
 
 // Session middleware for passport - FIXED for production
 // Use Redis for session storage in production to avoid MemoryStore
-const RedisStore = connectRedis(session);
+const RedisStore = connectRedis;
 const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST || 'redis://127.0.0.1:6379';
 const redisClient = new IORedis(redisUrl);
 

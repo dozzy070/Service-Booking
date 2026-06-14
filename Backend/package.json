@@ -16,6 +16,7 @@
     "bull": "^4.16.5",
     "cloudinary": "^2.9.0",
     "compression": "^1.8.1",
+    "connect-redis": "^7.1.1",
     "cors": "^2.8.6",
     "crypto": "^1.0.1",
     "dotenv": "^17.3.1",
@@ -36,7 +37,6 @@
     "pg": "^8.20.0",
     "redis": "^5.11.0",
     "socket.io": "^4.8.3",
-    "connect-redis": "^7.1.0",
     "uuid": "^13.0.0",
     "winston": "^3.19.0"
   }
