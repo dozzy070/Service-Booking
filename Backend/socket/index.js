@@ -14,28 +14,73 @@ export const initializeSocket = (httpServer) => {
           'http://localhost:3000',
           'http://localhost:5000',
           'https://service-booking-snowy.vercel.app',
-          'https://service-booking-3l1j.onrender.com'
+          'https://service-booking-3l1j.onrender.com',
+          'https://service-booking-1-g46o.onrender.com' // Add deployed backend URL
         ];
         
-        if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app') || origin.includes('render.com')) {
-          callback(null, true);
-        } else {
-          console.log('Socket CORS blocked origin:', origin);
-          callback(null, true); // Allow all for debugging
+        // Log origin information for debugging
+        console.log('🔌 Socket.IO CORS check for origin:', origin);
+        
+        // Allow if no origin (mobile apps, curl)
+        if (!origin) {
+          console.log('✅ Socket.IO: Allowing request with no origin');
+          return callback(null, true);
         }
+        
+        // Allow vercel.app subdomains
+        if (origin.includes('vercel.app')) {
+          console.log('✅ Socket.IO: Allowing Vercel origin:', origin);
+          return callback(null, true);
+        }
+        
+        // Allow render.com subdomains
+        if (origin.includes('render.com')) {
+          console.log('✅ Socket.IO: Allowing Render origin:', origin);
+          return callback(null, true);
+        }
+        
+        // Check explicit list
+        if (allowedOrigins.includes(origin)) {
+          console.log('✅ Socket.IO: Allowing whitelisted origin:', origin);
+          return callback(null, true);
+        }
+        
+        // Allow all for debugging (remove in production if needed)
+        console.log('⚠️ Socket.IO: Allowing non-whitelisted origin (debug mode):', origin);
+        callback(null, true);
       },
       credentials: true,
-      methods: ['GET', 'POST']
+      methods: ['GET', 'POST'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      maxAge: 86400
     },
     transports: ['websocket', 'polling'],
     allowEIO3: true,
     pingTimeout: 60000,
-    pingInterval: 25000
+    pingInterval: 25000,
+    serveClient: true,
+    path: '/socket.io/',
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 10,
+    // Add better error handling
+    retries: 10,
+    connectTimeout: 10000
   });
 
   // Authentication middleware
   io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
+    
+    console.log('🔌 Socket.IO authentication attempt:', {
+      socketId: socket.id,
+      hasToken: !!token,
+      handshake: {
+        origin: socket.handshake.headers.origin,
+        userAgent: socket.handshake.headers['user-agent']?.substring(0, 50)
+      }
+    });
     
     if (!token) {
       console.log('⚠️ Socket connection attempt without token');
@@ -49,13 +94,35 @@ export const initializeSocket = (httpServer) => {
       console.log(`✅ Socket authenticated for user: ${socket.userId} (${socket.userRole})`);
       next();
     } catch (err) {
-      console.error('❌ Socket authentication error:', err.message);
-      next(new Error('Invalid token'));
+      console.error('❌ Socket authentication error:', {
+        error: err.message,
+        errorType: err.name,
+        socketId: socket.id
+      });
+      next(new Error('Invalid or expired token'));
+    }
+  });
+
+  // Error handling middleware
+  io.use((socket, next) => {
+    try {
+      next();
+    } catch (err) {
+      console.error('❌ Socket.IO error:', {
+        socketId: socket.id,
+        error: err.message
+      });
+      next(err);
     }
   });
 
   io.on('connection', (socket) => {
-    console.log(`🟢 New client connected: ${socket.id} (User: ${socket.userId})`);
+    console.log(`🟢 New client connected: ${socket.id} (User: ${socket.userId})`, {
+      transport: socket.conn.transport.name,
+      handshake: {
+        origin: socket.handshake.headers.origin,
+      }
+    });
     
     // Add user to online users
     onlineUsersMap.set(socket.userId, {

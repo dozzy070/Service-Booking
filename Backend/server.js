@@ -80,36 +80,46 @@ const allowedOrigins = [
   'http://localhost:3000',      // Alternative dev port
   'http://localhost:5000',      // Backend itself
   'https://service-booking-snowy.vercel.app',  // Your Vercel frontend
-  'https://service-booking-3l1j.onrender.com', // Your Render backend
+  'https://service-booking-3l1j.onrender.com', // Render instance 1
+  'https://service-booking-1-g46o.onrender.com' // Render instance 2
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl)
-    if (!origin) return callback(null, true);
+    // Log origin for debugging
+    console.log('🌐 CORS request from origin:', origin || 'no-origin');
+    
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin) {
+      console.log('✅ CORS: Allowing request with no origin');
+      return callback(null, true);
+    }
     
     // Allow any vercel.app subdomain for preview deployments
     if (origin.includes('vercel.app')) {
+      console.log('✅ CORS: Allowing Vercel origin');
       return callback(null, true);
     }
     
     // Allow any render.com subdomain
     if (origin.includes('render.com')) {
+      console.log('✅ CORS: Allowing Render origin');
       return callback(null, true);
     }
     
-    // Check if origin is allowed
+    // Check if origin is in whitelist
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS: Allowing whitelisted origin');
       callback(null, true);
     } else {
-      console.log(`CORS allowed origin: ${origin}`);
-      callback(null, true); // Allow all for now to debug
+      console.warn(`⚠️ CORS: Request from non-whitelisted origin (allowing for debugging): ${origin}`);
+      callback(null, true); // Allow all for debugging - consider restricting in production
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Content-Length', 'X-Request-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-CSRF-Token'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id', 'X-Total-Count'],
   maxAge: 86400 // 24 hours
 }));
 

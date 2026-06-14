@@ -1,11 +1,31 @@
 import axios from 'axios';
 
-// Get API URL from environment variables or use default
-const API_URL = import.meta.env.VITE_API_URL || 'https://service-booking-3l1j.onrender.com';
+// Get API URL from environment variables or use fallback options
+const getAPIUrl = () => {
+  // Priority 1: Environment variable
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // Priority 2: Current host (same origin for production)
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return window.location.origin;
+  }
+  
+  // Priority 3: Local development
+  return 'http://localhost:5000';
+};
+
+const API_URL = getAPIUrl();
 
 // Log the API URL in development for debugging
 if (import.meta.env.DEV) {
   console.log('🔧 API URL:', API_URL);
+  console.log('🔧 Environment:', {
+    dev: import.meta.env.DEV,
+    prod: import.meta.env.PROD,
+    mode: import.meta.env.MODE
+  });
 }
 
 const api = axios.create({

@@ -197,7 +197,7 @@ const Wallet = () => {
   const handleWithdrawAmountSubmit = () => {
     const amount = parseFloat(withdrawAmount);
     if (!withdrawAmount || isNaN(amount) || amount < walletData.minWithdrawal) {
-      toast.error(`Minimum withdrawal amount is $${walletData.minWithdrawal}`);
+      toast.error(`Minimum withdrawal amount is ₦${walletData.minWithdrawal}`);
       return;
     }
     if (amount > walletData.balance) {
@@ -205,11 +205,11 @@ const Wallet = () => {
       return;
     }
     if (amount > walletData.maxWithdrawal) {
-      toast.error(`Maximum withdrawal amount is $${walletData.maxWithdrawal}`);
+      toast.error(`Maximum withdrawal amount is ₦${walletData.maxWithdrawal}`);
       return;
     }
     if (amount > walletData.dailyWithdrawalLimit) {
-      toast.error(`Daily withdrawal limit is $${walletData.dailyWithdrawalLimit}`);
+      toast.error(`Daily withdrawal limit is ₦${walletData.dailyWithdrawalLimit}`);
       return;
     }
     setWithdrawStep(2);
@@ -230,7 +230,7 @@ const Wallet = () => {
       setWithdrawTransactionId(res.data.transactionId);
       await fetchWalletData();
       await fetchTransactions();
-      toast.success(`Withdrawal request for $${withdrawAmount} submitted!`);
+      toast.success(`Withdrawal request for ₦${withdrawAmount} submitted!`);
       setWithdrawStep(4);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Withdrawal failed');
@@ -271,7 +271,7 @@ const Wallet = () => {
       await fetchRedeemHistory();
       if (selectedReward.type === 'cash') {
         await fetchTransactions();
-        toast.success(`$${selectedReward.value} added to your wallet!`);
+        toast.success(`₦${selectedReward.value} added to your wallet!`);
       } else {
         toast.success(`${selectedReward.name} redeemed successfully!`);
       }
@@ -297,7 +297,7 @@ const Wallet = () => {
 
   // Helper functions
   const formatCurrency = (amount) => {
-    return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `₦${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const getStatusBadge = (status) => {
@@ -584,14 +584,14 @@ const Wallet = () => {
               <Row className="justify-content-center mb-4">
                 <Col md={8}>
                   <InputGroup size="lg">
-                    <InputGroup.Text>$</InputGroup.Text>
+                    <InputGroup.Text>₦</InputGroup.Text>
                     <Form.Control type="number" placeholder="Enter amount" value={addFundsAmount} onChange={(e) => setAddFundsAmount(e.target.value)} min="10" max="10000" step="10" autoFocus />
                   </InputGroup>
-                  <div className="d-flex justify-content-between mt-2"><small className="text-muted">Minimum: $10</small><small className="text-muted">Maximum: $10,000</small></div>
+                  <div className="d-flex justify-content-between mt-2"><small className="text-muted">Minimum: ₦10</small><small className="text-muted">Maximum: ₦10,000</small></div>
                 </Col>
               </Row>
               <Row className="g-2 mb-4">
-                {[20, 50, 100, 200, 500].map(amount => (<Col key={amount}><Button variant="outline-primary" className="w-100" onClick={() => setAddFundsAmount(amount.toString())}>${amount}</Button></Col>))}
+                {[20, 50, 100, 200, 500].map(amount => (<Col key={amount}><Button variant="outline-primary" className="w-100" onClick={() => setAddFundsAmount(amount.toString())}>₦{amount}</Button></Col>))}
               </Row>
               <div className="bg-light p-3 rounded">
                 <div className="d-flex justify-content-between mb-2"><span>Amount to add:</span><span className="fw-bold">{formatCurrency(parseFloat(addFundsAmount) || 0)}</span></div>
@@ -629,7 +629,7 @@ const Wallet = () => {
           {withdrawStep === 1 && (
             <div>
               <h5 className="text-center mb-4">How much would you like to withdraw?</h5>
-              <Row className="justify-content-center mb-4"><Col md={8}><InputGroup size="lg"><InputGroup.Text>$</InputGroup.Text><Form.Control type="number" placeholder="Enter amount" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} min={walletData.minWithdrawal} max={Math.min(walletData.balance, walletData.maxWithdrawal)} step="10" autoFocus /></InputGroup><div className="d-flex justify-content-between mt-2"><small className="text-muted">Min: ${walletData.minWithdrawal}</small><small className="text-muted">Max: ${Math.min(walletData.balance, walletData.maxWithdrawal)}</small></div></Col></Row>
+              <Row className="justify-content-center mb-4"><Col md={8}><InputGroup size="lg"><InputGroup.Text>₦</InputGroup.Text><Form.Control type="number" placeholder="Enter amount" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} min={walletData.minWithdrawal} max={Math.min(walletData.balance, walletData.maxWithdrawal)} step="10" autoFocus /></InputGroup><div className="d-flex justify-content-between mt-2"><small className="text-muted">Min: ₦{walletData.minWithdrawal}</small><small className="text-muted">Max: ₦{Math.min(walletData.balance, walletData.maxWithdrawal)}</small></div></Col></Row>
               <Row className="g-2 mb-4">{/* amount buttons */}</Row>
               <div className="bg-light p-3 rounded"><div className="d-flex justify-content-between mb-2"><span>Available balance:</span><span className="fw-bold">{formatCurrency(walletData.balance)}</span></div><div className="d-flex justify-content-between mb-2"><span>Amount to withdraw:</span><span className="fw-bold">{formatCurrency(parseFloat(withdrawAmount) || 0)}</span></div><div className="d-flex justify-content-between text-warning"><span>Remaining balance:</span><span className="fw-bold">{formatCurrency(walletData.balance - (parseFloat(withdrawAmount) || 0))}</span></div></div>
             </div>
@@ -659,8 +659,8 @@ const Wallet = () => {
               <div className="bg-light p-4 rounded mb-4">
                 <h6 className="mb-3">Withdrawal Summary</h6>
                 <div className="d-flex justify-content-between mb-2"><span className="text-muted">Amount:</span><span className="fw-bold">{formatCurrency(parseFloat(withdrawAmount))}</span></div>
-                {selectedWithdrawMethod.type === 'paypal' && (<div className="d-flex justify-content-between mb-2"><span className="text-muted">Fee (2.9% + $0.30):</span><span className="text-danger">-${(parseFloat(withdrawAmount) * 0.029 + 0.30).toFixed(2)}</span></div>)}
-                {selectedWithdrawMethod.type === 'card' && (<div className="d-flex justify-content-between mb-2"><span className="text-muted">Fee (fixed):</span><span className="text-danger">-$1.00</span></div>)}
+                {selectedWithdrawMethod.type === 'paypal' && (<div className="d-flex justify-content-between mb-2"><span className="text-muted">Fee (2.9% + ₦0.30):</span><span className="text-danger">-₦{(parseFloat(withdrawAmount) * 0.029 + 0.30).toFixed(2)}</span></div>)}
+                {selectedWithdrawMethod.type === 'card' && (<div className="d-flex justify-content-between mb-2"><span className="text-muted">Fee (fixed):</span><span className="text-danger">-₦1.00</span></div>)}
                 <div className="d-flex justify-content-between mb-3 pt-2 border-top"><span className="fw-semibold">You'll receive:</span><span className="fw-bold text-success">{formatCurrency(parseFloat(withdrawAmount) - (selectedWithdrawMethod.type === 'paypal' ? parseFloat(withdrawAmount) * 0.029 + 0.30 : selectedWithdrawMethod.type === 'card' ? 1.00 : 0))}</span></div>
                 <hr />
                 <h6 className="mb-3">Withdrawal Method</h6>
@@ -708,7 +708,7 @@ const Wallet = () => {
           )}
           {redeemStep === 3 && selectedReward && (
             <div className="text-center"><div className="success-animation mb-4"><FaCheckCircle size={80} className="text-success" /></div><h4 className="mb-3">Redemption Successful!</h4><p className="text-muted mb-4">Your reward has been added to your account.</p>
-            {selectedReward.type === 'cash' ? (<Alert variant="success"><h6 className="mb-0">${selectedReward.value} has been added to your wallet balance!</h6></Alert>) : (<div className="bg-light p-4 rounded mb-3"><p className="mb-2">Your reward code:</p><div className="d-flex gap-2"><code className="bg-white p-3 rounded flex-grow-1 text-center fs-5">{redeemCode}</code><Button variant="primary" onClick={handleCopyCode}>Copy</Button></div><p className="text-muted small mt-2">Use this code when booking or contact support to apply your reward.</p></div>)}
+            {selectedReward.type === 'cash' ? (<Alert variant="success"><h6 className="mb-0">₦{selectedReward.value} has been added to your wallet balance!</h6></Alert>) : (<div className="bg-light p-4 rounded mb-3"><p className="mb-2">Your reward code:</p><div className="d-flex gap-2"><code className="bg-white p-3 rounded flex-grow-1 text-center fs-5">{redeemCode}</code><Button variant="primary" onClick={handleCopyCode}>Copy</Button></div><p className="text-muted small mt-2">Use this code when booking or contact support to apply your reward.</p></div>)}
             <div className="mt-3"><Button variant="primary" onClick={handleCloseRedeemModal} className="me-2">Done</Button><Button variant="outline-primary" onClick={() => { setRedeemStep(1); setSelectedReward(null); }}>Redeem Another</Button></div></div>
           )}
         </Modal.Body>

@@ -10,24 +10,40 @@ const transporter = nodemailer.createTransport({
   },
   tls: {
     rejectUnauthorized: false // For development
+  },
+  pool: {
+    maxConnections: 1,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 10
+  },
+  connectionTimeout: 5000, // 5 seconds
+  socketTimeout: 5000 // 5 seconds
+});
+
+// Verify connection (non-blocking)
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('⚠️ SMTP Connection Warning:', error.message);
+    console.log('💡 Tip: Set SKIP_EMAILS=true in .env to skip email sending during development');
+  } else {
+    console.log('✅ SMTP Server is ready to send emails');
   }
 });
 
-// Verify connection
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('SMTP Connection Error:', error);
-  } else {
-    console.log('SMTP Server is ready to send emails');
-  }
-});
+// Check if emails should be skipped
+const shouldSkipEmails = () => {
+  return process.env.SKIP_EMAILS === 'true' || 
+         process.env.NODE_ENV === 'development' && process.env.SKIP_EMAILS !== 'false';
+};
 
 export const sendEmail = async (to, subject, html) => {
   try {
-    // Skip email sending in development if SMTP is not working
-    if (process.env.NODE_ENV === 'development' && process.env.SKIP_EMAILS === 'true') {
-      console.log('📧 Email sending skipped in development mode');
-      console.log(`📧 Would send to: ${to}, Subject: ${subject}`);
+    // Skip email sending if configured
+    if (shouldSkipEmails()) {
+      console.log('📧 Email sending skipped (SKIP_EMAILS=true)');
+      console.log(`   To: ${to}`);
+      console.log(`   Subject: ${subject}`);
       return { success: true, skipped: true };
     }
 
@@ -46,7 +62,8 @@ export const sendEmail = async (to, subject, html) => {
 
     // In development, don't fail - just log
     if (process.env.NODE_ENV === 'development') {
-      console.log('📧 Email sending failed, but continuing in development mode');
+      console.log('📧 Email sending failed in development, continuing...');
+      console.log('   💡 To enable emails, ensure SMTP credentials are set and SKIP_EMAILS=false');
       return { success: false, error: error.message, development: true };
     }
 

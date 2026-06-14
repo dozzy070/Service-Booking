@@ -388,7 +388,7 @@ const UserManagement = () => {
           ...filteredUsers.map(user => [
             user.id, user.name, user.email, user.role, user.status, user.verified ? 'Yes' : 'No',
             user.joined, user.lastActive, user.bookings || 0,
-            user.role === 'provider' ? `$${user.revenue || 0}` : `$${user.spent || 0}`,
+            user.role === 'provider' ? `₦${user.revenue || 0}` : `₦${user.spent || 0}`,
             user.rating || 0
           ])
         ];
@@ -575,7 +575,7 @@ const UserManagement = () => {
                 </div>
                 <div className="d-flex justify-content-between">
                   <span className="fw-semibold">{users.filter(u => u.role === 'customer').reduce((sum, u) => sum + (u.bookings || 0), 0)}</span>
-                  <span className="fw-semibold">${users.filter(u => u.role === 'customer').reduce((sum, u) => sum + (u.spent || 0), 0).toLocaleString()}</span>
+                  <span className="fw-semibold">₦{users.filter(u => u.role === 'customer').reduce((sum, u) => sum + (u.spent || 0), 0).toLocaleString()}</span>
                 </div>
               </div>
             </Card.Body>
@@ -595,7 +595,7 @@ const UserManagement = () => {
                 </div>
                 <div className="d-flex justify-content-between">
                   <span className="fw-semibold">{users.filter(u => u.role === 'provider').reduce((sum, u) => sum + (u.services || 0), 0)}</span>
-                  <span className="fw-semibold">${users.filter(u => u.role === 'provider').reduce((sum, u) => sum + (u.revenue || 0), 0).toLocaleString()}</span>
+                  <span className="fw-semibold">₦{users.filter(u => u.role === 'provider').reduce((sum, u) => sum + (u.revenue || 0), 0).toLocaleString()}</span>
                 </div>
               </div>
             </Card.Body>
@@ -790,7 +790,7 @@ const UserManagement = () => {
               </div>
               <Row className="mb-4">
                 <Col md={6}><Card className="border-0 bg-light"><Card.Body><h6 className="mb-3">Personal Information</h6><div className="mb-2"><FaEnvelope className="text-muted me-2" /><strong>Email:</strong> {selectedUser.email}</div><div className="mb-2"><FaPhone className="text-muted me-2" /><strong>Phone:</strong> {selectedUser.phone || 'Not provided'}</div><div className="mb-2"><FaMapMarkerAlt className="text-muted me-2" /><strong>Location:</strong> {selectedUser.location || 'Not provided'}</div><div className="mb-2"><FaCalendarAlt className="text-muted me-2" /><strong>Joined:</strong> {new Date(selectedUser.joined).toLocaleDateString()}</div><div><FaClock className="text-muted me-2" /><strong>Last Active:</strong> {new Date(selectedUser.lastActive).toLocaleDateString()}</div></Card.Body></Card></Col>
-                <Col md={6}><Card className="border-0 bg-light"><Card.Body><h6 className="mb-3">Activity Statistics</h6><div className="mb-2"><FaChartLine className="text-muted me-2" /><strong>Total Bookings:</strong> {selectedUser.bookings || 0}</div><div className="mb-2"><FaMoneyBillWave className="text-muted me-2" /><strong>Total Spent/Revenue:</strong> ${selectedUser.spent || selectedUser.revenue || 0}</div><div className="mb-2"><FaStar className="text-muted me-2" /><strong>Rating:</strong> {getRatingStars(selectedUser.rating)}</div><div className="mb-2"><FaRegComment className="text-muted me-2" /><strong>Reviews:</strong> {selectedUser.reviews || 0}</div>{selectedUser.role === 'provider' && <div><FaServicestack className="text-muted me-2" /><strong>Services Offered:</strong> {selectedUser.services || 0}</div>}</Card.Body></Card></Col>
+                <Col md={6}><Card className="border-0 bg-light"><Card.Body><h6 className="mb-3">Activity Statistics</h6><div className="mb-2"><FaChartLine className="text-muted me-2" /><strong>Total Bookings:</strong> {selectedUser.bookings || 0}</div><div className="mb-2"><FaMoneyBillWave className="text-muted me-2" /><strong>Total Spent/Revenue:</strong> ₦{selectedUser.spent || selectedUser.revenue || 0}</div><div className="mb-2"><FaStar className="text-muted me-2" /><strong>Rating:</strong> {getRatingStars(selectedUser.rating)}</div><div className="mb-2"><FaRegComment className="text-muted me-2" /><strong>Reviews:</strong> {selectedUser.reviews || 0}</div>{selectedUser.role === 'provider' && <div><FaServicestack className="text-muted me-2" /><strong>Services Offered:</strong> {selectedUser.services || 0}</div>}</Card.Body></Card></Col>
               </Row>
             </>
           )}

@@ -23,11 +23,23 @@ export const SocketProvider = ({ children }) => {
   const socketRef = useRef(null);
   const { user, token } = useAuth();
 
-  // Get socket URL from environment
+  // Get socket URL from environment with fallbacks
   const getSocketUrl = () => {
-    const url = import.meta.env.VITE_API_URL || 'https://service-booking-3l1j.onrender.com';
-    console.log('🔌 Socket URL:', url);
-    return url;
+    // Priority 1: Environment variable
+    if (import.meta.env.VITE_API_URL) {
+      console.log('🔌 Using VITE_API_URL:', import.meta.env.VITE_API_URL);
+      return import.meta.env.VITE_API_URL;
+    }
+    
+    // Priority 2: Same origin for production
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+      console.log('🔌 Using window.location.origin:', window.location.origin);
+      return window.location.origin;
+    }
+    
+    // Priority 3: Local development
+    console.log('🔌 Using localhost:5000');
+    return 'http://localhost:5000';
   };
 
   // Connect to socket
@@ -47,16 +59,23 @@ export const SocketProvider = ({ children }) => {
     
     const socketUrl = getSocketUrl();
     
-    // Create socket connection
+    // Create socket connection with improved options
     const newSocket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
       withCredentials: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
       timeout: 20000,
-      query: { userId: user.id }
+      query: { userId: user.id },
+      path: '/socket.io/',
+      forceNew: false,
+      multiplex: true,
+      // Add better error handling
+      secure: true,
+      rejectUnauthorized: false // Allow self-signed certs in development
     });
 
     socketRef.current = newSocket;
@@ -64,7 +83,11 @@ export const SocketProvider = ({ children }) => {
 
     // Connection events
     newSocket.on('connect', () => {
-      console.log('✅ Socket.IO connected successfully');
+      console.log('✅ Socket.IO connected successfully', {
+        socketId: newSocket.id,
+        url: socketUrl,
+        transport: newSocket.io.engine.transport.name
+      });
       setIsConnected(true);
       
       // Join user's room
@@ -73,23 +96,52 @@ export const SocketProvider = ({ children }) => {
     });
 
     newSocket.on('connect_error', (error) => {
-      console.error('❌ Socket.IO connection error:', error.message);
+      console.error('❌ Socket.IO connection error:', {
+        message: error.message,
+        code: error.code,
+        type: error.type,
+        socketUrl: socketUrl
+      });
+      setIsConnected(false);
+    });
+
+    newSocket.on('connect_timeout', () => {
+      console.warn('⏱️ Socket.IO connection timeout');
+      setIsConnected(false);
+    });
+
+    newSocket.on('error', (error) => {
+      console.error('❌ Socket.IO error:', error);
       setIsConnected(false);
     });
 
     newSocket.on('disconnect', (reason) => {
-      console.log('🔌 Socket.IO disconnected:', reason);
+      console.log('🔌 Socket.IO disconnected:', {
+        reason: reason,
+        willReconnect: newSocket.active
+      });
       setIsConnected(false);
       
       if (reason === 'io server disconnect') {
-        // Reconnect manually
-        newSocket.connect();
+        // Server disconnected us, reconnect manually
+        console.log('🔄 Manually reconnecting after server disconnect');
+        setTimeout(() => newSocket.connect(), 1000);
       }
     });
 
     newSocket.on('reconnect', (attemptNumber) => {
       console.log(`🔄 Socket.IO reconnected after ${attemptNumber} attempts`);
       setIsConnected(true);
+      // Re-join user's room after reconnect
+      newSocket.emit('join-user', user.id);
+    });
+
+    newSocket.on('reconnect_attempt', () => {
+      console.log('🔄 Socket.IO reconnection attempt...');
+    });
+
+    newSocket.on('reconnect_error', (error) => {
+      console.error('❌ Socket.IO reconnection error:', error.message);
     });
 
     // Listen for online users
@@ -115,8 +167,12 @@ export const SocketProvider = ({ children }) => {
         console.log('🔌 Cleaning up socket connection');
         newSocket.off('connect');
         newSocket.off('connect_error');
+        newSocket.off('connect_timeout');
+        newSocket.off('error');
         newSocket.off('disconnect');
         newSocket.off('reconnect');
+        newSocket.off('reconnect_attempt');
+        newSocket.off('reconnect_error');
         newSocket.off('online-users');
         newSocket.off('new-message');
         newSocket.off('new-notification');

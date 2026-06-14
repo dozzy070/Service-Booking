@@ -27,6 +27,7 @@ import {
 
 import { useAuth } from '../../context/AuthContext';
 import { getAvatarUrl, handleImageError } from '../../utils/imageUtils';
+import api from '../../api';
 import toast from 'react-hot-toast';
 
 const CustomerLayout = ({ children }) => {
@@ -86,31 +87,28 @@ const CustomerLayout = ({ children }) => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('/api/notifications', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Ensure data is an array (if backend returns { notifications: [...] } or similar, extract it)
-        let notificationsArray = [];
-        if (Array.isArray(data)) {
-          notificationsArray = data;
-        } else if (data && Array.isArray(data.notifications)) {
-          notificationsArray = data.notifications;
-        } else if (data && Array.isArray(data.data)) {
-          notificationsArray = data.data;
-        } else {
-          notificationsArray = [];
-        }
-        setNotifications(notificationsArray);
-      } else if (response.status === 401) {
-        console.warn('Unauthorized – user may need to re-login');
+      // Use the api module instead of fetch for proper base URL
+      const response = await api.get('/notifications');
+      const data = response.data;
+      
+      // Ensure data is an array (if backend returns { notifications: [...] } or similar, extract it)
+      let notificationsArray = [];
+      if (Array.isArray(data)) {
+        notificationsArray = data;
+      } else if (data && Array.isArray(data.notifications)) {
+        notificationsArray = data.notifications;
+      } else if (data && Array.isArray(data.data)) {
+        notificationsArray = data.data;
+      } else {
+        notificationsArray = [];
       }
+      setNotifications(notificationsArray);
     } catch (error) {
-      console.error('Failed to fetch notifications:', error);
+      if (error.response && error.response.status === 401) {
+        console.warn('Unauthorized – user may need to re-login');
+      } else {
+        console.error('Failed to fetch notifications:', error.message);
+      }
     }
   };
 

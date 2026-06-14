@@ -417,7 +417,7 @@ const Payment = () => {
         <table>
           <thead><tr><th>ID</th><th>Date</th><th>Customer</th><th>Provider</th><th>Amount</th><th>Status</th></tr></thead>
           <tbody>
-            ${filteredTransactions.map(tx => `<tr><td>${tx.id}</td><td>${tx.date}</td><td>${tx.customer}</td><td>${tx.provider}</td><td>$${tx.amount}</td><td>${tx.status}</td></tr>`).join('')}
+            ${filteredTransactions.map(tx => `<tr><td>${tx.id}</td><td>${tx.date}</td><td>${tx.customer}</td><td>${tx.provider}</td><td>₦${tx.amount}</td><td>${tx.status}</td></tr>`).join('')}
           </tbody>
         </table>
       </body>
@@ -429,7 +429,7 @@ const Payment = () => {
     showToast('Print job started', 'info');
   };
 
-  const formatCurrency = (amount) => `$${parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const formatCurrency = (amount) => `₦${parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   const formatNumber = (num) => (num || 0).toLocaleString();
 
   const getStatusBadge = (status) => {

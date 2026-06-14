@@ -50,7 +50,7 @@ import logo from '../assets/smart service logo.png';
 import heroImage from '../assets/smart 2.png';
 
 const formatCurrency = (amount) => {
-  return `$${amount}`;
+  return `₦${amount}`;
 };
 
 // ----- Mock Adverts (4 ads) -----
@@ -80,7 +80,7 @@ const mockAdverts = [
     id: 'ad3',
     isAd: true,
     title: '🎁 Refer a Friend',
-    description: 'Earn $50 credit for every friend who books a service!',
+    description: 'Earn ₦50 credit for every friend who books a service!',
     buttonText: 'Invite Now',
     buttonLink: '#',
     bgColor: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
@@ -924,10 +924,10 @@ const Home = () => {
       {/* 3. Referral Modal (Social Share) */}
       <Modal show={showReferralModal} onHide={() => setShowReferralModal(false)} centered className="professional-modal">
         <Modal.Header closeButton className="border-0">
-          <Modal.Title className="fw-bold"><FaGift className="text-warning me-2" /> Refer a Friend, Earn $50</Modal.Title>
+          <Modal.Title className="fw-bold"><FaGift className="text-warning me-2" /> Refer a Friend, Earn ₦50</Modal.Title>
         </Modal.Header>
         <Modal.Body className="text-center">
-          <p className="lead">Share Smart Services with your friends and earn <strong className="text-success">$50 credit</strong> for every friend who books a service!</p>
+          <p className="lead">Share Smart Services with your friends and earn <strong className="text-success">₦50 credit</strong> for every friend who books a service!</p>
           <div className="d-flex justify-content-center flex-wrap gap-3 my-4">
             <Button variant="primary" onClick={shareOnFacebook} style={{ backgroundColor: '#1877f2' }} className="rounded-pill px-4 py-2">
               <FaFacebook className="me-2" /> Facebook

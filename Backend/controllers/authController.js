@@ -84,20 +84,24 @@ export const login = async (req, res) => {
 
     console.log(`✅ Login successful for: ${email}`);
 
-    // Send login notification email
-    try {
-      await sendLoginNotificationEmail(user);
-      console.log('✅ Login notification email sent to:', user.email);
-    } catch (emailError) {
-      console.error('⚠️ Failed to send login notification email:', emailError.message);
-      // Don't fail login if email fails
-    }
-
     res.json({
       ...userResponse,
       token,
       refreshToken
     });
+
+    // Send login notification email in the background (non-blocking)
+    // This way the login response is immediate and not delayed by email sending
+    setTimeout(() => {
+      sendLoginNotificationEmail(user)
+        .then(() => {
+          console.log('✅ Login notification email sent to:', user.email);
+        })
+        .catch((emailError) => {
+          console.error('⚠️ Failed to send login notification email:', emailError.message);
+          // Silently fail - don't let email issues affect user experience
+        });
+    }, 100); // Small delay to ensure response is sent first
 
   } catch (error) {
     console.error('❌ Login error:', error.message);

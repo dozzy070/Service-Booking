@@ -289,7 +289,7 @@ const AdminBookings = () => {
     return <Badge bg={badge.bg} className="d-flex align-items-center gap-1 py-1 px-2 rounded-pill">{badge.icon}<small>{badge.label}</small></Badge>;
   };
 
-  const formatCurrency = (amount) => `$${amount?.toLocaleString() || 0}`;
+  const formatCurrency = (amount) => `₦${amount?.toLocaleString() || 0}`;
 
   return (
     <Container fluid className="bookings-container py-4" style={{ maxWidth: 1600, margin: '0 auto' }}>
