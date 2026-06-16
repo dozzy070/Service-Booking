@@ -15,8 +15,8 @@ import {
 } from 'react-bootstrap';
 import {
   Wallet,
-  TrendingUp,
-  TrendingDown,
+  FaArrowTrendUp,
+  FaArrowTrendDown,
   Banknote,
   Download,
   Send,
@@ -30,6 +30,7 @@ import {
   ArrowDownRight,
   History
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, subDays } from 'date-fns';

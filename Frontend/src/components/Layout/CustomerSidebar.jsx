@@ -29,7 +29,7 @@ import {
   Sun,
   Wallet,
   DollarSign,
-  TrendingUp,
+  FaArrowTrendUp,
   Award,
   Shield,
   MapPin,
@@ -41,6 +41,7 @@ import {
   Users,
   Zap
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { customerAPI, notificationAPI } from '../../api/api';

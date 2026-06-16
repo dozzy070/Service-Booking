@@ -25,7 +25,7 @@ import {
   ChevronRight,
   CheckCircle,
   XCircle,
-  TrendingUp,
+  FaArrowTrendUp,
   Award,
   HelpCircle,
   Moon,
@@ -41,6 +41,7 @@ import {
   Heart,
   Zap
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { providerAPI, notificationAPI } from '../../api/api';

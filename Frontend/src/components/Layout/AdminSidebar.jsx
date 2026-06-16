@@ -25,7 +25,7 @@ import {
   Sun,
   UserCircle,
   DollarSign,
-  TrendingUp,
+  FaArrowTrendUp,
   Award,
   Shield,
   Activity,
@@ -44,6 +44,7 @@ import {
   Menu,
   X
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { adminAPI, notificationAPI } from '../../api/api';

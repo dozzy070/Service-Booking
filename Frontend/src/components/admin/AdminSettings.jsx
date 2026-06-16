@@ -8,6 +8,7 @@ import {
   Cloud, CloudUpload, CloudDownload, Zap, ShieldCheck,
   Wifi, WifiOff, Monitor, Smartphone, Tablet
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import toast from 'react-hot-toast';

@@ -27,7 +27,7 @@ import {
   Power,
   PowerOff,
   Star,
-  TrendingUp,
+  FaArrowTrendUp,
   Users,
   Calendar,
   Image,
@@ -41,6 +41,7 @@ import {
   Download,
   BarChart2
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';

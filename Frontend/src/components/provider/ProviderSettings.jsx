@@ -35,6 +35,7 @@ import {
   Building2,
   LogOut
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI, authAPI } from '../../api/api';
 import toast from 'react-hot-toast';

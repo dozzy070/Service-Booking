@@ -6,6 +6,7 @@ import {
   DollarSign, MapPin, CheckCircle, XCircle, Clock as ClockIcon,
   PhoneCall, VideoIcon, Mic, MicOff, Volume2, VolumeX
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { chatAPI } from '../../api/api';

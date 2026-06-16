@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Row, Col, Card, Button, Form, Table, Badge, Alert, Spinner, Dropdown, Modal, Tabs, Tab } from 'react-bootstrap';
 import { 
   FileText, Download, Calendar, DollarSign, Users, ShoppingCart, 
-  TrendingUp, PieChart, BarChart3, Printer, Share2, Mail, 
+  FaArrowTrendUp, PieChart, BarChart3, Printer, Share2, Mail, 
   Clock, CheckCircle, XCircle, AlertCircle, RefreshCw,
   Filter, Search, Eye, Edit, Trash2, Plus, Minus,
   ChevronDown, ChevronRight, ChevronLeft, ArrowUp, ArrowDown,
@@ -11,6 +11,7 @@ import {
   Globe, MapPin, Phone, Mail as MailIcon, MessageSquare,
   Link, ExternalLink, Copy, Save, Settings
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';

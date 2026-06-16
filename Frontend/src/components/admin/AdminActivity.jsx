@@ -12,6 +12,7 @@ import {
   Star, MessageSquare, Bell, Edit, Trash2, Copy, Link, ExternalLink,
   Flag, Award, Medal, Crown, Gem, Gift, Heart, Zap, Flame
 } from 'lucide-react';
+import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, isToday, isYesterday } from 'date-fns';
