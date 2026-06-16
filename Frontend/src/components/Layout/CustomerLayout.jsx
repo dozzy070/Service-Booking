@@ -1,9 +1,8 @@
 // src/components/Layout/CustomerLayout.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Image, Badge } from 'react-bootstrap';
+import { Image, Badge, Spinner } from 'react-bootstrap';
 import {
-  // Core Icons
   FaBars, FaTimes, FaBell, FaSignOutAlt,
   FaTachometerAlt, FaCalendarCheck, FaUser, FaCog,
   FaComments, FaHeart, FaStar,
@@ -13,25 +12,22 @@ import {
   FaExclamationCircle, FaRocket, FaShieldAlt,
   FaMapMarkerAlt, FaEnvelope, FaPhone, FaGlobe,
   FaShoppingBag, FaHistory, FaQuestionCircle,
-  FaFileAlt, FaBookmark,
-
-  // Achievement Icons
-  FaCrown,
-
-  // Additional Icons
-  FaMoon, FaSun, FaLanguage, FaPalette,
-  FaMoneyBillWave,
-  FaStore, FaTags,
-  FaUserTie, FaUserCircle
+  FaFileAlt, FaBookmark, FaCrown,
+  FaMoon, FaSun, FaMoneyBillWave,
+  FaStore, FaTags, FaUserTie, FaUserCircle,
+  FaClock, FaCheckCircle, FaTimesCircle
 } from 'react-icons/fa';
 
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
+import { customerAPI, notificationAPI } from '../../api/api';
 import { getAvatarUrl, handleImageError } from '../../utils/imageUtils';
-import api from '../../api';
+import { formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 
 const CustomerLayout = ({ children }) => {
   const { user, logout } = useAuth();
+  const { isConnected, unreadMessages } = useSocket();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -42,13 +38,107 @@ const CustomerLayout = ({ children }) => {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('customer_theme');
+    return saved || 'light';
+  });
 
-  // Real-time notifications state (always array)
+  // Real-time notifications state
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  
+  // Dynamic badge counts
+  const [upcomingBookingsCount, setUpcomingBookingsCount] = useState(0);
+  const [savedServicesCount, setSavedServicesCount] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(0);
 
   const notificationRef = useRef();
   const profileRef = useRef();
+
+  // Format currency to NGN
+  const formatNaira = (amount) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+  };
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    setLoadingNotifications(true);
+    try {
+      const response = await notificationAPI.getNotifications({ limit: 10 });
+      setNotifications(response.data || []);
+      setUnreadCount(response.data?.filter(n => !n.is_read).length || 0);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }, []);
+
+  // Fetch upcoming bookings count
+  const fetchUpcomingBookings = useCallback(async () => {
+    try {
+      const response = await customerAPI.getUpcomingBookings();
+      setUpcomingBookingsCount(response.data?.length || 0);
+    } catch (error) {
+      console.error('Error fetching upcoming bookings:', error);
+    }
+  }, []);
+
+  // Fetch saved services count
+  const fetchSavedServices = useCallback(async () => {
+    try {
+      const response = await customerAPI.getFavorites();
+      setSavedServicesCount(response.data?.length || 0);
+    } catch (error) {
+      console.error('Error fetching saved services:', error);
+    }
+  }, []);
+
+  // Fetch wallet balance
+  const fetchWalletBalance = useCallback(async () => {
+    try {
+      const response = await customerAPI.getWallet();
+      setWalletBalance(response.data?.balance || 0);
+    } catch (error) {
+      console.error('Error fetching wallet balance:', error);
+    }
+  }, []);
+
+  // Mark notification as read
+  const markAsRead = async (notificationId) => {
+    try {
+      await notificationAPI.markAsRead(notificationId);
+      setNotifications(prev =>
+        prev.map(n =>
+          n.id === notificationId ? { ...n, is_read: true } : n
+        )
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  // Mark all as read
+  const markAllAsRead = async () => {
+    try {
+      await notificationAPI.markAllAsRead();
+      setNotifications(prev =>
+        prev.map(n => ({ ...n, is_read: true }))
+      );
+      setUnreadCount(0);
+      toast.success('All notifications marked as read');
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      toast.error('Failed to mark notifications as read');
+    }
+  };
 
   // Handle click outside
   useEffect(() => {
@@ -79,46 +169,26 @@ const CustomerLayout = ({ children }) => {
   // Handle theme
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('customer_theme', theme);
   }, [theme]);
 
-  // Fetch real notifications from API with authentication
-  const fetchNotifications = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      // Use the api module instead of fetch for proper base URL
-      const response = await api.get('/notifications');
-      const data = response.data;
-      
-      // Ensure data is an array (if backend returns { notifications: [...] } or similar, extract it)
-      let notificationsArray = [];
-      if (Array.isArray(data)) {
-        notificationsArray = data;
-      } else if (data && Array.isArray(data.notifications)) {
-        notificationsArray = data.notifications;
-      } else if (data && Array.isArray(data.data)) {
-        notificationsArray = data.data;
-      } else {
-        notificationsArray = [];
-      }
-      setNotifications(notificationsArray);
-    } catch (error) {
-      if (error.response && error.response.status === 401) {
-        console.warn('Unauthorized – user may need to re-login');
-      } else {
-        console.error('Failed to fetch notifications:', error.message);
-      }
-    }
-  };
-
-  // Polling only (WebSocket removed to avoid errors)
+  // Load data
   useEffect(() => {
-    // Initial fetch
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    fetchUpcomingBookings();
+    fetchSavedServices();
+    fetchWalletBalance();
+
+    // Poll every 30 seconds
+    const interval = setInterval(() => {
+      fetchNotifications();
+      fetchUpcomingBookings();
+      fetchSavedServices();
+      fetchWalletBalance();
+    }, 30000);
+
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchNotifications, fetchUpcomingBookings, fetchSavedServices, fetchWalletBalance]);
 
   const handleLogout = () => {
     logout();
@@ -137,47 +207,67 @@ const CustomerLayout = ({ children }) => {
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      navigate(`/services?search=${searchQuery}`);
+      navigate(`/services?search=${encodeURIComponent(searchQuery)}`);
       setSearchOpen(false);
       setSearchQuery('');
     }
   };
 
   const isActive = (path) => {
-    return location.pathname === path;
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Get notification icon based on type
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case 'booking':
+        return <FaCalendarCheck className="text-success" />;
+      case 'payment':
+        return <FaMoneyBillWave className="text-info" />;
+      case 'review':
+        return <FaStar className="text-warning" />;
+      case 'promotion':
+        return <FaGift className="text-pink" />;
+      case 'reminder':
+        return <FaClock className="text-primary" />;
+      default:
+        return <FaBell className="text-secondary" />;
+    }
+  };
 
-  // ✅ MAIN NAVIGATION ITEMS ONLY - NO SUBMENUS
+  // Navigation items with dynamic badges
   const navItems = [
     {
       path: '/customer/dashboard',
       label: 'Dashboard',
       icon: <FaTachometerAlt />,
       description: 'Overview & activity',
-      color: '#6366f1'
+      color: '#6366f1',
+      badge: null
     },
     {
       path: '/customer/bookings',
       label: 'Bookings',
       icon: <FaCalendarCheck />,
       description: 'Manage your bookings',
-      color: '#10b981'
+      color: '#10b981',
+      badge: upcomingBookingsCount > 0 ? upcomingBookingsCount : null
     },
     {
       path: '/customer/favorites',
       label: 'Favorites',
       icon: <FaHeart />,
       description: 'Saved services',
-      color: '#ef4444'
+      color: '#ef4444',
+      badge: savedServicesCount > 0 ? savedServicesCount : null
     },
     {
       path: '/customer/reviews',
       label: 'Reviews',
       icon: <FaStar />,
       description: 'Your feedback',
-      color: '#f59e0b'
+      color: '#f59e0b',
+      badge: null
     },
     {
       path: '/customer/chat',
@@ -185,47 +275,57 @@ const CustomerLayout = ({ children }) => {
       icon: <FaComments />,
       description: 'Chat with providers',
       color: '#8b5cf6',
-      badge: 2  // Unread count
+      badge: unreadMessages > 0 ? unreadMessages : null
     },
     {
       path: '/customer/wallet',
       label: 'Wallet',
       icon: <FaWallet />,
-      description: 'Balance & points',
-      color: '#14b8a6'
+      description: `Balance: ${formatNaira(walletBalance)}`,
+      color: '#14b8a6',
+      badge: null
     },
     {
       path: '/customer/payment-methods',
       label: 'Payment Methods',
       icon: <FaCreditCard />,
-      description: 'Manage your payment methods',
-      color: '#f97316'
+      description: 'Manage payment methods',
+      color: '#f97316',
+      badge: null
     },
     {
       path: '/customer/profile',
       label: 'Profile',
       icon: <FaUser />,
       description: 'Manage account',
-      color: '#6b7280'
+      color: '#6b7280',
+      badge: null
     },
     {
       path: '/customer/settings',
       label: 'Settings',
       icon: <FaCog />,
       description: 'Preferences',
-      color: '#4b5563'
+      color: '#4b5563',
+      badge: null
     },
     {
       path: '/customer/help',
       label: 'Help Center',
       icon: <FaQuestionCircle />,
       description: 'Support & FAQs',
-      color: '#9ca3af'
+      color: '#9ca3af',
+      badge: null
     }
   ];
 
-  // Customer tier for display
-  const membershipTier = 'Gold';
+  // Get membership tier based on spending
+  const getMembershipTier = () => {
+    // This could be dynamic based on total spending
+    return 'Gold';
+  };
+
+  const membershipTier = getMembershipTier();
 
   return (
     <div className={`customer-layout theme-${theme}`}>
@@ -248,30 +348,36 @@ const CustomerLayout = ({ children }) => {
           </button>
         </div>
 
-        {/* User Profile - Now directly below header */}
+        {/* User Profile */}
         <div className="sidebar-profile">
           <div className="profile-avatar-wrapper">
             <Image
               src={user?.avatar || getAvatarUrl(user?.name || 'Customer', 80)}
-              alt={user?.name}
+              alt={user?.name || 'Customer'}
               className="profile-avatar"
               roundedCircle
               onError={(e) => handleImageError(e, getAvatarUrl(user?.name || 'Customer', 80))}
             />
-            <span className="status online"></span>
+            <span className={`status ${isConnected ? 'online' : 'offline'}`}></span>
           </div>
 
           {!collapsed && (
             <div className="profile-info">
-              <h5 className="profile-name">{user?.name || 'Customer'}</h5>
+              <h5 className="profile-name">{user?.name?.split(' ')[0] || 'Customer'}</h5>
               <Badge bg="warning" text="dark" className="profile-tier">
                 <FaCrown className="me-1" size={10} /> {membershipTier} Member
               </Badge>
+              <div className="profile-stats">
+                <small className="text-muted d-block">
+                  <FaWallet className="me-1" size={10} />
+                  {formatNaira(walletBalance)}
+                </small>
+              </div>
             </div>
           )}
         </div>
 
-        {/* NAVIGATION - MAIN ITEMS ONLY WITH INCREASED SPACING */}
+        {/* Navigation */}
         <nav className="sidebar-nav">
           {navItems.map((item) => (
             <Link
@@ -289,6 +395,13 @@ const CustomerLayout = ({ children }) => {
                   <span className="nav-label">{item.label}</span>
                   <span className="nav-description">{item.description}</span>
                 </div>
+              )}
+
+              {item.badge && !collapsed && (
+                <span className="nav-badge">{item.badge}</span>
+              )}
+              {item.badge && collapsed && (
+                <span className="nav-badge-collapsed">{item.badge}</span>
               )}
             </Link>
           ))}
@@ -332,6 +445,12 @@ const CustomerLayout = ({ children }) => {
           </div>
 
           <div className="topbar-right">
+            {/* Connection Status */}
+            <div className="connection-status">
+              <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`}></span>
+              <span className="status-text">{isConnected ? 'Live' : 'Offline'}</span>
+            </div>
+
             {/* Search Toggle (Mobile) */}
             <button
               className="search-toggle d-lg-none"
@@ -364,85 +483,93 @@ const CustomerLayout = ({ children }) => {
                 <div className="notification-dropdown">
                   <div className="notification-header">
                     <h6>Notifications</h6>
-                    <span>{unreadCount} new</span>
+                    {unreadCount > 0 && (
+                      <button onClick={markAllAsRead} className="mark-read-btn">
+                        Mark all read
+                      </button>
+                    )}
                   </div>
 
                   <div className="notification-list">
-                    {notifications.length === 0 ? (
+                    {loadingNotifications ? (
+                      <div className="text-center py-3">
+                        <Spinner animation="border" size="sm" />
+                      </div>
+                    ) : notifications.length === 0 ? (
                       <div className="notification-item text-center">
-                        <p className="text-muted">No notifications yet</p>
+                        <FaBell size={32} className="text-muted mb-2 opacity-50" />
+                        <p className="text-muted small mb-0">No notifications yet</p>
                       </div>
                     ) : (
-                      notifications.map(notification => (
+                      notifications.slice(0, 5).map(notification => (
                         <div
                           key={notification.id}
-                          className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                          className={`notification-item ${!notification.is_read ? 'unread' : ''}`}
+                          onClick={() => markAsRead(notification.id)}
                         >
                           <div className="notification-icon">
-                            {notification.icon ? (
-                              <span dangerouslySetInnerHTML={{ __html: notification.icon }} />
-                            ) : (
-                              <FaBell />
-                            )}
+                            {getNotificationIcon(notification.type)}
                           </div>
                           <div className="notification-content">
                             <p className="notification-message">{notification.message}</p>
-                            <span className="notification-time">{notification.time}</span>
+                            <span className="notification-time">
+                              {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                            </span>
                           </div>
                         </div>
                       ))
                     )}
                   </div>
 
-                  <div className="notification-footer">
-                    <Link to="/customer/notifications">View all notifications</Link>
-                  </div>
+                  {notifications.length > 0 && (
+                    <div className="notification-footer">
+                      <Link to="/customer/notifications">View all notifications</Link>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* User Menu */}
-            <div className="user-menu-wrapper" ref={profileRef}>
+            {/* Profile Menu */}
+            <div className="profile-menu-wrapper" ref={profileRef}>
               <button
-                className="user-btn"
+                className="profile-btn"
                 onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               >
                 <Image
                   src={user?.avatar || getAvatarUrl(user?.name || 'Customer', 40)}
-                  alt={user?.name}
+                  alt={user?.name || 'Customer'}
+                  className="profile-avatar-small"
                   roundedCircle
-                  className="user-avatar"
                   onError={(e) => handleImageError(e, getAvatarUrl(user?.name || 'Customer', 40))}
                 />
-                <div className="user-info">
-                  <span className="user-name">{user?.name || 'Customer'}</span>
-                  <span className="user-role">
-                    <FaCrown className="text-warning" size={10} /> {membershipTier}
-                  </span>
+                <div className="profile-info-small">
+                  <span className="profile-name-small">{user?.name?.split(' ')[0] || 'Customer'}</span>
+                  <span className="profile-role">Customer</span>
                 </div>
               </button>
 
               {profileMenuOpen && (
-                <div className="user-dropdown">
+                <div className="profile-dropdown">
                   <div className="dropdown-header">
                     <Image
                       src={user?.avatar || getAvatarUrl(user?.name || 'Customer', 60)}
-                      alt={user?.name}
-                      roundedCircle
+                      alt={user?.name || 'Customer'}
                       className="dropdown-avatar"
+                      roundedCircle
                     />
                     <div>
                       <h6>{user?.name || 'Customer'}</h6>
-                      <small>{user?.email || 'customer@example.com'}</small>
+                      <small>{user?.email || 'customer@servicehub.com'}</small>
                     </div>
                   </div>
-
-                  <div className="dropdown-menu">
+                  <div className="dropdown-divider"></div>
+                  <div className="dropdown-menu-items">
                     <Link to="/customer/profile" onClick={() => setProfileMenuOpen(false)}>
                       <FaUser /> Profile
                     </Link>
                     <Link to="/customer/wallet" onClick={() => setProfileMenuOpen(false)}>
-                      <FaWallet /> Wallet
+                      <FaWallet /> Wallet: {formatNaira(walletBalance)}
                     </Link>
                     <Link to="/customer/settings" onClick={() => setProfileMenuOpen(false)}>
                       <FaCog /> Settings
@@ -459,6 +586,12 @@ const CustomerLayout = ({ children }) => {
                 </div>
               )}
             </div>
+
+            {/* Book Service Button */}
+            <Link to="/services" className="book-btn">
+              <FaSearch />
+              <span>Book Service</span>
+            </Link>
           </div>
         </header>
 
@@ -491,870 +624,223 @@ const CustomerLayout = ({ children }) => {
         <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />
       )}
 
-      {/* STYLES */}
+      {/* Global Styles */}
       <style jsx="true">{`
-        /* ========== CSS Variables ========== */
-        :root {
-          --primary: #6366f1;
-          --primary-dark: #4f46e5;
-          --primary-light: #818cf8;
-          --success: #10b981;
-          --warning: #f59e0b;
-          --danger: #ef4444;
-          --dark: #1e293b;
-          --darker: #0f172a;
-          --light: #f8fafc;
-          --lighter: #ffffff;
-          --border: #e2e8f0;
-          --text: #334155;
-          --text-light: #64748b;
-          --text-lighter: #94a3b8;
-          --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
-          --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
-          --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.1);
-          --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        /* Dark Theme */
-        .theme-dark {
-          --dark: #f8fafc;
-          --darker: #ffffff;
-          --light: #1e293b;
-          --lighter: #0f172a;
-          --border: #334155;
-          --text: #e2e8f0;
-          --text-light: #94a3b8;
-          --text-lighter: #64748b;
-        }
-
-        /* ========== Layout ========== */
         .customer-layout {
           display: flex;
           min-height: 100vh;
-          background-color: var(--light);
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: var(--bg-primary);
         }
 
-        /* ========== Sidebar ========== */
+        /* Sidebar */
         .sidebar {
-          width: 300px;
-          background: linear-gradient(180deg, var(--darker) 0%, var(--dark) 100%);
-          color: #fff;
           position: fixed;
           top: 0;
           left: 0;
-          bottom: 0;
+          width: 280px;
+          height: 100vh;
+          background: var(--sidebar-bg);
+          border-right: 1px solid var(--border-color);
+          transition: transform 0.3s ease, width 0.3s ease;
           z-index: 1000;
-          transition: var(--transition);
           display: flex;
           flex-direction: column;
-          box-shadow: 4px 0 20px rgba(0,0,0,0.15);
-          overflow-y: auto;
-          scrollbar-width: none;
-        }
-
-        .sidebar::-webkit-scrollbar {
-          display: none;
         }
 
         .sidebar.collapsed {
-          width: 90px;
+          width: 80px;
         }
 
-        .sidebar.mobile-open {
-          transform: translateX(0);
+        @media (max-width: 991px) {
+          .sidebar {
+            transform: translateX(-100%);
+          }
+          .sidebar.mobile-open {
+            transform: translateX(0);
+          }
         }
 
-        /* Sidebar Header */
-        .sidebar-header {
-          padding: 24px 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          color: #fff;
-          text-decoration: none;
-          font-size: 1.3rem;
-          font-weight: 700;
-        }
-
-        .brand-icon {
-          font-size: 2rem;
-        }
-
-        .brand-text {
-          background: linear-gradient(135deg, #fff 0%, #e2e8f0 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-
-        .text-primary {
-          color: var(--primary) !important;
-          -webkit-text-fill-color: var(--primary);
-        }
-
-        .sidebar-close {
-          display: none;
-          background: rgba(255,255,255,0.1);
-          border: none;
-          color: #fff;
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
-          cursor: pointer;
-          transition: var(--transition);
-          align-items: center;
-          justify-content: center;
-        }
-
-        .sidebar-close:hover {
-          background: var(--danger);
-          transform: rotate(90deg);
-        }
-
-        /* Profile Section - Now directly below header */
-        .sidebar-profile {
-          padding: 24px 20px;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .profile-avatar-wrapper {
-          position: relative;
-        }
-
-        .profile-avatar {
-          width: 70px !important;
-          height: 70px !important;
-          border: 3px solid var(--warning);
-          box-shadow: 0 4px 15px rgba(245,158,11,0.4);
-          transition: var(--transition);
-        }
-
-        .profile-avatar:hover {
-          transform: scale(1.05);
-        }
-
-        .status {
-          position: absolute;
-          bottom: 2px;
-          right: 2px;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          border: 3px solid var(--darker);
-        }
-
-        .status.online {
-          background: var(--success);
-        }
-
-        .profile-info {
-          flex: 1;
-        }
-
-        .profile-name {
-          margin: 0 0 4px;
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #fff;
-        }
-
-        .profile-tier {
-          font-size: 0.7rem;
-          padding: 4px 8px;
-          border-radius: 30px;
-        }
-
-        /* Navigation - MAIN ITEMS ONLY with increased spacing */
-        .sidebar-nav {
-          flex: 1;
-          overflow-y: auto;
-          padding: 20px 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          scrollbar-width: none;
-        }
-
-        .sidebar-nav::-webkit-scrollbar {
-          display: none;
-        }
-
-        .nav-item {
-          display: flex;
-          align-items: center;
-          padding: 14px 16px;
-          color: rgba(255,255,255,0.7);
-          text-decoration: none;
-          border-radius: 12px;
-          transition: var(--transition);
-          margin: 4px 0;
-          border: 1px solid transparent;
-        }
-
-        .nav-item:hover {
-          background: rgba(255,255,255,0.05);
-          color: #fff;
-          transform: translateX(6px);
-          border-color: rgba(255,255,255,0.1);
-        }
-
-        .nav-item.active {
-          background: linear-gradient(90deg, var(--warning), #f59e0b);
-          color: #fff;
-          box-shadow: 0 4px 15px rgba(245,158,11,0.4);
-        }
-
-        .nav-icon {
-          margin-right: 14px;
-          font-size: 1.3rem;
-          width: 28px;
-          text-align: center;
-          transition: var(--transition);
-        }
-
-        .nav-item:hover .nav-icon {
-          transform: scale(1.1);
-        }
-
-        .nav-text {
-          flex: 1;
-        }
-
-        .nav-label {
-          display: block;
-          font-size: 1rem;
-          font-weight: 600;
-          margin-bottom: 4px;
-        }
-
-        .nav-description {
-          display: block;
-          font-size: 0.75rem;
-          color: rgba(255,255,255,0.5);
-          line-height: 1.4;
-        }
-
-        .active .nav-description {
-          color: rgba(255,255,255,0.9);
-        }
-
-        /* Sidebar Footer */
-        .sidebar-footer {
-          padding: 20px;
-          border-top: 1px solid rgba(255,255,255,0.1);
-          margin-top: 16px;
-        }
-
-        .footer-link {
-          display: flex;
-          align-items: center;
-          padding: 14px 16px;
-          color: rgba(255,255,255,0.7);
-          text-decoration: none;
-          border-radius: 12px;
-          transition: var(--transition);
-          margin-bottom: 8px;
-        }
-
-        .footer-link:hover {
-          background: rgba(255,255,255,0.05);
-          color: #fff;
-        }
-
-        .footer-icon {
-          margin-right: 14px;
-          font-size: 1.2rem;
-          width: 28px;
-          text-align: center;
-        }
-
-        .logout-btn {
-          width: 100%;
-          padding: 14px 16px;
-          background: rgba(239,68,68,0.1);
-          border: 1px solid rgba(239,68,68,0.3);
-          border-radius: 12px;
-          color: #fc8181;
-          display: flex;
-          align-items: center;
-          cursor: pointer;
-          transition: var(--transition);
-          font-size: 1rem;
-        }
-
-        .logout-btn:hover {
-          background: var(--danger);
-          color: #fff;
-          border-color: var(--danger);
-        }
-
-        /* Collapse Toggle */
-        .collapse-toggle {
-          position: absolute;
-          bottom: 30px;
-          right: -14px;
-          width: 32px;
-          height: 32px;
-          background: var(--warning);
-          border: 3px solid #fff;
-          border-radius: 50%;
-          color: #fff;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: var(--transition);
-          z-index: 1001;
-          box-shadow: 0 4px 15px rgba(245,158,11,0.5);
-        }
-
-        .collapse-toggle:hover {
-          background: #f59e0b;
-          transform: scale(1.15) rotate(180deg);
-        }
-
-        /* ========== Main Content ========== */
+        /* Main Content */
         .main-content {
           flex: 1;
-          margin-left: 300px;
-          transition: var(--transition);
+          margin-left: 280px;
+          transition: margin-left 0.3s ease;
           min-height: 100vh;
-          display: flex;
-          flex-direction: column;
-          background-color: var(--light);
         }
 
         .main-content.expanded {
-          margin-left: 90px;
+          margin-left: 80px;
+        }
+
+        @media (max-width: 991px) {
+          .main-content {
+            margin-left: 0;
+          }
         }
 
         /* Topbar */
         .topbar {
-          background: var(--lighter);
-          padding: 16px 28px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          box-shadow: var(--shadow-md);
           position: sticky;
           top: 0;
-          z-index: 99;
-          backdrop-filter: blur(12px);
-          background: rgba(var(--lighter-rgb), 0.85);
+          background: var(--topbar-bg);
+          border-bottom: 1px solid var(--border-color);
+          padding: 12px 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          z-index: 100;
         }
 
-        .topbar-left {
+        /* Connection Status */
+        .connection-status {
           display: flex;
           align-items: center;
-          gap: 20px;
+          gap: 6px;
+          padding: 4px 10px;
+          background: var(--bg-secondary);
+          border-radius: 20px;
+          font-size: 12px;
         }
 
-        .menu-toggle {
-          background: var(--light);
-          border: 1px solid var(--border);
-          width: 44px;
-          height: 44px;
-          border-radius: 14px;
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+
+        .status-dot.connected {
+          background: #10b981;
+          animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+          background: #ef4444;
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+
+        /* Notifications Dropdown */
+        .notification-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          width: 360px;
+          background: var(--dropdown-bg);
+          border: 1px solid var(--border-color);
+          border-radius: 16px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+          margin-top: 8px;
+          z-index: 1000;
+        }
+
+        .notification-item {
           display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text);
+          gap: 12px;
+          padding: 12px 16px;
+          border-bottom: 1px solid var(--border-color);
           cursor: pointer;
-          transition: var(--transition);
+          transition: background 0.2s;
         }
 
-        .menu-toggle:hover {
-          background: var(--warning);
-          color: #fff;
-          transform: rotate(90deg);
+        .notification-item:hover {
+          background: var(--hover-bg);
         }
 
-        .page-info {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .page-title {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: var(--text);
-          margin: 0;
-          background: linear-gradient(135deg, var(--dark), var(--warning));
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-
-        .page-path {
-          font-size: 0.8rem;
-          color: var(--text-light);
-          font-family: monospace;
-        }
-
-        .topbar-right {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        /* Search Toggle */
-        .search-toggle {
-          background: var(--light);
-          border: 1px solid var(--border);
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text);
-          cursor: pointer;
-          transition: var(--transition);
-        }
-
-        .search-toggle:hover {
-          background: var(--warning);
-          color: #fff;
-        }
-
-        /* Theme Toggle */
-        .theme-toggle {
-          background: var(--light);
-          border: 1px solid var(--border);
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text);
-          cursor: pointer;
-          transition: var(--transition);
-        }
-
-        .theme-toggle:hover {
-          background: var(--warning);
-          color: #fff;
-        }
-
-        /* Notifications */
-        .notifications-wrapper {
-          position: relative;
-        }
-
-        .notification-btn {
-          background: var(--light);
-          border: 1px solid var(--border);
-          width: 44px;
-          height: 44px;
-          border-radius: 14px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text);
-          cursor: pointer;
-          transition: var(--transition);
-          position: relative;
-        }
-
-        .notification-btn:hover {
-          background: var(--warning);
-          color: #fff;
+        .notification-item.unread {
+          background: var(--unread-bg);
         }
 
         .notification-badge {
           position: absolute;
-          top: -5px;
-          right: -5px;
-          background: var(--danger);
-          color: #fff;
-          font-size: 0.7rem;
+          top: -4px;
+          right: -4px;
+          background: #ef4444;
+          color: white;
+          font-size: 10px;
           padding: 2px 6px;
-          border-radius: 20px;
-          min-width: 18px;
-          text-align: center;
-          border: 2px solid var(--lighter);
-          animation: pulse 2s infinite;
+          border-radius: 10px;
         }
 
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.1); }
-        }
-
-        .notification-dropdown {
+        /* Profile Dropdown */
+        .profile-dropdown {
           position: absolute;
-          top: 60px;
-          right: 0;
-          width: 360px;
-          background: var(--lighter);
-          border-radius: 16px;
-          box-shadow: var(--shadow-lg);
-          border: 1px solid var(--border);
-          z-index: 1000;
-          animation: slideDown 0.3s ease;
-        }
-
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .notification-header {
-          padding: 16px;
-          border-bottom: 1px solid var(--border);
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: linear-gradient(135deg, var(--light), var(--lighter));
-          border-radius: 16px 16px 0 0;
-        }
-
-        .notification-header h6 {
-          margin: 0;
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--text);
-        }
-
-        .notification-header span {
-          font-size: 0.75rem;
-          color: var(--warning);
-          background: rgba(245,158,11,0.1);
-          padding: 4px 12px;
-          border-radius: 30px;
-        }
-
-        .notification-list {
-          max-height: 350px;
-          overflow-y: auto;
-        }
-
-        .notification-item {
-          padding: 16px;
-          display: flex;
-          gap: 12px;
-          cursor: pointer;
-          border-bottom: 1px solid var(--border);
-          transition: var(--transition);
-        }
-
-        .notification-item:hover {
-          background: var(--light);
-        }
-
-        .notification-item.unread {
-          background: rgba(245,158,11,0.04);
-          border-left: 4px solid var(--warning);
-        }
-
-        .notification-icon {
-          width: 40px;
-          height: 40px;
-          background: var(--light);
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.2rem;
-        }
-
-        .notification-content {
-          flex: 1;
-        }
-
-        .notification-message {
-          margin: 0 0 4px;
-          font-size: 0.9rem;
-          color: var(--text);
-          font-weight: 500;
-        }
-
-        .notification-time {
-          font-size: 0.7rem;
-          color: var(--text-light);
-        }
-
-        .notification-footer {
-          padding: 12px 16px;
-          border-top: 1px solid var(--border);
-          text-align: center;
-        }
-
-        .notification-footer a {
-          color: var(--warning);
-          text-decoration: none;
-          font-size: 0.9rem;
-          font-weight: 600;
-          transition: var(--transition);
-        }
-
-        .notification-footer a:hover {
-          color: #f59e0b;
-        }
-
-        /* User Menu */
-        .user-menu-wrapper {
-          position: relative;
-        }
-
-        .user-btn {
-          background: var(--light);
-          border: 1px solid var(--border);
-          border-radius: 40px;
-          padding: 4px 12px 4px 4px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          transition: var(--transition);
-          height: 48px;
-        }
-
-        .user-btn:hover {
-          background: var(--lighter);
-          border-color: var(--warning);
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(245,158,11,0.2);
-        }
-
-        .user-avatar {
-          width: 38px !important;
-          height: 38px !important;
-          border: 2px solid var(--warning);
-        }
-
-        .user-info {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          line-height: 1.2;
-        }
-
-        .user-name {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: var(--text);
-        }
-
-        .user-role {
-          font-size: 0.7rem;
-          color: var(--text-light);
-        }
-
-        .user-dropdown {
-          position: absolute;
-          top: 60px;
+          top: 100%;
           right: 0;
           width: 280px;
-          background: var(--lighter);
+          background: var(--dropdown-bg);
+          border: 1px solid var(--border-color);
           border-radius: 16px;
-          box-shadow: var(--shadow-lg);
-          border: 1px solid var(--border);
+          box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+          margin-top: 8px;
           z-index: 1000;
-          animation: slideDown 0.3s ease;
         }
 
-        .dropdown-header {
-          padding: 20px;
-          background: linear-gradient(135deg, var(--warning), #f59e0b);
-          color: #fff;
-          border-radius: 16px 16px 0 0;
+        /* Book Button */
+        .book-btn {
+          background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+          color: white;
+          padding: 8px 20px;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 500;
           display: flex;
           align-items: center;
-          gap: 16px;
-        }
-
-        .dropdown-avatar {
-          width: 50px !important;
-          height: 50px !important;
-          border: 3px solid rgba(255,255,255,0.3);
-        }
-
-        .dropdown-header h6 {
-          margin: 0 0 4px;
-          font-size: 1rem;
-          font-weight: 600;
-        }
-
-        .dropdown-header small {
-          font-size: 0.75rem;
-          opacity: 0.9;
-        }
-
-        .dropdown-menu {
-          padding: 8px;
-        }
-
-        .dropdown-menu a,
-        .dropdown-menu button {
-          display: flex;
-          align-items: center;
-          padding: 12px 16px;
-          color: var(--text);
-          text-decoration: none;
-          border-radius: 10px;
-          transition: var(--transition);
-          width: 100%;
-          border: none;
-          background: none;
-          cursor: pointer;
-          font-size: 0.95rem;
-        }
-
-        .dropdown-menu a:hover,
-        .dropdown-menu button:hover {
-          background: rgba(245,158,11,0.1);
-          color: var(--warning);
-          transform: translateX(4px);
-        }
-
-        .dropdown-divider {
-          height: 1px;
-          background: var(--border);
-          margin: 8px 0;
-        }
-
-        /* Mobile Search */
-        .mobile-search {
-          padding: 16px;
-          background: var(--lighter);
-          border-bottom: 1px solid var(--border);
-        }
-
-        .mobile-search form {
-          display: flex;
           gap: 8px;
+          text-decoration: none;
+          transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        .mobile-search input {
-          flex: 1;
-          padding: 10px 16px;
-          border: 1px solid var(--border);
-          border-radius: 30px;
-          font-size: 0.9rem;
-          background: var(--light);
-          color: var(--text);
+        .book-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(59,130,246,0.3);
+          color: white;
         }
 
-        .mobile-search input:focus {
-          outline: none;
-          border-color: var(--warning);
+        /* Nav Badge */
+        .nav-badge {
+          background: #ef4444;
+          color: white;
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: 10px;
+          margin-left: auto;
         }
 
-        .mobile-search button {
-          background: var(--warning);
-          border: none;
-          width: 44px;
-          height: 44px;
-          border-radius: 30px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #fff;
-          cursor: pointer;
-          transition: var(--transition);
+        .nav-badge-collapsed {
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          background: #ef4444;
+          color: white;
+          font-size: 9px;
+          padding: 2px 5px;
+          border-radius: 10px;
         }
 
-        .mobile-search button:hover {
-          background: #f59e0b;
-          transform: scale(1.05);
-        }
-
-        /* Page Content */
-        .page-content {
-          flex: 1;
-          padding: 30px;
-          animation: fadeIn 0.5s ease;
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Mobile Overlay */
-        .sidebar-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0,0,0,0.6);
-          z-index: 999;
-          backdrop-filter: blur(4px);
-          display: none;
-        }
-
-        /* ========== Responsive ========== */
-        @media (max-width: 1200px) {
-          .sidebar { width: 280px; }
-          .main-content { margin-left: 280px; }
-          .page-title { font-size: 1.3rem; }
-        }
-
-        @media (max-width: 992px) {
-          .sidebar {
-            transform: translateX(-100%);
-            width: 300px;
-          }
-          .sidebar.mobile-open { transform: translateX(0); }
-          .main-content, .main-content.expanded { margin-left: 0; }
-          .menu-toggle, .sidebar-close { display: flex; }
-          .collapse-toggle { display: none; }
-          .sidebar-overlay { display: block; }
-        }
-
+        /* Responsive */
         @media (max-width: 768px) {
-          .topbar { padding: 12px 16px; }
-          .page-content { padding: 16px; }
-          .page-title { font-size: 1.2rem; }
-          .page-path { display: none; }
-          .user-info { display: none; }
-          .notification-dropdown { width: 320px; right: -20px; }
-        }
-
-        @media (max-width: 576px) {
-          .notification-dropdown { width: 300px; right: -40px; }
-          .menu-toggle, .theme-toggle, .search-toggle, .notification-btn { width: 40px; height: 40px; }
-          .user-btn { padding: 4px; }
-          .user-dropdown { width: 260px; }
-        }
-
-        /* Print Styles */
-        @media print {
-          .sidebar, .topbar, .sidebar-overlay { display: none !important; }
-          .main-content { margin: 0 !important; }
-          .page-content { padding: 0 !important; background: #fff; }
-        }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-          background: var(--light);
-          border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-          background: var(--primary-light);
-          border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-          background: var(--primary);
+          .topbar {
+            padding: 10px 16px;
+          }
+          .profile-info-small {
+            display: none;
+          }
+          .book-btn span {
+            display: none;
+          }
+          .book-btn {
+            padding: 8px 12px;
+          }
+          .notification-dropdown {
+            width: 300px;
+            right: -60px;
+          }
+          .profile-dropdown {
+            width: 260px;
+          }
         }
       `}</style>
     </div>

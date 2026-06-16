@@ -3,13 +3,20 @@ import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
+// Context
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { SocketProvider, useSocket, socketService } from './context/SocketContext';
+
 // Layouts
 import Navbar from './components/Layout/Navbar';
 import Footer from './components/Layout/Footer';
+import ProtectedRoute from './components/common/ProtectedRoute';
+import AdminSidebar from './components/Layout/AdminSidebar';
+import CustomerSidebar from './components/Layout/CustomerSidebar';
+import ProviderSidebar from './components/Layout/ProviderSidebar';
 import AdminLayout from './components/Layout/AdminLayout';
 import CustomerLayout from './components/Layout/CustomerLayout';
-import ProviderLayout from './components/Layout/DashboardLayout';
-import ProtectedRoute from './components/common/ProtectedRoute';
+import ProviderLayout from './components/Layout/ProviderLayout';
 
 // Public Pages
 import Home from './pages/Home';
@@ -22,40 +29,49 @@ import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Settings from './pages/Settings';
 import Solutions from './pages/Solutions';
-
-// Dashboard Pages
-import CustomerDashboard from './pages/Dashboard/CustomerDashboard';
-import ProviderDashboard from './pages/Dashboard/ProviderDashboard';
-import AdminDashboard from './pages/Dashboard/AdminDashboard';
-
-// User Pages
 import Profile from './pages/Profile';
-import Bookings from './pages/Bookings';
 import Chat from './pages/Chat';
-import CreateService from './pages/CreateService';
-import MyServices from './pages/MyServices';
-import Notifications from './pages/Notifications';
-import Reviews from './pages/Review';
-import Favorites from './pages/Favorites';
-import Wallet from './pages/Wallet';
-import BookingHistory from './pages/BookingHistory';
 import HelpCenter from './pages/HelpCenter';
-import CustomerSettings from './pages/CustomerSettings';
+
+// Customer Pages/Components
+import CustomerDashboard from './components/customer/CustomerDashboard';
+import Bookings from './components/customer/Bookings';
+import Notifications from './components/customer/Notifications';
+import Reviews from './components/customer/Review';
+import Favorites from './components/customer/Favorites';
+import Wallet from './components/customer/Wallet';
+import BookingHistory from './components/customer/BookingHistory';
+import CustomerSettings from './components/customer/CustomerSettings';
+
+// Provider Pages/Components
+import ProviderDashboard from './components/provider/ProviderDashboard';
+import CreateService from './components/provider/CreateService';
+import MyServices from './components/provider/MyServices';
+import ProviderBookings from './components/provider/ProviderBookings';
+import ProviderReviews from './components/provider/ProviderReviews';
+import ProviderProfile from './components/provider/ProviderProfile';
+import ProviderWallet from './components/provider/ProviderWallet';
+import ProviderHelpCenter from './components/provider/ProviderHelpCenter';
+import ProviderSettings from './components/provider/ProviderSettings';
+import ProviderChat from './components/provider/ProviderChat';
+
+// Admin Pages (Lazy-loaded)
+const AdminDashboardLazy = React.lazy(() => import('./components/admin/AdminDashboard'));
+const UserManagementLazy = React.lazy(() => import('./components/admin/UserManagement'));
+const ServiceManagementLazy = React.lazy(() => import('./components/admin/ServiceManagement'));
+const AdminBookingsLazy = React.lazy(() => import('./components/admin/AdminBookings'));
+const AdminCategoriesLazy = React.lazy(() => import('./components/admin/AdminCategories'));
+const AnalyticsLazy = React.lazy(() => import('./components/admin/Analytics'));
+const AdminPaymentsLazy = React.lazy(() => import('./components/admin/AdminPayments'));
+const AdminReportsLazy = React.lazy(() => import('./components/admin/AdminReports'));
+const SettingsLazy = React.lazy(() => import('./components/admin/AdminSettings'));
+const AdminActivityLazy = React.lazy(() => import('./components/admin/AdminActivity'));
 
 // Payment Pages
 import PaymentMethods from './pages/PaymentMethods';
 import PaymentSuccess from './pages/PaymentSuccess';
 import PaymentCancel from './pages/PaymentCancel';
 import PaymentPage from './pages/PaymentPage';
-
-// Admin Pages (lazy-loaded to reduce initial bundle size)
-const UserManagement = React.lazy(() => import('./pages/admin/UserManagement'));
-const ServiceManagement = React.lazy(() => import('./pages/admin/ServiceManagement'));
-const AdminBookings = React.lazy(() => import('./pages/admin/AdminBookings'));
-const AdminCategories = React.lazy(() => import('./pages/admin/AdminCategories'));
-const Analytics = React.lazy(() => import('./pages/admin/Analytics'));
-const AdminPayments = React.lazy(() => import('./pages/admin/AdminPayments'));
-const AdminReports = React.lazy(() => import('./pages/admin/AdminReports'));
 
 // Info Pages
 import FAQ from './pages/FAQ';
@@ -66,32 +82,58 @@ import Privacy from './pages/Privacy';
 import NotFound from './pages/NotFound';
 import Unauthorized from './pages/Unauthorized';
 
-// Context
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { SocketProvider, useSocket } from './context/SocketContext';
+// ================= COMPONENTS =================
+
+// WebSocket Initialization Component
+const WebSocketInitializer = () => {
+  const { user, token } = useAuth();
+
+  useEffect(() => {
+    if (token && user) {
+      console.log('🔌 Initializing WebSocket connection from App');
+      socketService.connect(token, user.id);
+    }
+    
+    // Cleanup on unmount or when user logs out
+    return () => {
+      if (!token || !user) {
+        console.log('🔌 Cleaning up WebSocket connection');
+        socketService.disconnect();
+      }
+    };
+  }, [token, user]);
+
+  return null;
+};
 
 // WebSocket Status Component
 const WebSocketStatus = () => {
-  const { isConnected, onlineUsers } = useSocket();
+  const { isConnected, onlineUsers, getConnectionStatus } = useSocket();
   
   // Don't show on login/register pages
   const location = useLocation();
-  if (location.pathname === '/login' || location.pathname === '/register') {
+  const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
+  if (hiddenPaths.includes(location.pathname)) {
     return null;
   }
   
+  const status = getConnectionStatus?.();
+  
   return (
     <div className="fixed bottom-4 right-4 z-50">
-      <div className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 ${
-        isConnected 
-          ? 'bg-green-500 text-white' 
-          : 'bg-red-500 text-white'
-      }`}>
+      <div 
+        className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 transition-all duration-300 ${
+          isConnected 
+            ? 'bg-green-500 text-white hover:bg-green-600' 
+            : 'bg-red-500 text-white hover:bg-red-600'
+        }`}
+        title={status ? `Socket ID: ${status.socketId || 'N/A'}` : 'Connection status'}
+      >
         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-white animate-pulse' : 'bg-red-200'}`} />
-        <span>{isConnected ? 'Connected' : 'Reconnecting...'}</span>
-        {isConnected && onlineUsers.length > 0 && (
+        <span>{isConnected ? 'Connected' : status?.reconnectAttempts ? `Reconnecting (${status.reconnectAttempts}/10)` : 'Connecting...'}</span>
+        {isConnected && onlineUsers && onlineUsers.length > 0 && (
           <span className="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-xs">
-            {onlineUsers.length}
+            {onlineUsers.length} online
           </span>
         )}
       </div>
@@ -112,8 +154,9 @@ const initializeToken = () => {
 // Call token initialization
 initializeToken();
 
+// ================= APP CONTENT =================
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user, loading, token } = useAuth();
   const location = useLocation();
   const pathname = location.pathname;
 
@@ -245,7 +288,7 @@ function AppContent() {
           } />
           <Route path="/customer/settings" element={
             <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Settings /></CustomerLayout>
+              <CustomerLayout><CustomerSettings /></CustomerLayout>
             </ProtectedRoute>
           } />
           <Route path="/customer/chat" element={
@@ -302,52 +345,52 @@ function AppContent() {
           } />
           <Route path="/provider/bookings" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Bookings /></ProviderLayout>
+              <ProviderLayout><ProviderBookings /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/bookings/:id" element={
-            <ProtectedRoute allowedRoles={'provider'}>
-              <ProviderLayout><Bookings /></ProviderLayout>
+            <ProtectedRoute allowedRoles={['provider']}>
+              <ProviderLayout><ProviderBookings /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/reviews" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Reviews /></ProviderLayout>
+              <ProviderLayout><ProviderReviews /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/profile" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Profile /></ProviderLayout>
+              <ProviderLayout><ProviderProfile /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/profile/:section" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Profile /></ProviderLayout>
+              <ProviderLayout><ProviderProfile /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/wallet" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Wallet /></ProviderLayout>
+              <ProviderLayout><ProviderWallet /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/help" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><HelpCenter /></ProviderLayout>
+              <ProviderLayout><ProviderHelpCenter /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/settings" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Settings /></ProviderLayout>
+              <ProviderLayout><ProviderSettings /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/chat" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Chat /></ProviderLayout>
+              <ProviderLayout><ProviderChat /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/chat/:conversationId" element={
             <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><Chat /></ProviderLayout>
+              <ProviderLayout><ProviderChat /></ProviderLayout>
             </ProtectedRoute>
           } />
           <Route path="/provider/payment-methods" element={
@@ -374,84 +417,86 @@ function AppContent() {
           {/* ========== ADMIN ROUTES ========== */}
           <Route path="/admin/dashboard" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminDashboard /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading admin dashboard...</div>}>
+                <AdminLayout><AdminDashboardLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/users" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><UserManagement /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading user management...</div>}>
+                <AdminLayout><UserManagementLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/users/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><UserManagement /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading user details...</div>}>
+                <AdminLayout><UserManagementLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/services" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><ServiceManagement /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading service management...</div>}>
+                <AdminLayout><ServiceManagementLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/services/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><ServiceManagement /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading service details...</div>}>
+                <AdminLayout><ServiceManagementLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/bookings" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminBookings /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading bookings...</div>}>
+                <AdminLayout><AdminBookingsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/bookings/:id" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminBookings /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading booking details...</div>}>
+                <AdminLayout><AdminBookingsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/categories" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminCategories /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading categories...</div>}>
+                <AdminLayout><AdminCategoriesLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/analytics" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><Analytics /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading analytics...</div>}>
+                <AdminLayout><AnalyticsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/payments" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminPayments /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading payment data...</div>}>
+                <AdminLayout><AdminPaymentsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/reports" element={
             <ProtectedRoute allowedRoles={['admin']}>
-                <React.Suspense fallback={<div>Loading admin…</div>}>
-                  <AdminLayout><AdminReports /></AdminLayout>
-                </React.Suspense>
+              <React.Suspense fallback={<div className="text-center p-5">Loading reports...</div>}>
+                <AdminLayout><AdminReportsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           <Route path="/admin/settings" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminLayout><Settings /></AdminLayout>
+              <React.Suspense fallback={<div className="text-center p-5">Loading settings...</div>}>
+                <AdminLayout><SettingsLazy /></AdminLayout>
+              </React.Suspense>
             </ProtectedRoute>
           } />
           
@@ -479,6 +524,9 @@ function AppContent() {
 
       {/* WebSocket Status Indicator */}
       <WebSocketStatus />
+
+      {/* WebSocket Initializer */}
+      <WebSocketInitializer />
 
       {/* Toast Notifications */}
       <Toaster

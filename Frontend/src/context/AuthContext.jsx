@@ -3,6 +3,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/api'; // Import the shared api instance
+import { socketService } from './SocketContext'; // Import socket service
 
 // Create the context
 const AuthContext = createContext(null);
@@ -55,11 +56,18 @@ export const AuthProvider = ({ children }) => {
         const response = await api.get('/auth/profile');
         console.log('✅ User profile fetched:', response.data);
         setUser(response.data);
+        
+        // Connect socket after user is loaded
+        if (response.data && token) {
+          console.log('🔌 Connecting socket for user:', response.data.id);
+          socketService.connect(token, response.data.id);
+        }
       } catch (error) {
         console.error('❌ Error fetching user:', error.message);
         localStorage.removeItem('token');
         setToken(null);
         setUser(null);
+        socketService.disconnect();
       } finally {
         setLoading(false);
       }
@@ -69,6 +77,8 @@ export const AuthProvider = ({ children }) => {
       fetchUser();
     } else {
       setLoading(false);
+      // Ensure socket is disconnected if no token
+      socketService.disconnect();
     }
   }, [token]);
 
@@ -87,7 +97,11 @@ export const AuthProvider = ({ children }) => {
       setToken(newToken);
       setUser(userData);
       
-      toast.success(`Welcome back, ${userData.name}!`);
+      // Connect socket after successful login
+      console.log('🔌 Connecting socket for user:', userData.id);
+      socketService.connect(newToken, userData.id);
+      
+      toast.success(`Welcome back, ${userData.name || userData.email}!`);
       
       // Return user data so the component can handle navigation
       return { 
@@ -148,10 +162,70 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     console.log('👋 Logging out...');
+    
+    // Disconnect socket first
+    socketService.disconnect();
+    console.log('🔌 Socket disconnected on logout');
+    
+    // Clear local storage and state
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
+    
     toast.success('Logged out successfully');
+  };
+
+  const updateProfile = async (data) => {
+    try {
+      console.log('📝 Updating profile...');
+      const response = await api.put('/auth/profile', data);
+      setUser(prev => ({ ...prev, ...response.data }));
+      toast.success('Profile updated successfully');
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('❌ Profile update error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update profile');
+      return { success: false, error: error.response?.data?.message };
+    }
+  };
+
+  const changePassword = async (data) => {
+    try {
+      console.log('🔐 Changing password...');
+      const response = await api.put('/auth/change-password', data);
+      toast.success('Password changed successfully');
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('❌ Password change error:', error);
+      toast.error(error.response?.data?.message || 'Failed to change password');
+      return { success: false, error: error.response?.data?.message };
+    }
+  };
+
+  const forgotPassword = async (email) => {
+    try {
+      console.log('📧 Sending password reset email...');
+      const response = await api.post('/auth/forgot-password', { email });
+      toast.success('Password reset email sent! Check your inbox.');
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('❌ Forgot password error:', error);
+      toast.error(error.response?.data?.message || 'Failed to send reset email');
+      return { success: false, error: error.response?.data?.message };
+    }
+  };
+
+  const resetPassword = async (resetToken, password) => {
+    try {
+      console.log('🔐 Resetting password...');
+      const response = await api.post('/auth/reset-password', { token: resetToken, password });
+      toast.success('Password reset successfully! Please login.');
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('❌ Reset password error:', error);
+      toast.error(error.response?.data?.message || 'Failed to reset password');
+      return { success: false, error: error.response?.data?.message };
+    }
   };
 
   const updateUser = (updatedData) => {
@@ -165,6 +239,10 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    updateProfile,
+    changePassword,
+    forgotPassword,
+    resetPassword,
     updateUser,
     isAuthenticated: !!user,
     token,
