@@ -13,9 +13,6 @@ import {
   Spinner,
   Modal,
   Pagination,
-  Tabs,
-  Tab,
-  Toast,
   ToastContainer
 } from 'react-bootstrap';
 import {
@@ -49,7 +46,7 @@ import {
   Headphones,
   ExternalLink
 } from 'lucide-react';
-// Import social icons from react-icons/fa
+// Import social icons from react-icons/fa (these exist)
 import {
   FaFacebook,
   FaTwitter,
@@ -59,7 +56,7 @@ import {
   FaWhatsapp
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
-import { providerAPI, notificationAPI } from '../../api/api';
+import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -111,7 +108,6 @@ const ProviderHelpCenter = () => {
       setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
     } catch (error) {
       console.error('Error fetching FAQs:', error);
-      // Fallback FAQs
       setFaqs([
         {
           id: 1,
@@ -140,7 +136,6 @@ const ProviderHelpCenter = () => {
       setTickets(response.data || []);
     } catch (error) {
       console.error('Error fetching tickets:', error);
-      // Fallback tickets
       setTickets([
         {
           id: 'TKT-001',
@@ -212,7 +207,7 @@ const ProviderHelpCenter = () => {
 
     setSubmitting(true);
     try {
-      const response = await providerAPI.createSupportTicket(newTicket);
+      await providerAPI.createSupportTicket(newTicket);
       toast.success('Support ticket created successfully');
       setShowTicketModal(false);
       setNewTicket({
@@ -550,15 +545,27 @@ const ProviderHelpCenter = () => {
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={currentPage === 1}
                   />
-                  {[...Array(totalPages)].map((_, idx) => (
-                    <Pagination.Item
-                      key={idx + 1}
-                      active={idx + 1 === currentPage}
-                      onClick={() => setCurrentPage(idx + 1)}
-                    >
-                      {idx + 1}
-                    </Pagination.Item>
-                  ))}
+                  {[...Array(Math.min(totalPages, 5))].map((_, idx) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = idx + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = idx + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + idx;
+                    } else {
+                      pageNum = currentPage - 2 + idx;
+                    }
+                    return (
+                      <Pagination.Item
+                        key={pageNum}
+                        active={pageNum === currentPage}
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum}
+                      </Pagination.Item>
+                    );
+                  })}
                   <Pagination.Next 
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages}
