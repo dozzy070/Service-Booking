@@ -32,7 +32,6 @@ import {
   X,
   Wallet,
   DollarSign,
-  
   Award,
   Shield,
   MapPin,

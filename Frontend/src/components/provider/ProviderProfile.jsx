@@ -29,7 +29,6 @@ import {
   DollarSign,
   CheckCircle,
   Award,
-  
   Users,
   Globe,
   Languages,
@@ -43,7 +42,7 @@ import {
 } from 'lucide-react';
 // All social icons from react-icons/fa
 import {
-  Facebook,
+  FaFacebook,
   FaTwitter,
   FaInstagram,
   FaLinkedin,

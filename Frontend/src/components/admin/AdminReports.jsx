@@ -22,7 +22,6 @@ import {
   DollarSign,
   Users,
   ShoppingCart,
-  
   PieChart,
   BarChart3,
   Printer,

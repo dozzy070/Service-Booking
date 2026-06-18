@@ -37,6 +37,7 @@ import {
   FaCrown,
   FaGem
 } from 'react-icons/fa';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
 

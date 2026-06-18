@@ -26,7 +26,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  
   Award,
   Users,
   Edit2,
@@ -36,7 +35,6 @@ import {
   Eye,
   FileText,
   Search,
-  
   ArrowUp,
   ArrowDown
 } from 'lucide-react';

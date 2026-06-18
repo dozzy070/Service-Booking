@@ -46,6 +46,7 @@ import {
   FaApplePay,
   FaCheck
 } from 'react-icons/fa';
+
 import { getServiceImage, handleImageError, getAvatarUrl } from '../utils/imageUtils';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';

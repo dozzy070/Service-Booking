@@ -26,7 +26,6 @@ import {
   Sun,
   UserCircle,
   DollarSign,
-  
   Award,
   Shield,
   Activity,

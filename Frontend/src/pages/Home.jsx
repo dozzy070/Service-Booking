@@ -42,6 +42,7 @@ import {
   FaCheckDouble,
   FaQrcode
 } from 'react-icons/fa';
+
 import { getServiceImage, getInitialsImage } from '../utils/imageUtils';
 import logo from '../assets/smart service logo.png';
 import heroImage from '../assets/smart 2.png';

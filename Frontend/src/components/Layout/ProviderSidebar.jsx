@@ -26,7 +26,6 @@ import {
   ChevronRight,
   CheckCircle,
   XCircle,
-  
   Award,
   HelpCircle,
   Moon,

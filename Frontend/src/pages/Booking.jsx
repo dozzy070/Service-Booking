@@ -24,6 +24,7 @@ import {
   FaShieldAlt,
   FaCheckCircle
 } from 'react-icons/fa';
+
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';

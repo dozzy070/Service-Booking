@@ -16,8 +16,6 @@ import {
 } from 'react-bootstrap';
 import {
   Wallet,
-  
-  
   Banknote,
   Download,
   Send,
@@ -43,6 +41,7 @@ import {
   ArrowDown,
   Shield
 } from 'lucide-react';
+
 // No duplicate imports from react-icons/fa
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';

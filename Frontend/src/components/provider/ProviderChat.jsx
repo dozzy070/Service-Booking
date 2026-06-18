@@ -39,7 +39,6 @@ import {
   MicOff,
   Volume2,
   VolumeX,
-  
   TrendingDown
 } from 'lucide-react';
 // No duplicate imports from react-icons/fa
