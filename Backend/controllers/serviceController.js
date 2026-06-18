@@ -28,7 +28,7 @@ const formatNaira = (amount) => {
 export const getServiceById = async (req, res) => {
   try {
     const serviceId = req.params.id;
-    
+
     const result = await pool.query(`
       SELECT 
         s.*,
@@ -58,13 +58,13 @@ export const getServiceById = async (req, res) => {
     }
 
     const service = result.rows[0];
-    
+
     // Get service images from the images array
     const images = service.images || [];
-    
+
     // Get service features from the features array
     const features = service.features || [];
-    
+
     // Get service requirements from the requirements array
     const requirements = service.requirements || [];
 
@@ -119,7 +119,7 @@ export const createService = async (req, res) => {
       is_remote,
       is_active
     } = req.body;
-    
+
     const providerId = req.user.id;
 
     // Validate required fields
@@ -382,11 +382,11 @@ export const getCategories = async (req, res) => {
 
     console.log(`✅ Found ${categories.length} categories`);
     res.json(categories);
-    
+
   } catch (error) {
     console.error('❌ Error fetching categories:', error.message);
     console.error('Stack:', error.stack);
-    
+
     // Return empty array with 200 status instead of 500
     // This prevents frontend crashes while we debug
     res.status(200).json([]);
@@ -406,16 +406,10 @@ export const getPopularServices = async (req, res) => {
         s.id,
         s.title,
         s.description,
-        s.short_description,
         s.price,
-        s.discount_price,
-        s.currency,
-        s.price_type,
-        s.image as main_image,
         s.images,
         s.location,
         s.city,
-        s.state,
         s.avg_rating,
         s.review_count,
         s.status,
@@ -426,11 +420,9 @@ export const getPopularServices = async (req, res) => {
         u.id as provider_id,
         u.name as provider_name,
         u.avatar as provider_avatar,
-        u.phone as provider_phone,
         c.id as category_id,
         c.name as category_name,
         c.icon as category_icon,
-        c.color as category_color,
         COALESCE(AVG(r.rating), s.avg_rating, 0) as avg_rating_calc,
         COUNT(DISTINCT r.id) as review_count_calc,
         COUNT(DISTINCT b.id) as booking_count,
@@ -442,60 +434,50 @@ export const getPopularServices = async (req, res) => {
       LEFT JOIN bookings b ON s.id = b.service_id AND b.status = 'completed' 
         AND b.booking_date >= NOW() - INTERVAL '${parseInt(days)} days'
       WHERE (s.status = 'approved' OR s.status = 'active')
-        AND (s.is_active = true OR s.is_active IS NULL)
         AND s.deleted_at IS NULL
         AND u.is_active = true
-      GROUP BY s.id, u.id, u.name, u.avatar, u.phone, c.id, c.name, c.icon, c.color
+      GROUP BY s.id, u.id, u.name, u.avatar, c.id, c.name, c.icon
       ORDER BY booking_count DESC, avg_rating_calc DESC, s.created_at DESC
       LIMIT $1
     `, [parseInt(limit)]);
 
-    const services = result.rows.map(s => {
-      // Get first image from images array or use main_image
-      const imageUrl = s.images && s.images.length > 0 
-        ? s.images[0] 
-        : s.main_image || 'https://via.placeholder.com/300x200?text=Service';
+    // Return empty array if no results
+    if (result.rows.length === 0) {
+      return res.json([]);
+    }
 
-      return {
-        id: s.id,
-        title: s.title || 'Unnamed Service',
-        description: s.description || 'No description available',
-        short_description: s.short_description || null,
-        price: parseFloat(s.price) || 0,
-        discount_price: s.discount_price ? parseFloat(s.discount_price) : null,
-        currency: s.currency || 'NGN',
-        price_type: s.price_type || 'fixed',
-        image: imageUrl,
-        images: s.images || [],
-        location: s.location || s.city || 'Location not specified',
-        city: s.city,
-        state: s.state,
-        avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
-        review_count: parseInt(s.review_count_calc) || parseInt(s.review_count) || 0,
-        booking_count: parseInt(s.booking_count) || 0,
-        total_revenue: parseFloat(s.total_revenue) || 0,
-        provider_id: s.provider_id,
-        provider_name: s.provider_name || 'Unknown Provider',
-        provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
-        provider_phone: s.provider_phone,
-        category_id: s.category_id,
-        category_name: s.category_name || 'Uncategorized',
-        category_icon: s.category_icon || '📦',
-        category_color: s.category_color || '#3b82f6',
-        status: s.status,
-        slug: s.slug,
-        is_featured: s.is_featured || false,
-        is_popular: s.is_popular || false,
-        created_at: s.created_at
-      };
-    });
-    
+    const services = result.rows.map(s => ({
+      id: s.id,
+      title: s.title || 'Unnamed Service',
+      description: s.description || 'No description available',
+      price: parseFloat(s.price) || 0,
+      image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
+      images: s.images || [],
+      location: s.location || s.city || 'Location not specified',
+      avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
+      review_count: parseInt(s.review_count_calc) || parseInt(s.review_count) || 0,
+      booking_count: parseInt(s.booking_count) || 0,
+      total_revenue: parseFloat(s.total_revenue) || 0,
+      provider_id: s.provider_id,
+      provider_name: s.provider_name || 'Unknown Provider',
+      provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
+      category_id: s.category_id,
+      category_name: s.category_name || 'Uncategorized',
+      category_icon: s.category_icon || '📦',
+      status: s.status,
+      slug: s.slug,
+      is_featured: s.is_featured || false,
+      is_popular: s.is_popular || false,
+      created_at: s.created_at
+    }));
+
     console.log(`✅ Found ${services.length} popular services`);
     res.json(services);
-    
+
   } catch (error) {
     console.error('❌ Error fetching popular services:', error.message);
-    res.json([]);
+    // Return empty array with 200 status
+    res.status(200).json([]);
   }
 };
 
