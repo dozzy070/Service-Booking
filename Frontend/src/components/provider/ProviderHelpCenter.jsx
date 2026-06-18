@@ -12,8 +12,7 @@ import {
   Alert,
   Spinner,
   Modal,
-  Pagination,
-  ToastContainer
+  Pagination
 } from 'react-bootstrap';
 import {
   Search,
@@ -37,7 +36,7 @@ import {
   User,
   Calendar,
   Star,
-  TrendingUp,
+  
   Users,
   Globe,
   Shield,
@@ -46,7 +45,7 @@ import {
   Headphones,
   ExternalLink
 } from 'lucide-react';
-// Import social icons from react-icons/fa (these exist)
+// All social icons from react-icons/fa
 import {
   FaFacebook,
   FaTwitter,
@@ -55,6 +54,7 @@ import {
   FaYoutube,
   FaWhatsapp
 } from 'react-icons/fa';
+
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';

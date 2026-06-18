@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+// src/components/Layout/ProviderSidebar.jsx
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Nav,
   Button,
@@ -25,7 +26,7 @@ import {
   ChevronRight,
   CheckCircle,
   XCircle,
-  FaArrowTrendUp,
+  
   Award,
   HelpCircle,
   Moon,
@@ -39,9 +40,13 @@ import {
   Shield,
   Gift,
   Heart,
-  Zap
+  Zap,
+  Menu,
+  X,
+  Search
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { providerAPI, notificationAPI } from '../../api/api';

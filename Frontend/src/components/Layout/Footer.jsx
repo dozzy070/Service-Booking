@@ -2,10 +2,10 @@ import React from 'react';
 import { Container, Row, Col, Form, Button, InputGroup } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import {
-  FaFacebook,
-  FaTwitter,
-  FaInstagram,
-  FaLinkedin,
+  Fa
+  Fa
+  Fa
+  Fa
   FaGithub,
   FaEnvelope,
   FaPhone,

@@ -1,3 +1,4 @@
+// src/components/Layout/AdminSidebar.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Nav,
@@ -25,7 +26,7 @@ import {
   Sun,
   UserCircle,
   DollarSign,
-  FaArrowTrendUp,
+  
   Award,
   Shield,
   Activity,
@@ -42,9 +43,15 @@ import {
   Filter,
   Search,
   Menu,
-  X
+  X,
+  PlusCircle,
+  BarChart2,
+  Gift,
+  Heart,
+  Zap
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { adminAPI, notificationAPI } from '../../api/api';

@@ -1,3 +1,4 @@
+// src/components/provider/MyServices.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
@@ -16,6 +17,7 @@ import {
   ProgressBar,
   Pagination
 } from 'react-bootstrap';
+import { Link } from 'react-router-dom';
 import {
   Plus,
   Edit2,
@@ -27,7 +29,7 @@ import {
   Power,
   PowerOff,
   Star,
-  FaArrowTrendUp,
+  
   Users,
   Calendar,
   Image,
@@ -39,9 +41,12 @@ import {
   Search,
   Filter,
   Download,
-  BarChart2
+  BarChart2,
+  Shield,
+  Gift
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';

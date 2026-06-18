@@ -1,12 +1,48 @@
+// src/components/provider/ProviderChat.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Container, Row, Col, Card, Form, Button, Badge, Spinner, Alert } from 'react-bootstrap';
-import { 
-  Send, Search, Phone, Video, MoreVertical, User, Clock, CheckCheck, 
-  Image, Paperclip, Smile, ArrowLeft, Users, Star, Calendar, 
-  DollarSign, MapPin, CheckCircle, XCircle, Clock as ClockIcon,
-  PhoneCall, VideoIcon, Mic, MicOff, Volume2, VolumeX
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Form,
+  Button,
+  Badge,
+  Spinner,
+  Alert
+} from 'react-bootstrap';
+import { Link } from 'react-router-dom';
+import {
+  Send,
+  Search,
+  Phone,
+  Video,
+  MoreVertical,
+  User,
+  Clock,
+  CheckCheck,
+  Image,
+  Paperclip,
+  Smile,
+  ArrowLeft,
+  Users,
+  Star,
+  Calendar,
+  DollarSign,
+  MapPin,
+  CheckCircle,
+  XCircle,
+  Clock as ClockIcon,
+  PhoneCall,
+  VideoIcon,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  
+  TrendingDown
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { chatAPI } from '../../api/api';

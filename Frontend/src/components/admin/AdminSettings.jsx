@@ -1,14 +1,60 @@
+// src/components/admin/AdminSettings.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { Container, Row, Col, Card, Form, Button, Alert, Tabs, Tab, Spinner, Badge, OverlayTrigger, Tooltip } from 'react-bootstrap';
-import { 
-  Globe, Lock, Bell, Shield, CreditCard, Mail, Save, Database, Users, 
-  DollarSign, Clock, Server, Settings as SettingsIcon, RefreshCw,
-  CheckCircle, XCircle, AlertCircle, Info, Eye, EyeOff, Key,
-  UserCheck, UserX, Activity, FileText, Printer, Download,
-  Cloud, CloudUpload, CloudDownload, Zap, ShieldCheck,
-  Wifi, WifiOff, Monitor, Smartphone, Tablet
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Form,
+  Button,
+  Alert,
+  Tabs,
+  Tab,
+  Spinner,
+  Badge,
+  OverlayTrigger,
+  Tooltip
+} from 'react-bootstrap';
+import {
+  Globe,
+  Lock,
+  Bell,
+  Shield,
+  CreditCard,
+  Mail,
+  Save,
+  Database,
+  Users,
+  DollarSign,
+  Clock,
+  Server,
+  Settings as SettingsIcon,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Info,
+  Eye,
+  EyeOff,
+  Key,
+  UserCheck,
+  UserX,
+  Activity,
+  FileText,
+  Printer,
+  Download,
+  Cloud,
+  CloudUpload,
+  CloudDownload,
+  Zap,
+  ShieldCheck,
+  Wifi,
+  WifiOff,
+  Monitor,
+  Smartphone,
+  Tablet
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import toast from 'react-hot-toast';

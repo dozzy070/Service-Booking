@@ -1,17 +1,76 @@
+// src/components/admin/AdminReports.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { Container, Row, Col, Card, Button, Form, Table, Badge, Alert, Spinner, Dropdown, Modal, Tabs, Tab } from 'react-bootstrap';
-import { 
-  FileText, Download, Calendar, DollarSign, Users, ShoppingCart, 
-  FaArrowTrendUp, PieChart, BarChart3, Printer, Share2, Mail, 
-  Clock, CheckCircle, XCircle, AlertCircle, RefreshCw,
-  Filter, Search, Eye, Edit, Trash2, Plus, Minus,
-  ChevronDown, ChevronRight, ChevronLeft, ArrowUp, ArrowDown,
-  Award, Trophy, Medal, Crown, Gem, Star, Heart,
-  Activity, Zap, Flame, Rocket, Target, Flag,
-  Globe, MapPin, Phone, Mail as MailIcon, MessageSquare,
-  Link, ExternalLink, Copy, Save, Settings
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Table,
+  Button,
+  Form,
+  Badge,
+  Dropdown,
+  Modal,
+  Spinner,
+  Alert,
+  ProgressBar
+} from 'react-bootstrap';
+import {
+  FileText,
+  Download,
+  Calendar,
+  DollarSign,
+  Users,
+  ShoppingCart,
+  
+  PieChart,
+  BarChart3,
+  Printer,
+  Share2,
+  Mail,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  RefreshCw,
+  Filter,
+  Search,
+  Eye,
+  Edit,
+  Trash2,
+  Plus,
+  Minus,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  ArrowUp,
+  ArrowDown,
+  Award,
+  Trophy,
+  Medal,
+  Crown,
+  Gem,
+  Star as StarIcon,
+  Heart,
+  Activity,
+  Zap,
+  Flame,
+  Rocket,
+  Target,
+  Flag,
+  Globe,
+  MapPin,
+  Phone,
+  Mail as MailIcon,
+  MessageSquare,
+  Link as LinkIcon,
+  ExternalLink as ExternalLinkIcon,
+  Copy,
+  Save,
+  Settings
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// Remove any duplicate imports from react-icons/fa if they exist
+
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';

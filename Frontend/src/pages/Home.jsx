@@ -30,9 +30,9 @@ import {
   FaEnvelope,
   FaPhone,
   FaMapMarkerAlt,
-  FaFacebook,
-  FaTwitter,
-  FaLinkedin,
+  Fa
+  Fa
+  Fa
   FaWhatsapp,
   FaEnvelope as FaEmail,
   FaApple,

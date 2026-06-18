@@ -5,8 +5,8 @@ import {
   FaArrowDown, 
   FaInfoCircle,
   FaChartLine,
-  FaTrendingUp,
-  FaTrendingDown,
+  Fa
+  Fa
   FaMinus
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';

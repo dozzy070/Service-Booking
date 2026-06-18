@@ -8,9 +8,9 @@ import {
   FaUserPlus, FaUserCheck, FaUserClock, FaUserTimes, FaDollarSign, FaPercentage,
   FaChartPie, FaRocket, FaShieldAlt, FaHeartbeat, FaAward, FaTrophy, FaMedal,
   FaCrown, FaGem, FaExclamationTriangle, FaCog, FaFileAlt, FaInfoCircle,
-  FaWallet, FaTrendingUp, FaTrendingDown, FaSync, FaEye, FaEyeSlash,
+  FaWallet, Fa Fa FaSync, FaEye, FaEyeSlash,
   FaBell, FaEnvelope, FaPhone, FaMapMarkerAlt, FaGlobe, FaLink,
-  FaTwitter, FaFacebook, FaInstagram, FaLinkedin, FaYoutube,
+  Fa Fa Fa Fa Fa
   FaWhatsapp, FaTelegram, FaDiscord, FaSlack, FaGithub
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';

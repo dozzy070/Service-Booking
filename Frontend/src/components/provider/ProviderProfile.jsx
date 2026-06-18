@@ -11,8 +11,6 @@ import {
   Alert,
   Spinner,
   Modal,
-  Tabs,
-  Tab,
   ProgressBar
 } from 'react-bootstrap';
 import {
@@ -31,7 +29,7 @@ import {
   DollarSign,
   CheckCircle,
   Award,
-  TrendingUp,
+  
   Users,
   Globe,
   Languages,
@@ -43,14 +41,16 @@ import {
   Plus,
   Minus
 } from 'lucide-react';
+// All social icons from react-icons/fa
 import {
-  FaInstagram,
   FaFacebook,
   FaTwitter,
+  FaInstagram,
   FaLinkedin,
-  FaWhatsapp,
-  FaYoutube
+  FaYoutube,
+  FaWhatsapp
 } from 'react-icons/fa';
+
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI, authAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';

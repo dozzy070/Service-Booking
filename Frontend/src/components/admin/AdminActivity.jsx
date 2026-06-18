@@ -1,18 +1,77 @@
-// src/pages/admin/AdminActivity.jsx
+// src/components/admin/AdminActivity.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Container, Row, Col, Card, Table, Badge, Button, Form, Pagination,
-  InputGroup, Dropdown, Modal, Alert, Spinner, Toast, ToastContainer
+  Container,
+  Row,
+  Col,
+  Card,
+  Table,
+  Badge,
+  Button,
+  Form,
+  Pagination,
+  InputGroup,
+  Dropdown,
+  Modal,
+  Alert,
+  Spinner
 } from 'react-bootstrap';
 import {
-  Activity, UserPlus, ShoppingCart, Settings as SettingsIcon, LogIn, AlertCircle,
-  Filter, Download, Search, Calendar, Clock, User, FileText, Shield,
-  CheckCircle, XCircle, Info, Eye, RefreshCw, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, Minus, BarChart2, Users, Briefcase, DollarSign,
-  Star, MessageSquare, Bell, Edit, Trash2, Copy, Link, ExternalLink,
-  Flag, Award, Medal, Crown, Gem, Gift, Heart, Zap, Flame
+  Activity,
+  UserPlus,
+  ShoppingCart,
+  Settings as SettingsIcon,
+  LogIn,
+  AlertCircle,
+  Filter,
+  Download,
+  Search,
+  Calendar,
+  Clock,
+  User,
+  FileText,
+  Shield,
+  CheckCircle,
+  XCircle,
+  Info,
+  Eye,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  ArrowUp,
+  ArrowDown,
+  Minus,
+  BarChart2,
+  Briefcase,
+  Star,
+  MessageSquare,
+  Bell,
+  Edit,
+  Trash2,
+  Copy,
+  Link,
+  ExternalLink,
+  Flag,
+  Award,
+  Medal,
+  Crown,
+  Gem,
+  Gift,
+  Heart,
+  Zap,
+  Flame
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// All social icons from react-icons/fa only
+import {
+  FaFacebook,
+  FaTwitter,
+  FaInstagram,
+  FaLinkedin,
+  FaYoutube,
+  FaWhatsapp
+} from 'react-icons/fa';
+
+
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, isToday, isYesterday } from 'date-fns';

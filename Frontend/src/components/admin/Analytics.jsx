@@ -8,9 +8,9 @@ import {
   FaReply, FaTrash, FaEye, FaArrowUp, FaArrowDown, FaRedo, FaInfoCircle, FaTag, 
   FaThumbsUp, FaThumbsDown, FaCalendarAlt, FaFilePdf, FaFileExcel, FaFileAlt, 
   FaUserPlus, FaUserMinus, FaUserCheck, FaUserTimes, FaShoppingCart, FaWallet, 
-  FaTrendingUp, FaTrendingDown, FaMinus, FaPlus, FaCloudUploadAlt, FaCloudDownloadAlt,
+  Fa Fa FaMinus, FaPlus, FaCloudUploadAlt, FaCloudDownloadAlt,
   FaExternalLinkAlt, FaLink, FaEnvelope, FaPhone, FaMapMarkerAlt, FaGlobe, 
-  FaTwitter, FaFacebook, FaInstagram, FaLinkedin, FaYoutube, FaWhatsapp, FaTelegram
+  Fa Fa Fa Fa Fa FaWhatsapp, FaTelegram
 } from 'react-icons/fa';
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import jsPDF from 'jspdf';

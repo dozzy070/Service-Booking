@@ -91,7 +91,7 @@ import {
   FaServicestack,
   FaRegClock,
   FaWallet,
-  FaTrendingUp,
+  Fa
   FaAward,
   FaMedal
 } from 'react-icons/fa';

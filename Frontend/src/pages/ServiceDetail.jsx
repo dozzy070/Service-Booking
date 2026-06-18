@@ -16,7 +16,7 @@ import {
   FaArrowLeft, FaArrowRight, FaQuoteRight,
   FaCamera, FaVideo, FaImage as FaImageIcon,
   FaThumbsUp, FaThumbsDown, FaReply,
-  FaWhatsapp, FaFacebook, FaTwitter,
+  FaWhatsapp, Fa Fa
   FaLink, FaCopy, FaDollarSign,
   FaCreditCard, FaPaypal, FaGooglePay,
   FaApplePay, FaCheck

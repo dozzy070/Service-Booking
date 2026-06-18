@@ -1,3 +1,4 @@
+// src/components/provider/ProviderSettings.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
@@ -7,9 +8,13 @@ import {
   Form,
   Button,
   Alert,
+  Tabs,
+  Tab,
   Spinner,
   Badge,
-  Modal
+  Modal,
+  Image,
+  InputGroup
 } from 'react-bootstrap';
 import {
   Bell,
@@ -33,9 +38,19 @@ import {
   DollarSign,
   Banknote,
   Building2,
-  LogOut
+  LogOut,
+  
+  
+  ArrowUp,
+  ArrowDown,
+  User as UserIcon,
+  Phone,
+  MapPin,
+  Briefcase,
+  Calendar
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI, authAPI } from '../../api/api';
 import toast from 'react-hot-toast';

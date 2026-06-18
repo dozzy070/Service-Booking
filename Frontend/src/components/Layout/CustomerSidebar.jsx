@@ -1,3 +1,4 @@
+// src/components/Layout/CustomerSidebar.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Nav,
@@ -27,21 +28,23 @@ import {
   HelpCircle,
   Moon,
   Sun,
+  Menu,
+  X,
   Wallet,
   DollarSign,
-  FaArrowTrendUp,
+  
   Award,
   Shield,
   MapPin,
   Search,
-  Menu,
-  X,
   CreditCard,
   FileText,
   Users,
-  Zap
+  Zap,
+  PlusCircle
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { customerAPI, notificationAPI } from '../../api/api';

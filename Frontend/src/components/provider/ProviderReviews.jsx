@@ -1,18 +1,17 @@
+// src/components/provider/ProviderReviews.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Row,
   Col,
   Card,
-  Badge,
   Button,
+  Badge,
   Form,
   Pagination,
-  Spinner,
-  Alert,
   Modal,
-  Toast,
-  ToastContainer,
+  Alert,
+  Spinner,
   Dropdown
 } from 'react-bootstrap';
 import {
@@ -27,16 +26,22 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FaArrowTrendUp,
+  
   Award,
   Users,
   Edit2,
   Send,
   RefreshCw,
   ChevronDown,
-  FileText
+  Eye,
+  FileText,
+  Search,
+  
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
-import { FaArrowTrendUp, FaArrowTrendDown } from 'react-icons/fa';
+// No duplicate imports from react-icons/fa
+
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays } from 'date-fns';
