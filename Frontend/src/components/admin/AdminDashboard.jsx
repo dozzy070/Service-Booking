@@ -49,11 +49,13 @@ import {
   FaSlack,
   FaGithub
 } from 'react-icons/fa';
+
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Line, Bar, Pie, Doughnut, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Line, Bar, Pie, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+
 
 const AdminDashboard = () => {
   const { user } = useAuth();

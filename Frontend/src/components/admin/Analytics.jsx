@@ -79,7 +79,7 @@ import {
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import { Line, Bar, Pie, Doughnut, Area, ComposedChart, LineChart, BarChart, PieChart, AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Line, Bar, Pie,  Area, ComposedChart, LineChart, BarChart, PieChart, AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import toast from 'react-hot-toast';
