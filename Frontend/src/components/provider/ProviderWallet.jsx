@@ -33,7 +33,7 @@ import {
   Building2,
   Eye,
   Copy,
-  FaQrcode,
+  Qrcode,
   CreditCard,
   Plus,
   Minus,
