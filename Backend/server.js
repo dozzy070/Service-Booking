@@ -93,6 +93,9 @@ const allowedOrigins = [
   'https://service-booking-1-g46o.onrender.com'
 ];
 
+app.set('trust proxy', 1); // Trust first proxy (Render)
+
+
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.includes('vercel.app') || origin.includes('render.com')) {

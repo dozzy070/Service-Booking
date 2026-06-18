@@ -337,6 +337,10 @@ export const deleteService = async (req, res) => {
 // =========================================================================
 // GET CATEGORIES
 // =========================================================================
+// =========================================================================
+// GET CATEGORIES (FIXED - Removed non-existent columns)
+// =========================================================================
+
 export const getCategories = async (req, res) => {
   try {
     const result = await pool.query(`
@@ -361,7 +365,7 @@ export const getCategories = async (req, res) => {
       ORDER BY c.display_order ASC NULLS LAST, c.name ASC
     `);
 
-    // If no categories found, return empty array instead of error
+    // If no categories found, return empty array
     if (result.rows.length === 0) {
       return res.json([]);
     }
@@ -382,24 +386,22 @@ export const getCategories = async (req, res) => {
 
     console.log(`✅ Found ${categories.length} categories`);
     res.json(categories);
-
+    
   } catch (error) {
     console.error('❌ Error fetching categories:', error.message);
     console.error('Stack:', error.stack);
-
-    // Return empty array with 200 status instead of 500
-    // This prevents frontend crashes while we debug
+    
+    // Return empty array with 200 status to prevent frontend crashes
     res.status(200).json([]);
   }
 };
-
 // =========================================================================
 // GET POPULAR SERVICES (FIXED)
 // =========================================================================
 
 export const getPopularServices = async (req, res) => {
   try {
-    const { limit = 8, days = 30 } = req.query;
+    const { limit = 8 } = req.query;
 
     const result = await pool.query(`
       SELECT 
@@ -431,8 +433,7 @@ export const getPopularServices = async (req, res) => {
       JOIN users u ON s.provider_id = u.id AND u.is_active = true
       LEFT JOIN categories c ON s.category_id = c.id
       LEFT JOIN reviews r ON s.id = r.service_id
-      LEFT JOIN bookings b ON s.id = b.service_id AND b.status = 'completed' 
-        AND b.booking_date >= NOW() - INTERVAL '${parseInt(days)} days'
+      LEFT JOIN bookings b ON s.id = b.service_id AND b.status = 'completed'
       WHERE (s.status = 'approved' OR s.status = 'active')
         AND s.deleted_at IS NULL
         AND u.is_active = true
@@ -441,27 +442,23 @@ export const getPopularServices = async (req, res) => {
       LIMIT $1
     `, [parseInt(limit)]);
 
-    // Return empty array if no results
     if (result.rows.length === 0) {
       return res.json([]);
     }
 
     const services = result.rows.map(s => ({
       id: s.id,
-      title: s.title || 'Unnamed Service',
-      description: s.description || 'No description available',
-      price: parseFloat(s.price) || 0,
+      title: s.title,
+      description: s.description,
+      price: parseFloat(s.price),
       image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
       images: s.images || [],
-      location: s.location || s.city || 'Location not specified',
+      location: s.location || s.city,
       avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
       review_count: parseInt(s.review_count_calc) || parseInt(s.review_count) || 0,
       booking_count: parseInt(s.booking_count) || 0,
-      total_revenue: parseFloat(s.total_revenue) || 0,
-      provider_id: s.provider_id,
       provider_name: s.provider_name || 'Unknown Provider',
       provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
-      category_id: s.category_id,
       category_name: s.category_name || 'Uncategorized',
       category_icon: s.category_icon || '📦',
       status: s.status,
@@ -470,13 +467,12 @@ export const getPopularServices = async (req, res) => {
       is_popular: s.is_popular || false,
       created_at: s.created_at
     }));
-
+    
     console.log(`✅ Found ${services.length} popular services`);
     res.json(services);
-
+    
   } catch (error) {
     console.error('❌ Error fetching popular services:', error.message);
-    // Return empty array with 200 status
     res.status(200).json([]);
   }
 };
