@@ -385,66 +385,6 @@ export const getCategories = async (req, res) => {
 };
 
 // =========================================================================
-// ADD REVIEW
-// =========================================================================
-
-export const addReview = async (req, res) => {
-  try {
-    const serviceId = req.params.id;
-    const userId = req.user.id;
-    const { rating, comment, images } = req.body;
-
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
-    }
-
-    // Check if user has completed a booking for this service
-    const bookingCheck = await pool.query(
-      `SELECT id FROM bookings 
-       WHERE customer_id = $1 AND service_id = $2 AND status = 'completed'`,
-      [userId, serviceId]
-    );
-
-    if (bookingCheck.rows.length === 0) {
-      return res.status(403).json({ message: 'You must complete a booking for this service to review it' });
-    }
-
-    // Check if user already reviewed this service
-    const reviewCheck = await pool.query(
-      'SELECT id FROM reviews WHERE user_id = $1 AND service_id = $2',
-      [userId, serviceId]
-    );
-
-    if (reviewCheck.rows.length > 0) {
-      return res.status(400).json({ message: 'You have already reviewed this service' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO reviews (user_id, service_id, rating, comment, images, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *`,
-      [userId, serviceId, rating, comment || '', images || []]
-    );
-
-    // Update service average rating
-    await pool.query(`
-      UPDATE services 
-      SET avg_rating = (
-        SELECT COALESCE(AVG(rating), 0) FROM reviews WHERE service_id = $1
-      ),
-      review_count = (
-        SELECT COUNT(*) FROM reviews WHERE service_id = $1
-      )
-      WHERE id = $1
-    `, [serviceId]);
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Error in addReview:', error);
-    res.status(500).json({ message: 'Failed to add review' });
-  }
-};
-
-// =========================================================================
 // GET POPULAR SERVICES (FIXED)
 // =========================================================================
 
