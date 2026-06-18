@@ -35,7 +35,7 @@ import {
   Building2,
   Eye,
   Copy,
-  Qrcode,
+  FaQrcode,
   CreditCard,
   Plus,
   Minus,

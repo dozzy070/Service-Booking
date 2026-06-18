@@ -88,7 +88,7 @@ const Register = () => {
     }
 
     // Phone validation (optional but must be valid if provided)
-    if (formData.phone && !/^\+?[\d\s-()]{10,}$/.test(formData.phone)) {
+    if (formData.phone && !/^\+?[\d\s-()]{10}$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
 

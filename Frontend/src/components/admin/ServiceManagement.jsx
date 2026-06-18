@@ -98,7 +98,7 @@ import {
   FaShoppingCart,
   FaShoppingBag,
   FaBarcode,
-  FaQrcode,
+  FaFaQrcode,
   FaTicketAlt,
   FaBalanceScale,
   FaRuler,

@@ -40,7 +40,7 @@ import {
   FaTools,
   FaBuilding,
   FaCheckDouble,
-  FaQrcode
+  FaFaQrcode
 } from 'react-icons/fa';
 import { getServiceImage, getInitialsImage } from '../utils/imageUtils';
 import logo from '../assets/smart service logo.png';
@@ -909,7 +909,7 @@ const Home = () => {
           </div>
           <p className="text-muted small">(Replace the above links with your actual store URLs)</p>
           <div className="bg-light p-3 rounded-3">
-            <FaQrcode size={80} className="text-muted mb-2" />
+            <FaFaQrcode size={80} className="text-muted mb-2" />
             <p className="mb-0">Scan QR code to download instantly</p>
           </div>
         </Modal.Body>
