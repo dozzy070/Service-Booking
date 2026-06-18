@@ -36,8 +36,6 @@ import {
   FaUsers,
   FaCalendarAlt,
   FaWhatsapp,
-  Fa
-  Fa
   FaLink,
   FaEye,
   FaEyeSlash,

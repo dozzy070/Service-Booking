@@ -64,8 +64,6 @@ import {
   FaUsers,
   FaShoppingCart,
   FaChartBar,
-  Fa
-  Fa
   FaMinus,
   FaPlus,
   FaCheck,

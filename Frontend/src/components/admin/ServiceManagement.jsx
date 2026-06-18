@@ -63,11 +63,6 @@ import {
   FaMapMarkerAlt,
   FaGlobe,
   FaLink,
-  Fa
-  Fa
-  Fa
-  Fa
-  Fa
   FaWhatsapp,
   FaTelegram,
   FaDiscord,
