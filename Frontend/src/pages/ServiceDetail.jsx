@@ -318,7 +318,7 @@ const ServiceDetail = () => {
         <Modal.Body>
           <div className="d-flex justify-content-around">
             <Button variant="success" onClick={() => handleShare('whatsapp')}><FaWhatsapp size={32} /></Button>
-            <Button variant="primary" onClick={() => handleShare('facebook')}><FaFacebook size={32} /></Button>
+            <Button variant="primary" onClick={() => handleShare('facebook')}><Facebook size={32} /></Button>
             <Button variant="info" onClick={() => handleShare('twitter')}><FaTwitter size={32} /></Button>
             <Button variant="secondary" onClick={() => handleShare('copy')}><FaLink size={32} /></Button>
           </div>

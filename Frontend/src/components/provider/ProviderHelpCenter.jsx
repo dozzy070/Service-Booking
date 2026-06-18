@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 // All social icons from react-icons/fa
 import {
-  FaFacebook,
+  Facebook,
   FaTwitter,
   FaInstagram,
   FaLinkedin,

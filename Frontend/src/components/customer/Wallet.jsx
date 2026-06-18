@@ -39,7 +39,7 @@ import {
   FaCalendarAlt,
   FaReceipt,
   FaCopy,
-  FaFaQrcode
+  FaQrcode
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { customerAPI } from '../../api/api';

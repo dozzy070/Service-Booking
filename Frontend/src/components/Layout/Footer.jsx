@@ -46,7 +46,7 @@ const Footer = () => {
   ];
 
   const socialLinks = [
-    { icon: <FaFacebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },
+    { icon: <Facebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },
     { icon: <FaTwitter />, url: 'https://twitter.com', label: 'Twitter', color: '#1da1f2' },
     { icon: <FaInstagram />, url: 'https://instagram.com', label: 'Instagram', color: '#e4405f' },
     { icon: <FaLinkedin />, url: 'https://linkedin.com', label: 'LinkedIn', color: '#0077b5' },

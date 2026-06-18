@@ -40,7 +40,7 @@ import {
   FaTools,
   FaBuilding,
   FaCheckDouble,
-  FaFaQrcode
+  FaQrcode
 } from 'react-icons/fa';
 import { getServiceImage, getInitialsImage } from '../utils/imageUtils';
 import logo from '../assets/smart service logo.png';
@@ -909,7 +909,7 @@ const Home = () => {
           </div>
           <p className="text-muted small">(Replace the above links with your actual store URLs)</p>
           <div className="bg-light p-3 rounded-3">
-            <FaFaQrcode size={80} className="text-muted mb-2" />
+            <FaQrcode size={80} className="text-muted mb-2" />
             <p className="mb-0">Scan QR code to download instantly</p>
           </div>
         </Modal.Body>
@@ -927,7 +927,7 @@ const Home = () => {
           <p className="lead">Share Smart Services with your friends and earn <strong className="text-success">₦50 credit</strong> for every friend who books a service!</p>
           <div className="d-flex justify-content-center flex-wrap gap-3 my-4">
             <Button variant="primary" onClick={shareOnFacebook} style={{ backgroundColor: '#1877f2' }} className="rounded-pill px-4 py-2">
-              <FaFacebook className="me-2" /> Facebook
+              <Facebook className="me-2" /> Facebook
             </Button>
             <Button variant="info" onClick={shareOnTwitter} style={{ backgroundColor: '#1da1f2' }} className="rounded-pill px-4 py-2">
               <FaTwitter className="me-2" /> Twitter

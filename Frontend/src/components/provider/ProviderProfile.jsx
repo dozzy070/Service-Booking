@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 // All social icons from react-icons/fa
 import {
-  FaFacebook,
+  Facebook,
   FaTwitter,
   FaInstagram,
   FaLinkedin,
@@ -687,7 +687,7 @@ const ProviderProfile = () => {
                   </div>
                   <div className="mb-2">
                     <div className="d-flex align-items-center gap-2 mb-1">
-                      <FaFacebook size={16} color="#1877F2" />
+                      <Facebook size={16} color="#1877F2" />
                       <small className="text-muted">Facebook</small>
                     </div>
                     <Form.Control
