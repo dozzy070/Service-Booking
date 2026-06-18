@@ -113,14 +113,14 @@ import {
   FaPlay,
   FaPause,
   FaStop,
-  FaStepForward,
-  FaStepBackward,
-  FastForward,
-  FastBackward,
-  FaVolumeUp,
-  FaVolumeDown,
-  FaVolumeMute,
-  FaVolumeOff,
+  FaStepForward,        // ✅ Fixed: removed FaFa
+  FaStepBackward,       // ✅ Fixed: removed FaFa
+  FaFastForward,
+  FaFastBackward,
+  FaVolumeUp,           // ✅ Fixed: removed FaFa
+  FaVolumeDown,         // ✅ Fixed: removed FaFa
+  FaVolumeMute,         // ✅ Fixed: removed FaFa
+  FaVolumeOff,          // ✅ Fixed: removed FaFa
   FaVideo,
   FaFilm,
   FaCamera,
@@ -172,6 +172,7 @@ import {
   FaArrowDown,
   FaSync
 } from 'react-icons/fa';
+
 import { format, formatDistanceToNow } from 'date-fns';
 
 const ServiceManagement = () => {
