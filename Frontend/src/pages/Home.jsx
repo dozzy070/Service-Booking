@@ -30,6 +30,10 @@ import {
   FaEnvelope,
   FaPhone,
   FaMapMarkerAlt,
+  FaFacebook,
+  FaTwitter,
+  FaInstagram,
+  FaLinkedin,
   FaWhatsapp,
   FaEnvelope as FaEmail,
   FaApple,
@@ -840,7 +844,7 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* ========== MODALS (Enhanced UI/UX) ========== */}
+      {/* ========== MODALS ========== */}
 
       {/* 1. Specialized Service Modal */}
       <Modal show={showModal} onHide={() => setShowModal(false)} size="lg" centered className="professional-modal">
@@ -890,7 +894,7 @@ const Home = () => {
         </Modal.Footer>
       </Modal>
 
-      {/* 2. Download App Modal (with real store links) */}
+      {/* 2. Download App Modal */}
       <Modal show={showDownloadModal} onHide={() => setShowDownloadModal(false)} centered className="professional-modal">
         <Modal.Header closeButton className="bg-gradient-primary text-white border-0">
           <Modal.Title className="fw-bold"><FaDownload className="me-2" /> Download Our App</Modal.Title>
@@ -928,7 +932,7 @@ const Home = () => {
           <p className="lead">Share Smart Services with your friends and earn <strong className="text-success">₦50 credit</strong> for every friend who books a service!</p>
           <div className="d-flex justify-content-center flex-wrap gap-3 my-4">
             <Button variant="primary" onClick={shareOnFacebook} style={{ backgroundColor: '#1877f2' }} className="rounded-pill px-4 py-2">
-              <Facebook className="me-2" /> Facebook
+              <FaFacebook className="me-2" /> Facebook
             </Button>
             <Button variant="info" onClick={shareOnTwitter} style={{ backgroundColor: '#1da1f2' }} className="rounded-pill px-4 py-2">
               <FaTwitter className="me-2" /> Twitter
@@ -953,7 +957,7 @@ const Home = () => {
         </Modal.Footer>
       </Modal>
 
-      {/* 4. Partnership Modal (Premium Membership) */}
+      {/* 4. Partnership Modal */}
       <Modal show={showPartnershipModal} onHide={() => setShowPartnershipModal(false)} size="lg" centered className="professional-modal">
         <Modal.Header closeButton className="bg-gradient-primary text-white border-0">
           <Modal.Title className="fw-bold"><FaHandshake className="me-2" /> Strategic Partnership Opportunities</Modal.Title>

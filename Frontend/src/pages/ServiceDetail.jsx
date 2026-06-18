@@ -36,6 +36,10 @@ import {
   FaThumbsUp,
   FaThumbsDown,
   FaReply,
+  FaFacebook,
+  FaTwitter,
+  FaInstagram,
+  FaLinkedin,
   FaWhatsapp,
   FaLink,
   FaCopy,
@@ -102,7 +106,6 @@ const ServiceDetail = () => {
       setRelatedServices(res.data);
     } catch (err) {
       console.error('Error fetching related services:', err);
-      // optional: toast.error? Not needed for non‑critical
     }
   };
 
@@ -214,7 +217,7 @@ const ServiceDetail = () => {
       toast.success('Review submitted successfully!');
       setShowReviewModal(false);
       setNewReview({ rating: 5, title: '', comment: '', images: [] });
-      fetchReviews(); // refresh reviews after submission
+      fetchReviews();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to submit review');
     }
@@ -230,7 +233,7 @@ const ServiceDetail = () => {
     return stars;
   };
 
-  // If service is not loaded yet, show minimal placeholder (no spinner)
+  // If service is not loaded yet, show minimal placeholder
   if (!service) {
     return (
       <Container className="py-5 text-center">
@@ -239,7 +242,6 @@ const ServiceDetail = () => {
     );
   }
 
-  // Main render uses real service data
   return (
     <Container fluid className="service-detail-container py-4">
       {/* Back Button */}
@@ -251,13 +253,9 @@ const ServiceDetail = () => {
         <FaArrowLeft className="me-2" /> Back to Services
       </Button>
 
-      {/* The rest of the JSX remains exactly as you had it – just use `service` and other dynamic data */}
-      {/* I'm only including the skeleton; you can paste your original JSX but replace the static parts with real data */}
-      {/* For brevity, I'll show the essential dynamic parts – keep your existing layout and just use variable interpolation */}
-
-      {/* Example: Image gallery, provider info, etc. – all from `service` */}
       <Row>
         <Col lg={8}>
+          {/* Image Gallery */}
           <Card className="border-0 shadow-sm mb-4">
             <div className="service-gallery">
               <Image
@@ -279,7 +277,114 @@ const ServiceDetail = () => {
               </div>
             </div>
           </Card>
+
+          {/* Service Details */}
+          <Card className="border-0 shadow-sm mb-4">
+            <Card.Body>
+              <h3 className="mb-3">{service.title}</h3>
+              <div className="d-flex align-items-center gap-3 mb-3">
+                <span className="text-warning d-flex align-items-center">
+                  {renderStars(service.avg_rating)} <span className="ms-2 text-dark">{service.avg_rating?.toFixed(1)}</span>
+                </span>
+                <span className="text-muted">({service.review_count || 0} reviews)</span>
+                <Badge bg="success">Verified</Badge>
+              </div>
+              <p className="mb-4">{service.description}</p>
+              
+              {/* Service Features */}
+              <Row className="g-3 mb-4">
+                <Col md={4}>
+                  <div className="d-flex align-items-center gap-2">
+                    <FaClock className="text-primary" />
+                    <span>Duration: {service.duration || '2 hours'}</span>
+                  </div>
+                </Col>
+                <Col md={4}>
+                  <div className="d-flex align-items-center gap-2">
+                    <FaMapMarkerAlt className="text-primary" />
+                    <span>{service.location || 'Available Nationwide'}</span>
+                  </div>
+                </Col>
+                <Col md={4}>
+                  <div className="d-flex align-items-center gap-2">
+                    <FaUser className="text-primary" />
+                    <span>Provider: {service.provider_name}</span>
+                  </div>
+                </Col>
+              </Row>
+
+              {/* Provider Info */}
+              <div className="p-3 bg-light rounded-3 mb-4">
+                <div className="d-flex align-items-center gap-3">
+                  <img
+                    src={service.provider_avatar || getAvatarUrl(service.provider_name, 60)}
+                    alt={service.provider_name}
+                    className="rounded-circle"
+                    style={{ width: '60px', height: '60px', objectFit: 'cover' }}
+                  />
+                  <div>
+                    <h6 className="mb-1">{service.provider_name}</h6>
+                    <div className="d-flex align-items-center gap-2">
+                      <FaStar className="text-warning" />
+                      <span>{service.provider_rating || 'New'}</span>
+                      <span className="text-muted">•</span>
+                      <span className="text-muted">{service.provider_reviews || 0} reviews</span>
+                    </div>
+                    <Button variant="outline-primary" size="sm" className="mt-1">
+                      <FaEnvelope className="me-1" /> Contact Provider
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Card.Body>
+          </Card>
+
+          {/* Reviews Section */}
+          <Card className="border-0 shadow-sm">
+            <Card.Body>
+              <div className="d-flex justify-content-between align-items-center mb-4">
+                <h5 className="mb-0">Customer Reviews</h5>
+                <Button variant="outline-primary" size="sm" onClick={() => setShowReviewModal(true)}>
+                  Write a Review
+                </Button>
+              </div>
+              {reviews.length === 0 ? (
+                <p className="text-muted text-center py-4">No reviews yet. Be the first to review!</p>
+              ) : (
+                reviews.map((review, idx) => (
+                  <div key={idx} className="border-bottom pb-3 mb-3">
+                    <div className="d-flex align-items-center gap-2 mb-2">
+                      <img
+                        src={review.user_avatar || getAvatarUrl(review.user_name, 40)}
+                        alt={review.user_name}
+                        className="rounded-circle"
+                        style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                      />
+                      <div>
+                        <h6 className="mb-0">{review.user_name}</h6>
+                        <div className="d-flex align-items-center gap-2">
+                          <span className="text-warning">{renderStars(review.rating)}</span>
+                          <small className="text-muted">{new Date(review.created_at).toLocaleDateString()}</small>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mb-0">{review.comment}</p>
+                    <div className="d-flex gap-3 mt-2">
+                      <Button variant="link" size="sm" className="text-muted p-0">
+                        <FaThumbsUp className="me-1" /> Helpful
+                      </Button>
+                      <Button variant="link" size="sm" className="text-muted p-0">
+                        <FaFlag className="me-1" /> Report
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </Card.Body>
+          </Card>
         </Col>
+
+        {/* Right Sidebar */}
         <Col lg={4}>
           <Card className="border-0 shadow-sm mb-4 sticky-top" style={{ top: '20px' }}>
             <Card.Body>
@@ -288,13 +393,13 @@ const ServiceDetail = () => {
                   <h3 className="mb-2">{service.title}</h3>
                   <div className="d-flex align-items-center gap-3 mb-2">
                     <span className="text-warning d-flex align-items-center">
-                      {renderStars(service.rating)} <span className="ms-2 text-dark">{service.rating}</span>
+                      {renderStars(service.avg_rating)} <span className="ms-2 text-dark">{service.avg_rating?.toFixed(1)}</span>
                     </span>
-                    <span className="text-muted">({service.totalReviews} reviews)</span>
+                    <span className="text-muted">({service.review_count || 0} reviews)</span>
                   </div>
                 </div>
-                <Button variant="outline-danger" onClick={handleFavorite}>
-                  {isFavorite ? <FaHeart /> : <FaRegHeart />}
+                <Button variant="outline-danger" onClick={handleFavorite} className="rounded-circle p-2">
+                  {isFavorite ? <FaHeart size={20} /> : <FaRegHeart size={20} />}
                 </Button>
               </div>
               <h4 className="text-primary mb-3">${service.price}</h4>
@@ -308,20 +413,52 @@ const ServiceDetail = () => {
               </div>
             </Card.Body>
           </Card>
+
+          {/* Related Services */}
+          {relatedServices.length > 0 && (
+            <Card className="border-0 shadow-sm">
+              <Card.Body>
+                <h6 className="fw-bold mb-3">Related Services</h6>
+                {relatedServices.slice(0, 3).map((related, idx) => (
+                  <Link key={idx} to={`/services/${related.id}`} className="text-decoration-none">
+                    <div className="d-flex align-items-center gap-2 mb-2 p-2 rounded-3 hover-bg">
+                      <img
+                        src={related.image || getServiceImage(related.title, related.id, 60, 60)}
+                        alt={related.title}
+                        style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: '8px' }}
+                      />
+                      <div>
+                        <h6 className="mb-0 small">{related.title}</h6>
+                        <span className="text-primary fw-bold small">${related.price}</span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </Card.Body>
+            </Card>
+          )}
         </Col>
       </Row>
 
-      {/* Keep your existing JSX for service details, provider info, reviews, etc. – replace any remaining mock references with `service`, `reviews`, etc. */}
-
       {/* Share Modal */}
       <Modal show={showShareModal} onHide={() => setShowShareModal(false)} centered>
-        <Modal.Header closeButton><Modal.Title>Share this service</Modal.Title></Modal.Header>
+        <Modal.Header closeButton>
+          <Modal.Title>Share this service</Modal.Title>
+        </Modal.Header>
         <Modal.Body>
           <div className="d-flex justify-content-around">
-            <Button variant="success" onClick={() => handleShare('whatsapp')}><FaWhatsapp size={32} /></Button>
-            <Button variant="primary" onClick={() => handleShare('facebook')}><Facebook size={32} /></Button>
-            <Button variant="info" onClick={() => handleShare('twitter')}><FaTwitter size={32} /></Button>
-            <Button variant="secondary" onClick={() => handleShare('copy')}><FaLink size={32} /></Button>
+            <Button variant="success" onClick={() => handleShare('whatsapp')} className="rounded-circle p-3">
+              <FaWhatsapp size={28} />
+            </Button>
+            <Button variant="primary" onClick={() => handleShare('facebook')} className="rounded-circle p-3">
+              <FaFacebook size={28} />  // ✅ Fixed
+            </Button>
+            <Button variant="info" onClick={() => handleShare('twitter')} className="rounded-circle p-3">
+              <FaTwitter size={28} />   // ✅ Fixed
+            </Button>
+            <Button variant="secondary" onClick={() => handleShare('copy')} className="rounded-circle p-3">
+              <FaLink size={28} />
+            </Button>
           </div>
           {copied && <Alert variant="success" className="mt-3">Link copied to clipboard!</Alert>}
         </Modal.Body>
@@ -329,7 +466,9 @@ const ServiceDetail = () => {
 
       {/* Booking Modal */}
       <Modal show={showBookingModal} onHide={() => setShowBookingModal(false)} centered size="lg">
-        <Modal.Header closeButton><Modal.Title>Book Service</Modal.Title></Modal.Header>
+        <Modal.Header closeButton>
+          <Modal.Title>Book Service</Modal.Title>
+        </Modal.Header>
         <Modal.Body>
           {bookingStep === 1 && (
             <Form>
@@ -379,7 +518,9 @@ const ServiceDetail = () => {
 
       {/* Review Modal */}
       <Modal show={showReviewModal} onHide={() => setShowReviewModal(false)} centered size="lg">
-        <Modal.Header closeButton><Modal.Title>Write a Review</Modal.Title></Modal.Header>
+        <Modal.Header closeButton>
+          <Modal.Title>Write a Review</Modal.Title>
+        </Modal.Header>
         <Modal.Body>
           <Form>
             <Form.Group className="mb-3">
@@ -411,6 +552,35 @@ const ServiceDetail = () => {
           <Button variant="primary" onClick={handleReviewSubmit}>Submit Review</Button>
         </Modal.Footer>
       </Modal>
+
+      <style>{`
+        .hover-bg:hover {
+          background: #f8f9fa;
+        }
+        .sticky-top {
+          top: 20px;
+        }
+        .service-gallery {
+          position: relative;
+        }
+        .gallery-thumbnails {
+          overflow-x: auto;
+          padding-bottom: 10px;
+        }
+        .gallery-thumbnails::-webkit-scrollbar {
+          height: 4px;
+        }
+        .gallery-thumbnails::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
+        }
+        @media (max-width: 768px) {
+          .sticky-top {
+            position: relative;
+            top: 0;
+          }
+        }
+      `}</style>
     </Container>
   );
 };

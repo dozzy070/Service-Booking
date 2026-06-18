@@ -1,3 +1,4 @@
+// src/components/Layout/Footer.jsx
 import React from 'react';
 import { Container, Row, Col, Form, Button, InputGroup } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
@@ -12,7 +13,11 @@ import {
   FaHeadset,
   FaShieldAlt,
   FaCreditCard,
-  FaTruck
+  FaTruck,
+  FaFacebook,     // ✅ Added
+  FaTwitter,      // ✅ Added
+  FaInstagram,    // ✅ Added
+  FaLinkedin      // ✅ Added
 } from 'react-icons/fa';
 
 const Footer = () => {
@@ -46,7 +51,7 @@ const Footer = () => {
   ];
 
   const socialLinks = [
-    { icon: <Facebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },
+    { icon: <FaFacebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },  // ✅ Fixed
     { icon: <FaTwitter />, url: 'https://twitter.com', label: 'Twitter', color: '#1da1f2' },
     { icon: <FaInstagram />, url: 'https://instagram.com', label: 'Instagram', color: '#e4405f' },
     { icon: <FaLinkedin />, url: 'https://linkedin.com', label: 'LinkedIn', color: '#0077b5' },
