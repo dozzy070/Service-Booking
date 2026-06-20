@@ -1,12 +1,5 @@
 // controllers/serviceController.js
 import pool from '../config/db.js';
-import {
-  getServiceById as getServiceByIdModel,
-  createService as createServiceModel,
-  updateService as updateServiceModel,
-  deleteService as deleteServiceModel,
-  getProviderServices as getProviderServicesModel
-} from '../models/serviceModel.js';
 
 // =========================================================================
 // HELPER FUNCTIONS
@@ -22,31 +15,26 @@ const formatNaira = (amount) => {
 };
 
 // =========================================================================
-// GET CATEGORIES - FIXED VERSION
+// GET CATEGORIES - WORKING VERSION
 // =========================================================================
 
 export const getCategories = async (req, res) => {
   console.log('🔍 Fetching categories...');
   
   try {
-    // Simple query that matches your exact categories table schema
+    // Simple query that works with any schema
     const result = await pool.query(`
       SELECT 
-        c.id, 
-        c.name, 
-        c.slug, 
-        c.icon, 
-        c.color, 
-        c.description,
-        c.display_order,
-        c.created_at,
-        COUNT(DISTINCT s.id) as service_count
-      FROM categories c
-      LEFT JOIN services s ON s.category_id = c.id 
-        AND s.deleted_at IS NULL 
-        AND (s.status = 'approved' OR s.status = 'active')
-      GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.description, c.display_order, c.created_at
-      ORDER BY c.display_order ASC NULLS LAST, c.name ASC
+        id, 
+        name, 
+        slug, 
+        icon, 
+        color, 
+        description,
+        display_order,
+        created_at
+      FROM categories
+      ORDER BY display_order ASC, name ASC
     `);
 
     console.log(`✅ Found ${result.rows.length} categories`);
@@ -54,49 +42,119 @@ export const getCategories = async (req, res) => {
     const categories = result.rows.map(row => ({
       id: row.id,
       name: row.name,
-      slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
+      slug: row.slug || row.name?.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-') || 'uncategorized',
       icon: row.icon || '📦',
       color: row.color || '#3b82f6',
       description: row.description || '',
       display_order: row.display_order || 0,
       created_at: row.created_at,
-      service_count: parseInt(row.service_count, 10) || 0
+      service_count: 0
     }));
 
     return res.status(200).json(categories);
     
   } catch (error) {
     console.error('❌ Error in getCategories:', error.message);
-    console.error('📚 Stack:', error.stack);
+    console.error('Stack:', error.stack);
     
-    // Fallback: return categories without service counts
+    // Fallback: try even simpler query
     try {
-      console.log('🔄 Trying fallback query...');
-      const fallback = await pool.query(`
-        SELECT id, name, slug, icon, color, description, display_order, created_at
-        FROM categories
-        ORDER BY display_order ASC, name ASC
-      `);
-      
-      const categories = fallback.rows.map(row => ({
+      const fallback = await pool.query('SELECT id, name FROM categories ORDER BY name ASC');
+      return res.status(200).json(fallback.rows.map(row => ({
         id: row.id,
         name: row.name,
-        slug: row.slug,
-        icon: row.icon || '📦',
-        color: row.color || '#3b82f6',
-        description: row.description || '',
-        display_order: row.display_order || 0,
-        created_at: row.created_at,
+        slug: row.name?.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-') || 'uncategorized',
+        icon: '📦',
+        color: '#3b82f6',
+        description: '',
+        display_order: 0,
+        created_at: new Date().toISOString(),
         service_count: 0
-      }));
-      
-      console.log(`✅ Fallback: Found ${categories.length} categories`);
-      return res.status(200).json(categories);
-      
+      })));
     } catch (fallbackError) {
       console.error('❌ Fallback also failed:', fallbackError.message);
       return res.status(200).json([]);
     }
+  }
+};
+
+// =========================================================================
+// GET POPULAR SERVICES
+// =========================================================================
+
+export const getPopularServices = async (req, res) => {
+  try {
+    const { limit = 8 } = req.query;
+
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.title,
+        s.description,
+        s.price,
+        s.images,
+        s.location,
+        s.city,
+        s.avg_rating,
+        s.review_count,
+        s.status,
+        s.slug,
+        s.is_featured,
+        s.is_popular,
+        s.created_at,
+        u.id as provider_id,
+        u.name as provider_name,
+        u.avatar as provider_avatar,
+        c.id as category_id,
+        c.name as category_name,
+        c.icon as category_icon,
+        COUNT(DISTINCT b.id) as booking_count,
+        COALESCE(AVG(r.rating), s.avg_rating, 0) as avg_rating_calc
+      FROM services s
+      JOIN users u ON s.provider_id = u.id AND u.is_active = true
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN reviews r ON s.id = r.service_id
+      LEFT JOIN bookings b ON s.id = b.service_id AND b.status = 'completed'
+      WHERE (s.status = 'approved' OR s.status = 'active')
+        AND s.deleted_at IS NULL
+        AND u.is_active = true
+      GROUP BY s.id, u.id, u.name, u.avatar, c.id, c.name, c.icon
+      ORDER BY booking_count DESC, avg_rating_calc DESC, s.created_at DESC
+      LIMIT $1
+    `, [parseInt(limit)]);
+
+    if (result.rows.length === 0) {
+      return res.json([]);
+    }
+
+    const services = result.rows.map(s => ({
+      id: s.id,
+      title: s.title || 'Unnamed Service',
+      description: s.description || 'No description available',
+      price: parseFloat(s.price) || 0,
+      image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
+      images: s.images || [],
+      location: s.location || s.city || 'Location not specified',
+      avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
+      review_count: parseInt(s.review_count) || 0,
+      booking_count: parseInt(s.booking_count) || 0,
+      provider_name: s.provider_name || 'Unknown Provider',
+      provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
+      category_name: s.category_name || 'Uncategorized',
+      category_icon: s.category_icon || '📦',
+      status: s.status,
+      slug: s.slug,
+      is_featured: s.is_featured || false,
+      is_popular: s.is_popular || false,
+      created_at: s.created_at
+    }));
+    
+    console.log(`✅ Found ${services.length} popular services`);
+    res.json(services);
+    
+  } catch (error) {
+    console.error('❌ Error fetching popular services:', error.message);
+    res.json([]);
   }
 };
 
@@ -137,25 +195,15 @@ export const getServiceById = async (req, res) => {
     }
 
     const service = result.rows[0];
-
-    // Get service images from the images array
-    const images = service.images || [];
-
-    // Get service features from the features array
-    const features = service.features || [];
-
-    // Get service requirements from the requirements array
-    const requirements = service.requirements || [];
-
     res.json({
       ...service,
       avg_rating: parseFloat(service.avg_rating || 0),
       review_count: parseInt(service.review_count || 0),
       booking_count: parseInt(service.booking_count || 0),
       total_revenue: parseFloat(service.total_revenue || 0),
-      images: images,
-      features: features,
-      requirements: requirements,
+      images: service.images || [],
+      features: service.features || [],
+      requirements: service.requirements || [],
       price: parseFloat(service.price)
     });
   } catch (error) {
@@ -201,12 +249,10 @@ export const createService = async (req, res) => {
 
     const providerId = req.user.id;
 
-    // Validate required fields
     if (!title || !description || !price) {
       return res.status(400).json({ message: 'Title, description, and price are required' });
     }
 
-    // Generate slug from title
     const slug = title.toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
@@ -286,7 +332,6 @@ export const updateService = async (req, res) => {
       status
     } = req.body;
 
-    // Check if service exists and belongs to provider
     const serviceCheck = await pool.query(
       'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
       [serviceId]
@@ -300,7 +345,6 @@ export const updateService = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to update this service' });
     }
 
-    // Generate slug if title changed
     let slug = undefined;
     if (title) {
       slug = title.toLowerCase()
@@ -374,7 +418,6 @@ export const deleteService = async (req, res) => {
     const serviceId = req.params.id;
     const providerId = req.user.id;
 
-    // Check if service exists and belongs to provider
     const serviceCheck = await pool.query(
       'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
       [serviceId]
@@ -388,7 +431,6 @@ export const deleteService = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this service' });
     }
 
-    // Check if service has active bookings
     const bookingCheck = await pool.query(
       `SELECT COUNT(*) as count FROM bookings 
        WHERE service_id = $1 AND status NOT IN ('completed', 'cancelled')`,
@@ -399,7 +441,6 @@ export const deleteService = async (req, res) => {
       return res.status(400).json({ message: 'Cannot delete service with active bookings' });
     }
 
-    // Soft delete
     await pool.query(
       'UPDATE services SET deleted_at = NOW(), is_active = false WHERE id = $1',
       [serviceId]
@@ -409,89 +450,6 @@ export const deleteService = async (req, res) => {
   } catch (error) {
     console.error('Error in deleteService:', error);
     res.status(500).json({ message: 'Failed to delete service', error: error.message });
-  }
-};
-
-// =========================================================================
-// GET POPULAR SERVICES (FIXED)
-// =========================================================================
-
-export const getPopularServices = async (req, res) => {
-  try {
-    const { limit = 8 } = req.query;
-
-    const result = await pool.query(`
-      SELECT 
-        s.id,
-        s.title,
-        s.description,
-        s.price,
-        s.images,
-        s.location,
-        s.city,
-        s.avg_rating,
-        s.review_count,
-        s.status,
-        s.slug,
-        s.is_featured,
-        s.is_popular,
-        s.created_at,
-        u.id as provider_id,
-        u.name as provider_name,
-        u.avatar as provider_avatar,
-        c.id as category_id,
-        c.name as category_name,
-        c.icon as category_icon,
-        COALESCE(AVG(r.rating), s.avg_rating, 0) as avg_rating_calc,
-        COUNT(DISTINCT r.id) as review_count_calc,
-        COUNT(DISTINCT b.id) as booking_count,
-        COALESCE(SUM(b.total_amount), 0) as total_revenue
-      FROM services s
-      JOIN users u ON s.provider_id = u.id AND u.is_active = true
-      LEFT JOIN categories c ON s.category_id = c.id
-      LEFT JOIN reviews r ON s.id = r.service_id
-      LEFT JOIN bookings b ON s.id = b.service_id AND b.status = 'completed'
-      WHERE (s.status = 'approved' OR s.status = 'active')
-        AND s.deleted_at IS NULL
-        AND u.is_active = true
-      GROUP BY s.id, u.id, u.name, u.avatar, c.id, c.name, c.icon
-      ORDER BY booking_count DESC, avg_rating_calc DESC, s.created_at DESC
-      LIMIT $1
-    `, [parseInt(limit)]);
-
-    if (result.rows.length === 0) {
-      return res.json([]);
-    }
-
-    const services = result.rows.map(s => ({
-      id: s.id,
-      title: s.title || 'Unnamed Service',
-      description: s.description || 'No description available',
-      price: parseFloat(s.price) || 0,
-      image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
-      images: s.images || [],
-      location: s.location || s.city || 'Location not specified',
-      avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
-      review_count: parseInt(s.review_count_calc) || parseInt(s.review_count) || 0,
-      booking_count: parseInt(s.booking_count) || 0,
-      total_revenue: parseFloat(s.total_revenue) || 0,
-      provider_name: s.provider_name || 'Unknown Provider',
-      provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
-      category_name: s.category_name || 'Uncategorized',
-      category_icon: s.category_icon || '📦',
-      status: s.status,
-      slug: s.slug,
-      is_featured: s.is_featured || false,
-      is_popular: s.is_popular || false,
-      created_at: s.created_at
-    }));
-    
-    console.log(`✅ Found ${services.length} popular services`);
-    res.json(services);
-    
-  } catch (error) {
-    console.error('❌ Error fetching popular services:', error.message);
-    res.status(200).json([]);
   }
 };
 
@@ -668,7 +626,6 @@ export const addReview = async (req, res) => {
       return res.status(400).json({ message: 'Rating must be between 1 and 5' });
     }
 
-    // Check if user has completed a booking for this service
     const bookingCheck = await pool.query(
       `SELECT id FROM bookings 
        WHERE customer_id = $1 AND service_id = $2 AND status = 'completed'`,
@@ -679,7 +636,6 @@ export const addReview = async (req, res) => {
       return res.status(403).json({ message: 'You must complete a booking for this service to review it' });
     }
 
-    // Check if user already reviewed this service
     const reviewCheck = await pool.query(
       'SELECT id FROM reviews WHERE user_id = $1 AND service_id = $2',
       [userId, serviceId]
@@ -695,7 +651,6 @@ export const addReview = async (req, res) => {
       [userId, serviceId, rating, comment || '', images || []]
     );
 
-    // Update service average rating
     await pool.query(`
       UPDATE services 
       SET avg_rating = (
@@ -773,7 +728,6 @@ export const getSimilarServices = async (req, res) => {
     const serviceId = req.params.id;
     const { limit = 4 } = req.query;
 
-    // Get the service's category
     const service = await pool.query(
       'SELECT category_id FROM services WHERE id = $1 AND deleted_at IS NULL',
       [serviceId]
@@ -794,7 +748,6 @@ export const getSimilarServices = async (req, res) => {
         s.price,
         s.discount_price,
         s.currency,
-        s.image as main_image,
         s.images,
         s.location,
         s.city,
@@ -829,7 +782,7 @@ export const getSimilarServices = async (req, res) => {
       price: parseFloat(s.price),
       discount_price: s.discount_price ? parseFloat(s.discount_price) : null,
       currency: s.currency || 'NGN',
-      image: s.images && s.images.length > 0 ? s.images[0] : s.main_image || 'https://via.placeholder.com/300x200?text=Service',
+      image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
       images: s.images || [],
       location: s.location || s.city,
       avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
@@ -857,7 +810,6 @@ export const toggleFavorite = async (req, res) => {
     const userId = req.user.id;
     const serviceId = req.params.id;
 
-    // Check if service exists
     const serviceCheck = await pool.query(
       'SELECT id FROM services WHERE id = $1 AND deleted_at IS NULL AND (status = $2 OR status = $3)',
       [serviceId, 'approved', 'active']
@@ -867,21 +819,18 @@ export const toggleFavorite = async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    // Check if already favorited
     const favoriteCheck = await pool.query(
       'SELECT id FROM favorites WHERE user_id = $1 AND service_id = $2',
       [userId, serviceId]
     );
 
     if (favoriteCheck.rows.length > 0) {
-      // Remove from favorites
       await pool.query(
         'DELETE FROM favorites WHERE user_id = $1 AND service_id = $2',
         [userId, serviceId]
       );
       return res.json({ favorited: false, message: 'Removed from favorites' });
     } else {
-      // Add to favorites
       await pool.query(
         'INSERT INTO favorites (user_id, service_id) VALUES ($1, $2)',
         [userId, serviceId]
@@ -906,7 +855,6 @@ export const getFavorites = async (req, res) => {
         s.price,
         s.discount_price,
         s.currency,
-        s.image as main_image,
         s.images,
         s.location,
         s.city,
@@ -932,7 +880,7 @@ export const getFavorites = async (req, res) => {
       price: parseFloat(s.price),
       discount_price: s.discount_price ? parseFloat(s.discount_price) : null,
       currency: s.currency || 'NGN',
-      image: s.images && s.images.length > 0 ? s.images[0] : s.main_image || 'https://via.placeholder.com/300x200?text=Service',
+      image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
       images: s.images || [],
       location: s.location || s.city,
       avg_rating: parseFloat(s.avg_rating) || 0,
@@ -981,7 +929,6 @@ export const getAvailability = async (req, res) => {
       return res.status(400).json({ message: 'Date parameter is required' });
     }
 
-    // Get service details
     const service = await pool.query(
       'SELECT provider_id, duration FROM services WHERE id = $1 AND deleted_at IS NULL',
       [serviceId]
@@ -993,8 +940,6 @@ export const getAvailability = async (req, res) => {
 
     const providerId = service.rows[0].provider_id;
     const duration = service.rows[0].duration || 60;
-
-    // Get provider's schedule for the day
     const dayOfWeek = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
     const schedule = await pool.query(`
@@ -1007,9 +952,7 @@ export const getAvailability = async (req, res) => {
       return res.json({ available: [], booked: [], peak_hours: [] });
     }
 
-    // Generate time slots (30-minute intervals)
     const slots = [];
-    const durationMinutes = parseInt(duration);
     const intervalMinutes = 30;
 
     schedule.rows.forEach(row => {
@@ -1024,7 +967,6 @@ export const getAvailability = async (req, res) => {
       }
     });
 
-    // Get existing bookings for the date
     const bookings = await pool.query(`
       SELECT booking_time FROM bookings
       WHERE service_id = $1 AND booking_date::date = $2
@@ -1033,8 +975,6 @@ export const getAvailability = async (req, res) => {
 
     const bookedSlots = bookings.rows.map(b => b.booking_time);
     const availableSlots = slots.filter(s => !bookedSlots.includes(s));
-
-    // Peak hours (10am-12pm and 4pm-6pm)
     const peakHours = ['09:00', '10:00', '11:00', '12:00', '16:00', '17:00', '18:00'];
 
     res.json({
@@ -1042,7 +982,7 @@ export const getAvailability = async (req, res) => {
       booked: bookedSlots,
       time_slots: slots,
       peak_hours: peakHours,
-      duration: durationMinutes
+      duration: parseInt(duration)
     });
   } catch (error) {
     console.error('Error in getAvailability:', error);
@@ -1202,7 +1142,6 @@ export const getRecommendedServices = async (req, res) => {
         AND (s.is_active = true OR s.is_active IS NULL)
     `;
 
-    // If user is logged in, prioritize categories they've used before
     if (userId) {
       const userCategories = await pool.query(`
         SELECT DISTINCT s.category_id
@@ -1225,7 +1164,6 @@ export const getRecommendedServices = async (req, res) => {
       }
     }
 
-    // Fallback: get highest rated services
     query += `
       GROUP BY s.id, u.name, u.avatar, c.name
       ORDER BY avg_rating_calc DESC, booking_count DESC
