@@ -22,6 +22,147 @@ const formatNaira = (amount) => {
 };
 
 // =========================================================================
+// GET CATEGORIES - FIXED VERSION
+// =========================================================================
+
+export const getCategories = async (req, res) => {
+  console.log('🔍 Fetching categories...');
+  
+  try {
+    // First, check if the pool is connected
+    if (!pool) {
+      console.error('❌ Database pool not initialized');
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
+    // Try a simple query to check database connection
+    try {
+      await pool.query('SELECT NOW()');
+      console.log('✅ Database connected successfully');
+    } catch (connError) {
+      console.error('❌ Database connection failed:', connError.message);
+      return res.status(500).json({ message: 'Database connection failed' });
+    }
+
+    // Step 1: Check if categories table exists
+    console.log('📊 Checking categories table...');
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'categories'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('❌ Categories table does not exist!');
+      return res.json([]);
+    }
+    
+    // Step 2: Try to get categories with a simple query first
+    console.log('🔍 Fetching categories data...');
+    const result = await pool.query(`
+      SELECT 
+        id, 
+        name, 
+        slug, 
+        icon, 
+        color, 
+        description,
+        display_order,
+        created_at
+      FROM categories
+      ORDER BY display_order ASC NULLS LAST, name ASC
+    `);
+    
+    console.log(`✅ Found ${result.rows.length} categories`);
+    
+    if (result.rows.length === 0) {
+      console.log('📂 No categories found');
+      return res.json([]);
+    }
+    
+    // Step 3: Get service counts separately with a simpler query
+    console.log('📊 Fetching service counts...');
+    const categoryIds = result.rows.map(row => row.id);
+    
+    let serviceCounts = [];
+    try {
+      // Use a simpler query for service counts
+      const countResult = await pool.query(`
+        SELECT 
+          category_id,
+          COUNT(*) as service_count
+        FROM services
+        WHERE category_id = ANY($1::uuid[])
+          AND deleted_at IS NULL 
+          AND status IN ('approved', 'active')
+        GROUP BY category_id
+      `, [categoryIds]);
+      
+      serviceCounts = countResult.rows;
+      console.log(`✅ Found service counts for ${serviceCounts.length} categories`);
+    } catch (countError) {
+      console.warn('⚠️ Could not fetch service counts:', countError.message);
+      // Continue without service counts
+    }
+    
+    // Combine the data
+    const categories = result.rows.map(row => {
+      const stats = serviceCounts.find(s => s.category_id === row.id) || {
+        service_count: 0
+      };
+
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
+        icon: row.icon || '📦',
+        color: row.color || '#3b82f6',
+        description: row.description,
+        display_order: row.display_order || 0,
+        created_at: row.created_at,
+        service_count: parseInt(stats.service_count || 0, 10)
+      };
+    });
+    
+    console.log(`✅ Returning ${categories.length} categories`);
+    return res.status(200).json(categories);
+    
+  } catch (error) {
+    console.error('❌ Error in getCategories:', error.message);
+    console.error('📚 Stack:', error.stack);
+    
+    // Try a last resort query without any joins or complex logic
+    try {
+      console.log('🔄 Trying fallback query...');
+      const fallback = await pool.query(`
+        SELECT id, name, slug, icon, color, description
+        FROM categories
+        LIMIT 20
+      `);
+      
+      if (fallback.rows.length > 0) {
+        console.log(`✅ Fallback: Found ${fallback.rows.length} categories`);
+        return res.status(200).json(fallback.rows.map(row => ({
+          id: row.id,
+          name: row.name,
+          slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
+          icon: row.icon || '📦',
+          color: row.color || '#3b82f6',
+          description: row.description,
+          service_count: 0
+        })));
+      }
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError.message);
+    }
+    
+    // Return empty array with 200 status to prevent frontend errors
+    return res.status(200).json([]);
+  }
+};
+
+// =========================================================================
 // GET SERVICE BY ID
 // =========================================================================
 
@@ -172,6 +313,7 @@ export const createService = async (req, res) => {
 // =========================================================================
 // UPDATE SERVICE
 // =========================================================================
+
 export const updateService = async (req, res) => {
   try {
     const serviceId = req.params.id;
@@ -289,7 +431,6 @@ export const updateService = async (req, res) => {
 // DELETE SERVICE
 // =========================================================================
 
-
 export const deleteService = async (req, res) => {
   try {
     const serviceId = req.params.id;
@@ -333,68 +474,6 @@ export const deleteService = async (req, res) => {
   }
 };
 
-
-// =========================================================================
-// GET CATEGORIES
-// =========================================================================
-// =========================================================================
-// GET CATEGORIES (FIXED - Removed non-existent columns)
-// =========================================================================
-
-export const getCategories = async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        c.id, 
-        c.name, 
-        c.slug, 
-        c.icon, 
-        c.color, 
-        c.description,
-        c.display_order,
-        c.created_at,
-        COUNT(DISTINCT s.id) as service_count,
-        COALESCE(SUM(CASE WHEN b.status = 'completed' THEN b.total_amount ELSE 0 END), 0) as total_revenue,
-        COUNT(DISTINCT CASE WHEN b.status = 'completed' THEN b.id END) as total_bookings
-      FROM categories c
-      LEFT JOIN services s ON s.category_id = c.id 
-        AND s.deleted_at IS NULL 
-        AND (s.status = 'approved' OR s.status = 'active')
-      LEFT JOIN bookings b ON b.service_id = s.id
-      GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.description, c.display_order, c.created_at
-      ORDER BY c.display_order ASC NULLS LAST, c.name ASC
-    `);
-
-    // If no categories found, return empty array
-    if (result.rows.length === 0) {
-      return res.json([]);
-    }
-
-    const categories = result.rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      icon: row.icon || '📦',
-      color: row.color || '#3b82f6',
-      description: row.description,
-      display_order: row.display_order || 0,
-      created_at: row.created_at,
-      service_count: parseInt(row.service_count, 10),
-      total_revenue: parseFloat(row.total_revenue || 0),
-      total_bookings: parseInt(row.total_bookings || 0)
-    }));
-
-    console.log(`✅ Found ${categories.length} categories`);
-    res.json(categories);
-    
-  } catch (error) {
-    console.error('❌ Error fetching categories:', error.message);
-    console.error('Stack:', error.stack);
-    
-    // Return empty array with 200 status to prevent frontend crashes
-    res.status(200).json([]);
-  }
-};
 // =========================================================================
 // GET POPULAR SERVICES (FIXED)
 // =========================================================================
@@ -695,7 +774,6 @@ export const addReview = async (req, res) => {
     res.status(500).json({ message: 'Failed to add review', error: error.message });
   }
 };
-
 
 // =========================================================================
 // GET REVIEWS
