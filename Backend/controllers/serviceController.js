@@ -29,136 +29,74 @@ export const getCategories = async (req, res) => {
   console.log('🔍 Fetching categories...');
   
   try {
-    // First, check if the pool is connected
-    if (!pool) {
-      console.error('❌ Database pool not initialized');
-      return res.status(500).json({ message: 'Database connection error' });
-    }
-
-    // Try a simple query to check database connection
-    try {
-      await pool.query('SELECT NOW()');
-      console.log('✅ Database connected successfully');
-    } catch (connError) {
-      console.error('❌ Database connection failed:', connError.message);
-      return res.status(500).json({ message: 'Database connection failed' });
-    }
-
-    // Step 1: Check if categories table exists
-    console.log('📊 Checking categories table...');
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'categories'
-      )
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      console.log('❌ Categories table does not exist!');
-      return res.json([]);
-    }
-    
-    // Step 2: Try to get categories with a simple query first
-    console.log('🔍 Fetching categories data...');
+    // Simple query that matches your exact categories table schema
     const result = await pool.query(`
       SELECT 
-        id, 
-        name, 
-        slug, 
-        icon, 
-        color, 
-        description,
-        display_order,
-        created_at
-      FROM categories
-      ORDER BY display_order ASC NULLS LAST, name ASC
+        c.id, 
+        c.name, 
+        c.slug, 
+        c.icon, 
+        c.color, 
+        c.description,
+        c.display_order,
+        c.created_at,
+        COUNT(DISTINCT s.id) as service_count
+      FROM categories c
+      LEFT JOIN services s ON s.category_id = c.id 
+        AND s.deleted_at IS NULL 
+        AND (s.status = 'approved' OR s.status = 'active')
+      GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.description, c.display_order, c.created_at
+      ORDER BY c.display_order ASC NULLS LAST, c.name ASC
     `);
-    
-    console.log(`✅ Found ${result.rows.length} categories`);
-    
-    if (result.rows.length === 0) {
-      console.log('📂 No categories found');
-      return res.json([]);
-    }
-    
-    // Step 3: Get service counts separately with a simpler query
-    console.log('📊 Fetching service counts...');
-    const categoryIds = result.rows.map(row => row.id);
-    
-    let serviceCounts = [];
-    try {
-      // Use a simpler query for service counts
-      const countResult = await pool.query(`
-        SELECT 
-          category_id,
-          COUNT(*) as service_count
-        FROM services
-        WHERE category_id = ANY($1::uuid[])
-          AND deleted_at IS NULL 
-          AND status IN ('approved', 'active')
-        GROUP BY category_id
-      `, [categoryIds]);
-      
-      serviceCounts = countResult.rows;
-      console.log(`✅ Found service counts for ${serviceCounts.length} categories`);
-    } catch (countError) {
-      console.warn('⚠️ Could not fetch service counts:', countError.message);
-      // Continue without service counts
-    }
-    
-    // Combine the data
-    const categories = result.rows.map(row => {
-      const stats = serviceCounts.find(s => s.category_id === row.id) || {
-        service_count: 0
-      };
 
-      return {
-        id: row.id,
-        name: row.name,
-        slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
-        icon: row.icon || '📦',
-        color: row.color || '#3b82f6',
-        description: row.description,
-        display_order: row.display_order || 0,
-        created_at: row.created_at,
-        service_count: parseInt(stats.service_count || 0, 10)
-      };
-    });
-    
-    console.log(`✅ Returning ${categories.length} categories`);
+    console.log(`✅ Found ${result.rows.length} categories`);
+
+    const categories = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
+      icon: row.icon || '📦',
+      color: row.color || '#3b82f6',
+      description: row.description || '',
+      display_order: row.display_order || 0,
+      created_at: row.created_at,
+      service_count: parseInt(row.service_count, 10) || 0
+    }));
+
     return res.status(200).json(categories);
     
   } catch (error) {
     console.error('❌ Error in getCategories:', error.message);
     console.error('📚 Stack:', error.stack);
     
-    // Try a last resort query without any joins or complex logic
+    // Fallback: return categories without service counts
     try {
       console.log('🔄 Trying fallback query...');
       const fallback = await pool.query(`
-        SELECT id, name, slug, icon, color, description
+        SELECT id, name, slug, icon, color, description, display_order, created_at
         FROM categories
-        LIMIT 20
+        ORDER BY display_order ASC, name ASC
       `);
       
-      if (fallback.rows.length > 0) {
-        console.log(`✅ Fallback: Found ${fallback.rows.length} categories`);
-        return res.status(200).json(fallback.rows.map(row => ({
-          id: row.id,
-          name: row.name,
-          slug: row.slug || row.name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-'),
-          icon: row.icon || '📦',
-          color: row.color || '#3b82f6',
-          description: row.description,
-          service_count: 0
-        })));
-      }
+      const categories = fallback.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        icon: row.icon || '📦',
+        color: row.color || '#3b82f6',
+        description: row.description || '',
+        display_order: row.display_order || 0,
+        created_at: row.created_at,
+        service_count: 0
+      }));
+      
+      console.log(`✅ Fallback: Found ${categories.length} categories`);
+      return res.status(200).json(categories);
+      
     } catch (fallbackError) {
       console.error('❌ Fallback also failed:', fallbackError.message);
+      return res.status(200).json([]);
     }
-    
-    // Return empty array with 200 status to prevent frontend errors
-    return res.status(200).json([]);
   }
 };
 
@@ -527,15 +465,16 @@ export const getPopularServices = async (req, res) => {
 
     const services = result.rows.map(s => ({
       id: s.id,
-      title: s.title,
-      description: s.description,
-      price: parseFloat(s.price),
+      title: s.title || 'Unnamed Service',
+      description: s.description || 'No description available',
+      price: parseFloat(s.price) || 0,
       image: s.images && s.images.length > 0 ? s.images[0] : 'https://via.placeholder.com/300x200?text=Service',
       images: s.images || [],
-      location: s.location || s.city,
+      location: s.location || s.city || 'Location not specified',
       avg_rating: parseFloat(s.avg_rating_calc) || parseFloat(s.avg_rating) || 0,
       review_count: parseInt(s.review_count_calc) || parseInt(s.review_count) || 0,
       booking_count: parseInt(s.booking_count) || 0,
+      total_revenue: parseFloat(s.total_revenue) || 0,
       provider_name: s.provider_name || 'Unknown Provider',
       provider_avatar: s.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.provider_name || 'Provider')}&background=10b981&color=fff&size=64`,
       category_name: s.category_name || 'Uncategorized',
