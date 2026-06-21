@@ -1167,7 +1167,7 @@ router.post('/payments/:id/refund', async (req, res) => {
 });
 
 // ========================
-// CATEGORY MANAGEMENT
+// CATEGORY MANAGEMENT - FIXED (removed 'image' column)
 // ========================
 
 // Get all categories
@@ -1193,40 +1193,45 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Create category
+// Create category - FIXED (removed 'image')
 router.post('/categories', async (req, res) => {
   try {
-    const { name, description, icon, color, image, slug } = req.body;
+    const { name, description, icon, color, slug } = req.body;
     const slugValue = slug || name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
     const result = await pool.query(
-      `INSERT INTO categories (name, slug, description, icon, color, image) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [name, slugValue, description, icon, color, image]
+      `INSERT INTO categories (name, slug, description, icon, color) 
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name, slugValue, description, icon, color]
     );
-    res.json(result.rows[0]);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Update category
+// Update category - FIXED (removed 'image')
 router.put('/categories/:id', async (req, res) => {
   try {
-    const { name, description, icon, color, image, slug } = req.body;
-    await pool.query(
+    const { name, description, icon, color, slug } = req.body;
+    const result = await pool.query(
       `UPDATE categories SET 
         name = COALESCE($1, name),
         description = COALESCE($2, description),
         icon = COALESCE($3, icon),
         color = COALESCE($4, color),
-        image = COALESCE($5, image),
-        slug = COALESCE($6, slug),
+        slug = COALESCE($5, slug),
         updated_at = NOW()
-      WHERE id = $7`,
-      [name, description, icon, color, image, slug, req.params.id]
+      WHERE id = $6
+      RETURNING *`,
+      [name, description, icon, color, slug, req.params.id]
     );
-    res.json({ message: 'Category updated' });
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    
+    res.json({ message: 'Category updated', category: result.rows[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -1236,8 +1241,20 @@ router.put('/categories/:id', async (req, res) => {
 // Delete category
 router.delete('/categories/:id', async (req, res) => {
   try {
+    // Check if category has services
+    const serviceCheck = await pool.query(
+      'SELECT COUNT(*) as count FROM services WHERE category_id = $1',
+      [req.params.id]
+    );
+    
+    if (parseInt(serviceCheck.rows[0].count) > 0) {
+      return res.status(400).json({ 
+        message: 'Cannot delete category with existing services. Remove or reassign services first.' 
+      });
+    }
+    
     await pool.query('DELETE FROM categories WHERE id = $1', [req.params.id]);
-    res.json({ message: 'Category deleted' });
+    res.json({ message: 'Category deleted successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -1255,6 +1272,16 @@ router.post('/categories/bulk', async (req, res) => {
     let query = '';
     switch(action) {
       case 'delete':
+        // Check if any categories have services
+        const checkResult = await pool.query(
+          'SELECT COUNT(*) as count FROM services WHERE category_id = ANY($1)',
+          [categoryIds]
+        );
+        if (parseInt(checkResult.rows[0].count) > 0) {
+          return res.status(400).json({ 
+            message: 'Cannot delete categories with existing services. Remove or reassign services first.' 
+          });
+        }
         query = `DELETE FROM categories WHERE id = ANY($1)`;
         break;
       default:

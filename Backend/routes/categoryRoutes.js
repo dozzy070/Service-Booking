@@ -1,3 +1,4 @@
+// routes/categoryRoutes.js
 import express from 'express';
 import { protect, authorize } from '../middleware/auth.js';
 import pool from '../config/db.js';
@@ -11,8 +12,9 @@ const router = express.Router();
 // GET /api/categories - Get all categories with service counts
 router.get('/', async (req, res) => {
   try {
+    // ✅ REMOVED c.image - it doesn't exist in your table!
     const result = await pool.query(
-      `SELECT c.id, c.name, c.slug, c.icon, c.color, c.image, c.description,
+      `SELECT c.id, c.name, c.slug, c.icon, c.color, c.description,
               c.is_featured, c.is_popular, c.created_at,
               COALESCE(COUNT(DISTINCT s.id), 0) AS service_count,
               COALESCE(SUM(b.total_amount), 0) AS total_revenue,
@@ -20,7 +22,7 @@ router.get('/', async (req, res) => {
        FROM categories c
        LEFT JOIN services s ON s.category_id = c.id AND (s.status = 'approved' OR s.status = 'active')
        LEFT JOIN bookings b ON b.service_id = s.id AND b.status = 'completed'
-       GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.image, c.description,
+       GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.description,
                 c.is_featured, c.is_popular, c.created_at
        ORDER BY c.is_featured DESC, c.name ASC`
     );
@@ -40,7 +42,6 @@ router.get('/', async (req, res) => {
               COALESCE(c.slug, LOWER(REPLACE(s.category::text, ' ', '-'))) AS slug,
               NULL::text AS icon,
               NULL::text AS color,
-              NULL::text AS image,
               NULL::text AS description,
               false AS is_featured,
               false AS is_popular,
@@ -324,15 +325,16 @@ router.post('/', protect, authorize('admin'), async (req, res) => {
     
     const slugValue = slug || name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
     
+    // ✅ REMOVED image from INSERT since it doesn't exist in your table
     const result = await pool.query(
       `INSERT INTO categories (
-        name, slug, description, icon, color, image,
+        name, slug, description, icon, color,
         is_featured, is_popular, seo_title, seo_description, meta_keywords
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
       RETURNING *`,
       [
-        name, slugValue, description || null, icon || null, color || '#6366f1', 
-        image || null, is_featured || false, is_popular || false,
+        name, slugValue, description || null, icon || null, color || '#6366f1',
+        is_featured || false, is_popular || false,
         seo_title || null, seo_description || null, meta_keywords || []
       ]
     );
@@ -362,24 +364,24 @@ router.put('/:id', protect, authorize('admin'), async (req, res) => {
       meta_keywords
     } = req.body;
     
+    // ✅ REMOVED image from UPDATE since it doesn't exist in your table
     const result = await pool.query(
       `UPDATE categories SET 
         name = COALESCE($1, name),
         description = COALESCE($2, description),
         icon = COALESCE($3, icon),
         color = COALESCE($4, color),
-        image = COALESCE($5, image),
-        slug = COALESCE($6, slug),
-        is_featured = COALESCE($7, is_featured),
-        is_popular = COALESCE($8, is_popular),
-        seo_title = COALESCE($9, seo_title),
-        seo_description = COALESCE($10, seo_description),
-        meta_keywords = COALESCE($11, meta_keywords),
+        slug = COALESCE($5, slug),
+        is_featured = COALESCE($6, is_featured),
+        is_popular = COALESCE($7, is_popular),
+        seo_title = COALESCE($8, seo_title),
+        seo_description = COALESCE($9, seo_description),
+        meta_keywords = COALESCE($10, meta_keywords),
         updated_at = NOW()
-      WHERE id = $12
+      WHERE id = $11
       RETURNING *`,
       [
-        name, description, icon, color, image, slug,
+        name, description, icon, color, slug,
         is_featured, is_popular, seo_title, seo_description,
         meta_keywords, categoryId
       ]
