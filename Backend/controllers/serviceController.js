@@ -17,24 +17,30 @@ const formatNaira = (amount) => {
 // =========================================================================
 // GET CATEGORIES - WORKING VERSION
 // =========================================================================
+// controllers/serviceController.js - FIXED getCategories
 
 export const getCategories = async (req, res) => {
   console.log('🔍 Fetching categories...');
   
   try {
-    // Simple query that works with any schema
+    // ✅ REMOVED c.image - it doesn't exist in your table!
     const result = await pool.query(`
       SELECT 
-        id, 
-        name, 
-        slug, 
-        icon, 
-        color, 
-        description,
-        display_order,
-        created_at
-      FROM categories
-      ORDER BY display_order ASC, name ASC
+        c.id, 
+        c.name, 
+        c.slug, 
+        c.icon, 
+        c.color, 
+        c.description,
+        c.display_order,
+        c.created_at,
+        COUNT(DISTINCT s.id) as service_count
+      FROM categories c
+      LEFT JOIN services s ON s.category_id = c.id 
+        AND s.deleted_at IS NULL 
+        AND (s.status = 'approved' OR s.status = 'active')
+      GROUP BY c.id, c.name, c.slug, c.icon, c.color, c.description, c.display_order, c.created_at
+      ORDER BY c.display_order ASC NULLS LAST, c.name ASC
     `);
 
     console.log(`✅ Found ${result.rows.length} categories`);
@@ -48,7 +54,7 @@ export const getCategories = async (req, res) => {
       description: row.description || '',
       display_order: row.display_order || 0,
       created_at: row.created_at,
-      service_count: 0
+      service_count: parseInt(row.service_count, 10) || 0
     }));
 
     return res.status(200).json(categories);
@@ -57,18 +63,23 @@ export const getCategories = async (req, res) => {
     console.error('❌ Error in getCategories:', error.message);
     console.error('Stack:', error.stack);
     
-    // Fallback: try even simpler query
+    // Fallback: try without joins
     try {
-      const fallback = await pool.query('SELECT id, name FROM categories ORDER BY name ASC');
+      const fallback = await pool.query(`
+        SELECT id, name, slug, icon, color, description, display_order, created_at
+        FROM categories
+        ORDER BY display_order ASC, name ASC
+      `);
+      
       return res.status(200).json(fallback.rows.map(row => ({
         id: row.id,
         name: row.name,
-        slug: row.name?.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-') || 'uncategorized',
-        icon: '📦',
-        color: '#3b82f6',
-        description: '',
-        display_order: 0,
-        created_at: new Date().toISOString(),
+        slug: row.slug,
+        icon: row.icon || '📦',
+        color: row.color || '#3b82f6',
+        description: row.description || '',
+        display_order: row.display_order || 0,
+        created_at: row.created_at,
         service_count: 0
       })));
     } catch (fallbackError) {
