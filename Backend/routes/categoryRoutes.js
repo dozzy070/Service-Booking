@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
   try {
     // ✅ REMOVED c.image - it doesn't exist in your table!
     const result = await pool.query(
-      `SELECT c.id, c.name, c.slug, c.icon, c.color, c.description,
+      `SSELECT c.id, c.name, c.slug, c.icon, c.color, c.description,
               c.is_featured, c.is_popular, c.created_at,
               COALESCE(COUNT(DISTINCT s.id), 0) AS service_count,
               COALESCE(SUM(b.total_amount), 0) AS total_revenue,
