@@ -1,4 +1,4 @@
-// api.js
+// src/config/api.js
 import axios from 'axios';
 
 // ==================== CONFIGURATION ====================
@@ -10,25 +10,23 @@ const getAPIUrl = () => {
   
   // Priority 2: Current host (same origin for production)
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    return window.location.origin;
+    return `${window.location.origin}/api`;
   }
   
   // Priority 3: Production fallback (Render.com)
   if (import.meta.env.PROD) {
-    return 'https://service-booking-3l1j.onrender.com';
+    return 'https://service-booking-3l1j.onrender.com/api';
   }
   
   // Priority 4: Local development
-  return 'http://localhost:5000';
+  return 'http://localhost:5000/api';
 };
 
-const BASE_URL = getAPIUrl();
-const API_URL = `${BASE_URL}/api`;
+const API_BASE_URL = getAPIUrl();
 
 // Log the API URL in development for debugging
 if (import.meta.env.DEV) {
-  console.log('🔧 API URL:', API_URL);
-  console.log('🔧 Base URL:', BASE_URL);
+  console.log('🔧 API Base URL:', API_BASE_URL);
   console.log('🔧 Environment:', {
     dev: import.meta.env.DEV,
     prod: import.meta.env.PROD,
@@ -38,7 +36,7 @@ if (import.meta.env.DEV) {
 
 // Create axios instance
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -52,7 +50,9 @@ api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      // Clean token before adding
+      const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+      config.headers.Authorization = `Bearer ${cleanToken}`;
     }
     
     // Log request in development
@@ -86,6 +86,7 @@ api.interceptors.response.use(
       
       // Handle authentication errors
       if (status === 401) {
+        console.warn('🔑 Authentication expired, clearing session');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         // Only redirect if not already on login page
@@ -102,6 +103,8 @@ api.interceptors.response.use(
       // Request was made but no response received
       console.error('🌐 Network Error:', error.message);
       console.error('No response received from server. Check if backend is running.');
+    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      console.error('⏰ Request timed out:', error.config?.url);
     } else {
       // Something else happened
       console.error('❌ Error:', error.message);
@@ -115,7 +118,8 @@ api.interceptors.response.use(
 // Health check function to test backend connection
 export const checkBackendHealth = async () => {
   try {
-    const response = await axios.get(`${BASE_URL}/health`, {
+    const healthUrl = API_BASE_URL.replace('/api', '/health');
+    const response = await axios.get(healthUrl, {
       timeout: 5000
     });
     console.log('✅ Backend health check passed:', response.data);
@@ -129,7 +133,7 @@ export const checkBackendHealth = async () => {
 // Get API info
 export const getAPIInfo = async () => {
   try {
-    const response = await axios.get(`${API_URL}/info`);
+    const response = await api.get('/info');
     console.log('📡 API Info:', response.data);
     return response.data;
   } catch (error) {
@@ -149,7 +153,7 @@ export const authAPI = {
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
   logout: () => api.post('/auth/logout'),
   googleAuth: () => {
-    window.location.href = `${API_URL}/auth/google`;
+    window.location.href = `${API_BASE_URL}/auth/google`;
   },
 };
 
@@ -190,6 +194,10 @@ export const providerAPI = {
   getRedeemHistory: () => api.get('/wallet/redeem-history'),
   getPaymentMethods: () => api.get('/wallet/payment-methods'),
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
+  
+  // Profile
+  getProfile: () => api.get('/provider/profile'),
+  updateProfile: (data) => api.put('/provider/profile', data),
 };
 
 // ==================== CUSTOMER API ====================
@@ -204,7 +212,7 @@ export const customerAPI = {
   getPopularServices: () => api.get('/services/popular'),
   getRecommendedServices: () => api.get('/services/recommended'),
   getServiceById: (id) => api.get(`/services/${id}`),
-  getCategories: () => api.get('/services/categories'),
+  getCategories: () => api.get('/categories'),
   
   // Bookings
   createBooking: (data) => api.post('/bookings', data),
@@ -223,6 +231,12 @@ export const customerAPI = {
   getFavorites: () => api.get('/customer/favorites'),
   toggleFavorite: (serviceId) => api.post(`/services/${serviceId}/favorite`),
   isFavorite: (serviceId) => api.get(`/services/${serviceId}/is-favorite`),
+  
+  // Wallet
+  getWallet: () => api.get('/wallet'),
+  getTransactions: () => api.get('/wallet/transactions'),
+  getRewards: () => api.get('/wallet/rewards'),
+  redeemReward: (rewardId) => api.post('/wallet/redeem', { rewardId }),
   
   // Payment
   getPaymentMethods: () => api.get('/customer/payment-methods'),
@@ -255,13 +269,15 @@ export const adminAPI = {
   
   // Provider Management
   getProviders: () => api.get('/admin/providers'),
+  getProviderDetails: (id) => api.get(`/admin/providers/${id}`),
   
   // Service Management
   getServices: () => api.get('/admin/services'),
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
-  rejectService: (id) => api.put(`/admin/services/${id}/reject`),
+  rejectService: (id, reason) => api.put(`/admin/services/${id}/reject`, { reason }),
   deleteService: (id) => api.delete(`/admin/services/${id}`),
+  toggleFeatured: (id) => api.put(`/admin/services/${id}/featured`),
   
   // Booking Management
   getBookings: () => api.get('/admin/bookings'),
@@ -274,8 +290,23 @@ export const adminAPI = {
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
   
+  // Payments
+  getPayments: () => api.get('/admin/payments'),
+  getPaymentOverview: () => api.get('/admin/payments/overview'),
+  getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
+  getPaymentTrends: () => api.get('/admin/payments/trends'),
+  refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
+  
   // Reports
   getReports: (params) => api.get('/admin/reports', { params }),
+  getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
+  
+  // Notifications
+  getNotifications: () => api.get('/admin/notifications'),
+  markAllRead: () => api.put('/admin/notifications/read-all'),
+  
+  // System
+  getActivityLog: (params) => api.get('/admin/activities', { params }),
 };
 
 // ==================== NOTIFICATION API ====================
@@ -303,5 +334,9 @@ export const chatAPI = {
   deleteMessage: (messageId) => api.delete(`/chat/messages/${messageId}`),
 };
 
+// ==================== EXPORTS ====================
 // Export the base api instance for custom requests
 export default api;
+
+// Export the base URL for other uses
+export { API_BASE_URL };
