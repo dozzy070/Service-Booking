@@ -56,7 +56,7 @@ router.get('/favorites', async (req, res) => {
         COALESCE(s.review_count, 0) as review_count,
         u.name as provider_name,
         u.avatar as provider_avatar,
-        s.image,
+        s.images,
         f.created_at as favorited_at
       FROM favorites f
       JOIN services s ON f.service_id = s.id
@@ -79,7 +79,7 @@ router.get('/favorites', async (req, res) => {
       review_count: parseInt(row.review_count),
       provider_name: row.provider_name,
       provider_avatar: row.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(row.provider_name)}&background=10b981&color=fff`,
-      image: row.image,
+      image: row.images,
       favorited_at: row.favorited_at
     }));
 
@@ -212,7 +212,7 @@ router.get('/bookings/recent', async (req, res) => {
         b.status,
         b.total_amount,
         s.title as service_title,
-        s.image,
+        s.images,
         u.name as provider_name,
         u.avatar as provider_avatar
       FROM bookings b
@@ -232,7 +232,7 @@ router.get('/bookings/recent', async (req, res) => {
       bookingDate: booking.booking_date,
       status: booking.status,
       totalPrice: parseFloat(booking.total_amount),
-      serviceImage: booking.image ? booking.image[0] : null
+      serviceImage: booking.images && booking.images.length > 0 ? booking.images[0] : null
     }));
 
     res.json(bookings);
@@ -294,7 +294,7 @@ router.get('/bookings/history', async (req, res) => {
       SELECT 
         b.*,
         s.title as service_title,
-        s.image as service_image,
+        s.images as service_images,
         s.category_id,
         u.name as provider_name,
         u.avatar as provider_avatar,
@@ -368,7 +368,7 @@ router.get('/bookings/:id', async (req, res) => {
         s.title as service_title,
         s.description as service_description,
         s.price as service_price,
-        s.image as service_image,
+        s.images as service_images,
         u.name as provider_name,
         u.phone as provider_phone,
         u.email as provider_email,

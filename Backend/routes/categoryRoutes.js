@@ -108,7 +108,7 @@ router.get('/:id/services', async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
     const result = await pool.query(`
-      SELECT s.id, s.title, s.description, s.price, s.image, s.city,
+      SELECT s.id, s.title, s.description, s.price, s.images, s.city,
              u.name as provider_name, u.avatar as provider_avatar,
              COALESCE(AVG(r.rating), 0) as avg_rating,
              COUNT(r.id) as review_count

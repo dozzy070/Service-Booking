@@ -214,7 +214,7 @@ router.get('/', async (req, res) => {
       SELECT 
         b.*,
         s.title as service_title,
-        s.image as service_image,
+        s.images as service_images,
         s.price as service_price,
         u.name as provider_name,
         u.avatar as provider_avatar,
@@ -262,7 +262,7 @@ router.get('/:id', async (req, res) => {
         b.*,
         s.title as service_title,
         s.description as service_description,
-        s.image as service_image,
+        s.images as service_images,
         s.price as service_price,
         s.duration as service_duration,
         u.name as provider_name,
@@ -829,7 +829,7 @@ router.get('/my-bookings', async (req, res) => {
       SELECT 
         b.*,
         s.title as service_title,
-        s.image as service_image,
+        s.images as service_images,
         u.name as other_party_name,
         u.avatar as other_party_avatar,
         u.phone as other_party_phone
@@ -889,7 +889,7 @@ router.get('/upcoming', async (req, res) => {
       SELECT 
         b.*,
         s.title as service_title,
-        s.image as service_image,
+        s.images as service_images,
         u.name as other_party_name,
         u.avatar as other_party_avatar
       FROM bookings b

@@ -428,7 +428,7 @@ export const getPopularServices = async (req, res) => {
         s.title,
         s.description,
         s.price,
-        s.image,
+        s.images,
         c.name as category,
         COUNT(b.id) as bookings,
         COALESCE(SUM(b.total_amount), 0) as revenue,
@@ -441,7 +441,7 @@ export const getPopularServices = async (req, res) => {
       LEFT JOIN reviews r ON r.service_id = s.id
       JOIN users u ON s.provider_id = u.id
       WHERE s.status = 'approved'
-      GROUP BY s.id, s.title, s.description, s.price, s.image, c.name, u.name
+      GROUP BY s.id, s.title, s.description, s.price, s.images, c.name, u.name
       ORDER BY bookings DESC, rating DESC
       LIMIT $1
     `, [limit]);
@@ -452,7 +452,7 @@ export const getPopularServices = async (req, res) => {
       description: s.description,
       category: s.category || 'Uncategorized',
       price: parseFloat(s.price),
-      image: s.image || null,
+      image: s.images || null,
       bookings: parseInt(s.bookings),
       revenue: parseFloat(s.revenue),
       rating: parseFloat(s.rating).toFixed(1),

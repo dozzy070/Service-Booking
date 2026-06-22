@@ -998,7 +998,7 @@ export const getBookingHistory = async (req, res) => {
       SELECT 
         b.*,
         s.title as service_title,
-        s.image as service_image,
+        s.images as service_images,
         u.name as provider_name,
         u.avatar as provider_avatar
       FROM bookings b

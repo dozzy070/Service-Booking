@@ -111,11 +111,11 @@ router.get('/', async (req, res) => {
 
     const whereClause = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    // Full query with ratings subquery
+    // ✅ FIXED: Replaced s.image with s.images
     const sql = `
       SELECT
         s.id, s.title, s.description, s.price, s.duration, s.created_at,
-        s.image, s.city as location, s.is_featured, s.is_popular,
+        s.images, s.city as location, s.is_featured, s.is_popular,
         c.id as category_id, c.name AS category_name, c.slug AS category_slug,
         COALESCE(rating_stats.avg_rating, 0)::float AS avg_rating,
         COALESCE(rating_stats.review_count, 0) AS review_count,
@@ -152,7 +152,9 @@ router.get('/', async (req, res) => {
         ...s,
         price: parseFloat(s.price),
         avg_rating: parseFloat(s.avg_rating) || 0,
-        review_count: parseInt(s.review_count)
+        review_count: parseInt(s.review_count),
+        // Handle images array
+        images: s.images || []
       })),
       pagination: {
         currentPage: parseInt(page),
@@ -176,14 +178,14 @@ router.get('/categories', getCategories);
 // GET /api/services/popular - Get popular services
 router.get('/popular', getPopularServices);
 
-// GET /api/services/featured - Get featured services
+// ✅ FIXED: Featured services - replaced s.image with s.images
 router.get('/featured', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 6;
     
     const result = await pool.query(`
       SELECT
-        s.id, s.title, s.description, s.price, s.image, s.city as location,
+        s.id, s.title, s.description, s.price, s.images, s.city as location,
         c.name as category,
         u.name as provider_name,
         COALESCE(AVG(r.rating), 0) as avg_rating,
@@ -203,7 +205,7 @@ router.get('/featured', async (req, res) => {
       title: service.title,
       description: service.description,
       price: parseFloat(service.price),
-      images: service.image ? [service.image] : [],
+      images: service.images || [],
       location: service.location,
       category: service.category,
       providerName: service.provider_name,
@@ -218,7 +220,7 @@ router.get('/featured', async (req, res) => {
   }
 });
 
-// GET /api/services/recommended - Get recommended services
+// ✅ FIXED: Recommended services - replaced s.image with s.images
 router.get('/recommended', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 6;
@@ -230,7 +232,7 @@ router.get('/recommended', async (req, res) => {
         s.title,
         s.description,
         s.price,
-        s.image,
+        s.images,
         s.city as location,
         c.name as category,
         u.name as provider_name,
@@ -270,7 +272,7 @@ router.get('/recommended', async (req, res) => {
               s.title,
               s.description,
               s.price,
-              s.image,
+              s.images,
               s.city as location,
               c.name as category,
               u.name as provider_name,
@@ -299,7 +301,7 @@ router.get('/recommended', async (req, res) => {
       title: service.title,
       description: service.description,
       price: parseFloat(service.price),
-      images: service.image ? [service.image] : [],
+      images: service.images || [],
       location: service.location,
       category: service.category,
       providerName: service.provider_name,
@@ -494,7 +496,7 @@ router.get('/:id/reviews', async (req, res) => {
   }
 });
 
-// GET /api/services/:id/similar - Get similar services
+// ✅ FIXED: Similar services - replaced s.image with s.images
 router.get('/:id/similar', async (req, res) => {
   try {
     const serviceId = req.params.id;
@@ -512,10 +514,10 @@ router.get('/:id/similar', async (req, res) => {
     
     const categoryId = service.rows[0].category_id;
     
-    // Get similar services (same category, excluding current)
+    // ✅ FIXED: replaced s.image with s.images
     const result = await pool.query(`
       SELECT
-        s.id, s.title, s.description, s.price, s.image, s.city as location,
+        s.id, s.title, s.description, s.price, s.images, s.city as location,
         c.name as category,
         u.name as provider_name,
         COALESCE(AVG(r.rating), 0) as avg_rating,
@@ -537,7 +539,7 @@ router.get('/:id/similar', async (req, res) => {
       title: service.title,
       description: service.description,
       price: parseFloat(service.price),
-      images: service.image ? [service.image] : [],
+      images: service.images || [],
       location: service.location,
       category: service.category,
       providerName: service.provider_name,
