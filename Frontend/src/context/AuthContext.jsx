@@ -2,13 +2,13 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/api'; // Import the shared api instance
-import { socketService } from './SocketContext'; // Import socket service
+import api from '../api/api';
+import { socketService } from './SocketContext';
 
 // Create the context
 const AuthContext = createContext(null);
 
-// Custom hook - MUST be named useAuth and exported as a named export
+// Custom hook
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -17,7 +17,7 @@ export const useAuth = () => {
   return context;
 };
 
-// Provider component - MUST be exported as a named export
+// Provider component
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,8 +46,25 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
-  // Fetch user profile when token exists
+  // ✅ FIX: Check localStorage for user data first
   useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser && token) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+        console.log('✅ User loaded from localStorage:', parsedUser);
+        // Connect socket
+        socketService.connect(token, parsedUser.id);
+        setLoading(false);
+        return;
+      } catch (error) {
+        console.error('Error parsing stored user:', error);
+        localStorage.removeItem('user');
+      }
+    }
+
+    // Fetch user profile when token exists
     const fetchUser = async () => {
       try {
         setLoading(true);
@@ -57,6 +74,9 @@ export const AuthProvider = ({ children }) => {
         console.log('✅ User profile fetched:', response.data);
         setUser(response.data);
         
+        // Save user to localStorage
+        localStorage.setItem('user', JSON.stringify(response.data));
+        
         // Connect socket after user is loaded
         if (response.data && token) {
           console.log('🔌 Connecting socket for user:', response.data.id);
@@ -65,6 +85,7 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         console.error('❌ Error fetching user:', error.message);
         localStorage.removeItem('token');
+        localStorage.removeItem('user');
         setToken(null);
         setUser(null);
         socketService.disconnect();
@@ -77,7 +98,6 @@ export const AuthProvider = ({ children }) => {
       fetchUser();
     } else {
       setLoading(false);
-      // Ensure socket is disconnected if no token
       socketService.disconnect();
     }
   }, [token]);
@@ -87,13 +107,19 @@ export const AuthProvider = ({ children }) => {
       console.log('🔐 Attempting login...');
       
       const response = await api.post('/auth/login', { email, password });
-      const { token: newToken, ...userData } = response.data;
+      
+      // ✅ FIX: Extract data properly from response
+      const { token: newToken, refreshToken, user: userData } = response.data;
       
       console.log('✅ Login successful for:', userData.email);
       console.log('👤 User role:', userData.role);
+      console.log('👤 User data:', userData);
       
-      // Save token
+      // Save token and user
       localStorage.setItem('token', newToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
       setToken(newToken);
       setUser(userData);
       
@@ -101,13 +127,17 @@ export const AuthProvider = ({ children }) => {
       console.log('🔌 Connecting socket for user:', userData.id);
       socketService.connect(newToken, userData.id);
       
-      toast.success(`Welcome back, ${userData.name || userData.email}!`);
+      const userName = userData.name || userData.email || 'User';
+      toast.success(`Welcome back, ${userName}!`);
       
-      // Return user data so the component can handle navigation
+      // Return user data with redirect
+      const redirectPath = getDashboardRoute(userData.role);
+      console.log('🔄 Redirecting to:', redirectPath);
+      
       return { 
         success: true, 
         data: userData,
-        redirectTo: getDashboardRoute(userData.role)
+        redirectTo: redirectPath
       };
     } catch (error) {
       console.error('❌ Login error:', error.response?.data || error.message);
@@ -131,13 +161,12 @@ export const AuthProvider = ({ children }) => {
       console.log('📝 Attempting registration...');
       
       const response = await api.post('/auth/register', userData);
-      const newUser = response.data;
+      const newUser = response.data.user || response.data;
       
       console.log('✅ Registration successful for:', newUser.email);
       
-      toast.success('Registration successful! Please login to continue.');
+      toast.success('Registration successful! You can now login.');
       
-      // Return redirect to login
       return { 
         success: true, 
         data: newUser,
@@ -169,6 +198,8 @@ export const AuthProvider = ({ children }) => {
     
     // Clear local storage and state
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
     setToken(null);
     setUser(null);
     
@@ -179,7 +210,9 @@ export const AuthProvider = ({ children }) => {
     try {
       console.log('📝 Updating profile...');
       const response = await api.put('/auth/profile', data);
-      setUser(prev => ({ ...prev, ...response.data }));
+      const updatedUser = { ...user, ...response.data.user || response.data };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
       toast.success('Profile updated successfully');
       return { success: true, data: response.data };
     } catch (error) {
@@ -229,7 +262,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateUser = (updatedData) => {
-    setUser(prev => ({ ...prev, ...updatedData }));
+    const updatedUser = { ...user, ...updatedData };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
     toast.success('Profile updated');
   };
 
@@ -244,7 +279,7 @@ export const AuthProvider = ({ children }) => {
     forgotPassword,
     resetPassword,
     updateUser,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user && !!token,
     token,
     getDashboardRoute
   };

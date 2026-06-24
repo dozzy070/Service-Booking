@@ -40,11 +40,9 @@ const Login = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Clear field-specific error when user types
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
-    // Clear general error when user makes changes
     if (error) {
       setError('');
     }
@@ -130,7 +128,10 @@ const Login = () => {
       
       // Auto-submit after a brief delay
       setTimeout(() => {
-        document.getElementById('login-form').requestSubmit();
+        const form = document.getElementById('login-form');
+        if (form) {
+          form.requestSubmit();
+        }
       }, 500);
     }
   };
@@ -165,7 +166,6 @@ const Login = () => {
                     size="sm"
                     className="px-3 rounded-pill"
                     onClick={() => handleDemoLogin('customer')}
-                    title="Browse and book services"
                   >
                     👤 Customer Demo
                   </Button>
@@ -174,7 +174,6 @@ const Login = () => {
                     size="sm"
                     className="px-3 rounded-pill"
                     onClick={() => handleDemoLogin('provider')}
-                    title="Manage your services"
                   >
                     🔧 Provider Demo
                   </Button>
@@ -183,7 +182,6 @@ const Login = () => {
                     size="sm"
                     className="px-3 rounded-pill"
                     onClick={() => handleDemoLogin('admin')}
-                    title="Manage platform"
                   >
                     ⚙️ Admin Demo
                   </Button>
