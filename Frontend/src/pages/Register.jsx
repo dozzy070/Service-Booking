@@ -56,6 +56,29 @@ const Register = () => {
     }
   };
 
+  // ✅ FIXED: Better phone validation for Nigerian numbers
+  const validatePhoneNumber = (phone) => {
+    // Allow empty (optional field)
+    if (!phone) return true;
+    
+    // Remove spaces, dashes, parentheses, and plus sign
+    const cleaned = phone.replace(/[\s\-()]/g, '');
+    
+    // Check if it's a valid Nigerian number:
+    // - 080xxxxxxxx (11 digits starting with 0)
+    // - 080xxxxxxxxx (11 digits)
+    // - +23480xxxxxxxx (14 digits including +234)
+    // - 23480xxxxxxxx (13 digits)
+    const patterns = [
+      /^0[789][01]\d{8}$/,        // 080, 090, 070, 081, 091 etc. (11 digits)
+      /^[789][01]\d{8}$/,          // 80, 90, 70, 81, 91 etc. (10 digits)
+      /^\+234[789][01]\d{8}$/,     // +234 80, +234 90, +234 70 (14 digits)
+      /^234[789][01]\d{8}$/,       // 234 80, 234 90, 234 70 (13 digits)
+    ];
+    
+    return patterns.some(pattern => pattern.test(cleaned));
+  };
+
   const validateForm = () => {
     const newErrors = {};
 
@@ -87,9 +110,9 @@ const Register = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    // Phone validation (optional but must be valid if provided)
-    if (formData.phone && !/^\+?[\d\s-()]{10}$/.test(formData.phone)) {
-      newErrors.phone = 'Please enter a valid phone number';
+    // ✅ FIXED: Phone validation using the improved function
+    if (formData.phone && !validatePhoneNumber(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number (e.g., 08012345678 or +2348012345678)';
     }
 
     // Terms agreement validation
@@ -99,6 +122,36 @@ const Register = () => {
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  // ✅ FIXED: Format phone number before submitting
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return phone;
+    
+    // Remove all non-digit characters except +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+    
+    // If it starts with 0 and is 11 digits, keep as is
+    if (cleaned.startsWith('0') && cleaned.length === 11) {
+      return cleaned;
+    }
+    
+    // If it starts with +234, keep as is
+    if (cleaned.startsWith('+234')) {
+      return cleaned;
+    }
+    
+    // If it starts with 234 and is 13 digits, add + prefix
+    if (cleaned.startsWith('234') && cleaned.length === 13) {
+      return '+' + cleaned;
+    }
+    
+    // If it starts with 80, 81, 90, 91, etc. (10 digits without 0), add 0
+    if (/^[789][01]\d{8}$/.test(cleaned) && cleaned.length === 10) {
+      return '0' + cleaned;
+    }
+    
+    return cleaned;
   };
 
   const handleSubmit = async (e) => {
@@ -112,12 +165,16 @@ const Register = () => {
     // Remove confirmPassword before sending to API
     const { confirmPassword, ...registerData } = formData;
     
+    // ✅ FIXED: Format phone number before submitting
+    if (registerData.phone) {
+      registerData.phone = formatPhoneNumber(registerData.phone);
+    }
+    
     try {
       const result = await register(registerData);
       
       if (result.success) {
         console.log('✅ Registration successful, redirecting to:', result.redirectTo);
-        // Navigate based on user role
         navigate(result.redirectTo, { replace: true });
       } else {
         setRegistrationError(result.error || 'Registration failed. Please try again.');
@@ -360,7 +417,7 @@ const Register = () => {
                         <Form.Control
                           type="tel"
                           name="phone"
-                          placeholder="Enter your phone number"
+                          placeholder="e.g., 08012345678 or +2348012345678"
                           value={formData.phone}
                           onChange={handleChange}
                           className={`ps-5 py-2 ${errors.phone ? 'is-invalid' : ''}`}
@@ -372,6 +429,9 @@ const Register = () => {
                           </Form.Control.Feedback>
                         )}
                       </div>
+                      <Form.Text className="text-muted">
+                        Enter a valid phone number (optional)
+                      </Form.Text>
                     </Form.Group>
                   </Col>
 
