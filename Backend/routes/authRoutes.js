@@ -1,3 +1,4 @@
+// routes/authRoutes.js
 import express from 'express';
 import { body } from 'express-validator';
 import passport from 'passport';
@@ -44,7 +45,7 @@ const registerValidation = [
   body('email').isEmail().withMessage('Please provide a valid email'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('role').optional().isIn(['customer', 'provider']).withMessage('Invalid role'),
-  body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
+  body('phone').optional().isString(),
   body('address').optional().isString(),
   body('city').optional().isString(),
   body('state').optional().isString()
@@ -71,7 +72,7 @@ const resetPasswordValidation = [
 
 const updateProfileValidation = [
   body('name').optional().notEmpty().withMessage('Name cannot be empty'),
-  body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
+  body('phone').optional().isString(),
   body('address').optional().isString(),
   body('city').optional().isString(),
   body('state').optional().isString(),
@@ -85,11 +86,7 @@ const updateProfileValidation = [
 router.get('/test', (req, res) => {
   res.json({ 
     message: 'Auth routes are working!',
-    timestamp: new Date().toISOString(),
-    database: {
-      host: process.env.DB_HOST,
-      database: process.env.DB_NAME
-    }
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -101,6 +98,8 @@ router.get('/test', (req, res) => {
 router.post('/register', registerValidation, validate, async (req, res) => {
   try {
     const { name, email, password, role, phone, address, city, state } = req.body;
+
+    console.log('📝 Registration attempt for:', email);
 
     // Check if user exists
     const existingUser = await pool.query(
@@ -128,6 +127,7 @@ router.post('/register', registerValidation, validate, async (req, res) => {
     );
 
     const newUser = result.rows[0];
+    console.log('✅ User created:', newUser.id);
 
     // Create wallet for user
     await pool.query(
@@ -135,25 +135,61 @@ router.post('/register', registerValidation, validate, async (req, res) => {
        VALUES ($1, 0, 0, 'Bronze', 0)`,
       [newUser.id]
     );
+    console.log('✅ Wallet created for user:', newUser.id);
 
-    // Create notification preferences
+    // ✅ FIXED: Create notification preferences with existing columns
     await pool.query(
-      `INSERT INTO notification_preferences (user_id, email_notifications, push_notifications, sms_notifications)
-       VALUES ($1, true, true, false)`,
-      [newUser.id]
+      `INSERT INTO notification_preferences (
+        user_id, 
+        email_notifications, 
+        push_notifications, 
+        sms_notifications
+      ) VALUES ($1, $2, $3, $4)`,
+      [newUser.id, true, true, false]
     );
+    console.log('✅ Notification preferences created for user:', newUser.id);
 
     // Send verification email
     try {
       await sendEmail({
         to: email,
-        subject: 'Verify Your Email',
-        template: 'verification',
-        data: {
-          name,
-          verificationUrl: `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`
-        }
+        subject: 'Verify Your Email - SmartServices',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+              .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+              .button { display: inline-block; padding: 12px 30px; background: #10b981; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+              .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>🎉 Welcome to SmartServices!</h1>
+            </div>
+            <div class="content">
+              <h2>Hello ${name}!</h2>
+              <p>Thank you for registering with SmartServices. Please verify your email address to complete your registration.</p>
+              <p>Click the button below to verify your email:</p>
+              <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}" class="button">Verify Email</a>
+              <p>If the button doesn't work, copy and paste this link into your browser:</p>
+              <p style="word-break: break-all; background: #f1f5f9; padding: 10px; border-radius: 5px; font-size: 12px;">${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}</p>
+              <p>If you didn't create an account, please ignore this email.</p>
+              <p>Best regards,<br>The SmartServices Team</p>
+            </div>
+            <div class="footer">
+              <p>&copy; 2024 SmartServices. All rights reserved.</p>
+            </div>
+          </body>
+          </html>
+        `
       });
+      console.log('✅ Verification email sent to:', email);
     } catch (emailError) {
       console.error('Error sending verification email:', emailError);
     }
@@ -168,7 +204,7 @@ router.post('/register', registerValidation, validate, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('❌ Registration error:', error);
     res.status(500).json({ message: 'Registration failed' });
   }
 });
@@ -213,12 +249,13 @@ router.post('/login', loginValidation, validate, async (req, res) => {
       try {
         await sendEmail({
           to: user.email,
-          subject: 'Verify Your Email',
-          template: 'verification',
-          data: {
-            name: user.name,
-            verificationUrl: `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`
-          }
+          subject: 'Verify Your Email - SmartServices',
+          html: `
+            <h1>Verify Your Email</h1>
+            <p>Hi ${user.name},</p>
+            <p>Please verify your email by clicking the link below:</p>
+            <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}">Verify Email</a>
+          `
         });
       } catch (emailError) {
         console.error('Error sending verification email:', emailError);
@@ -361,21 +398,22 @@ router.post('/forgot-password', emailValidation, validate, async (req, res) => {
     try {
       await sendEmail({
         to: user.email,
-        subject: 'Reset Your Password',
-        template: 'reset-password',
-        data: {
-          name: user.name,
-          resetUrl: `${process.env.FRONTEND_URL}/reset-password/${resetToken}`
-        }
+        subject: 'Reset Your Password - SmartServices',
+        html: `
+          <h1>Reset Your Password</h1>
+          <p>Hi ${user.name},</p>
+          <p>Click the link below to reset your password:</p>
+          <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/reset-password?token=${resetToken}">Reset Password</a>
+          <p>This link expires in 1 hour.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        `
       });
     } catch (emailError) {
       console.error('Error sending reset email:', emailError);
-      // Don't reveal if email failed
     }
 
     res.json({ 
-      message: 'Password reset link sent to your email',
-      token: resetToken // Only for development
+      message: 'Password reset link sent to your email'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -458,7 +496,7 @@ router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: '/login' }),
   (req, res) => {
     const token = generateToken(req.user.id, req.user.role);
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/callback?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/auth/callback?token=${token}`);
   }
 );
 
