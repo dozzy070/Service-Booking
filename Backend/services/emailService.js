@@ -16,12 +16,8 @@ const isTerminalMode = () => {
   return process.env.EMAIL_MODE === 'terminal';
 };
 
-const isSmtpMode = () => {
-  return process.env.EMAIL_MODE === 'smtp' || !process.env.EMAIL_MODE;
-};
-
 // =========================================================================
-// CREATE TRANSPORTER - WITH IPv4 FIX
+// CREATE TRANSPORTER - WITH PORT 465 SUPPORT
 // =========================================================================
 
 const createTransporter = () => {
@@ -31,15 +27,19 @@ const createTransporter = () => {
     return null;
   }
 
-  // SMTP Mode - with IPv4 fix and better timeout handling
+  // SMTP Mode - with support for both port 587 and 465
   if (process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 EMAIL MODE: SMTP Production');
-    console.log(`📧 Host: ${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT || 587}`);
+    const port = parseInt(process.env.EMAIL_PORT) || 587;
+    const secure = port === 465 || process.env.EMAIL_SECURE === 'true';
     
-    return nodemailer.createTransport({
+    console.log('📧 EMAIL MODE: SMTP Production');
+    console.log(`📧 Host: ${process.env.EMAIL_HOST}:${port} (Secure: ${secure})`);
+    
+    // ✅ Use different config based on port
+    const config = {
       host: process.env.EMAIL_HOST,
-      port: parseInt(process.env.EMAIL_PORT) || 587,
-      secure: process.env.EMAIL_SECURE === 'true' || false,
+      port: port,
+      secure: secure, // true for port 465, false for port 587
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -52,10 +52,22 @@ const createTransporter = () => {
         ciphers: 'SSLv3',
       },
       // ✅ Longer timeouts for slow connections
-      connectionTimeout: 15000,
-      socketTimeout: 15000,
-      greetingTimeout: 15000,
-    });
+      connectionTimeout: 20000,
+      socketTimeout: 20000,
+      greetingTimeout: 20000,
+    };
+
+    // For port 465, we need different settings
+    if (port === 465) {
+      // Remove these for port 465 as they're not needed
+      config.tls = {
+        rejectUnauthorized: false,
+      };
+      // SSL works differently on port 465
+      config.secure = true;
+    }
+
+    return nodemailer.createTransport(config);
   }
 
   // No SMTP config - fallback to terminal
