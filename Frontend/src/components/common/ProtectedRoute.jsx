@@ -1,15 +1,25 @@
+// src/components/common/ProtectedRoute.jsx
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const ProtectedRoute = ({ allowedRoles = [], children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, isAuthenticated } = useAuth();
+  const location = useLocation();
 
-  console.log('🔒 ProtectedRoute - User:', user);
-  console.log('🔒 ProtectedRoute - Allowed roles:', allowedRoles);
-  console.log('🔒 ProtectedRoute - Current path:', window.location.pathname);
+  // Debug logging - remove in production
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔒 ProtectedRoute Debug:', {
+      user,
+      userRole: user?.role,
+      allowedRoles,
+      isAuthenticated,
+      loading,
+      path: location.pathname
+    });
+  }
 
-  // Show nothing while checking authentication
+  // Show loading state while checking authentication
   if (loading) {
     return (
       <div style={{ 
@@ -25,20 +35,19 @@ const ProtectedRoute = ({ allowedRoles = [], children }) => {
     );
   }
 
-  // If no user, redirect to login
-  if (!user) {
-    console.log('🔒 No user, redirecting to login');
-    return <Navigate to="/login" replace />;
+  // If no user or not authenticated, redirect to login
+  if (!user || !isAuthenticated) {
+    // Save the attempted location for redirect after login
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // If roles are specified and user doesn't have required role
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-    console.log('🔒 Role not allowed, redirecting to 401');
+    // Redirect to unauthorized page
     return <Navigate to="/401" replace />;
   }
 
   // User is authenticated and authorized
-  console.log('🔒 Access granted');
   return children;
 };
 
