@@ -113,17 +113,16 @@ router.post('/register', registerValidation, validate, async (req, res) => {
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    const verificationToken = generateVerificationToken();
     const userRole = role || 'customer';
 
-    // Create user
+    // ✅ FIXED: Auto-verify user - set verified = true
     const result = await pool.query(
       `INSERT INTO users (
         name, email, password, role, phone, address, city, state,
-        verification_token, is_active, created_at
+        is_active, verified, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()) 
       RETURNING id, name, email, role, phone, address, city, state, is_active, verified`,
-      [name, email, hashedPassword, userRole, phone, address, city, state, verificationToken, true]
+      [name, email, hashedPassword, userRole, phone, address, city, state, true, true]
     );
 
     const newUser = result.rows[0];
@@ -137,7 +136,7 @@ router.post('/register', registerValidation, validate, async (req, res) => {
     );
     console.log('✅ Wallet created for user:', newUser.id);
 
-    // ✅ FIXED: Create notification preferences with existing columns
+    // Create notification preferences
     await pool.query(
       `INSERT INTO notification_preferences (
         user_id, 
@@ -149,58 +148,38 @@ router.post('/register', registerValidation, validate, async (req, res) => {
     );
     console.log('✅ Notification preferences created for user:', newUser.id);
 
-    // Send verification email
+    // Try to send verification email (optional - won't block registration)
     try {
+      const verificationToken = generateVerificationToken();
+      await pool.query(
+        'UPDATE users SET verification_token = $1 WHERE id = $2',
+        [verificationToken, newUser.id]
+      );
+      
       await sendEmail({
         to: email,
-        subject: 'Verify Your Email - SmartServices',
+        subject: 'Welcome to SmartServices!',
         html: `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
-              .button { display: inline-block; padding: 12px 30px; background: #10b981; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-              .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>🎉 Welcome to SmartServices!</h1>
-            </div>
-            <div class="content">
-              <h2>Hello ${name}!</h2>
-              <p>Thank you for registering with SmartServices. Please verify your email address to complete your registration.</p>
-              <p>Click the button below to verify your email:</p>
-              <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}" class="button">Verify Email</a>
-              <p>If the button doesn't work, copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; background: #f1f5f9; padding: 10px; border-radius: 5px; font-size: 12px;">${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}</p>
-              <p>If you didn't create an account, please ignore this email.</p>
-              <p>Best regards,<br>The SmartServices Team</p>
-            </div>
-            <div class="footer">
-              <p>&copy; 2024 SmartServices. All rights reserved.</p>
-            </div>
-          </body>
-          </html>
+          <h1>🎉 Welcome to SmartServices!</h1>
+          <p>Hi ${name},</p>
+          <p>Your account has been created successfully. You can now log in and start using our services.</p>
+          <p>Best regards,<br>The SmartServices Team</p>
         `
       });
-      console.log('✅ Verification email sent to:', email);
+      console.log('✅ Welcome email sent to:', email);
     } catch (emailError) {
-      console.error('Error sending verification email:', emailError);
+      console.error('Error sending welcome email:', emailError);
+      // Don't fail registration if email fails
     }
 
     res.status(201).json({
-      message: 'Registration successful. Please check your email for verification.',
+      message: 'Registration successful! You can now log in.',
       user: {
         id: newUser.id,
         name: newUser.name,
         email: newUser.email,
-        role: newUser.role
+        role: newUser.role,
+        verified: true
       }
     });
   } catch (error) {
@@ -237,35 +216,10 @@ router.post('/login', loginValidation, validate, async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Check if email is verified
-    if (!user.verified) {
-      // Generate new verification token
-      const verificationToken = generateVerificationToken();
-      await pool.query(
-        'UPDATE users SET verification_token = $1 WHERE id = $2',
-        [verificationToken, user.id]
-      );
-
-      try {
-        await sendEmail({
-          to: user.email,
-          subject: 'Verify Your Email - SmartServices',
-          html: `
-            <h1>Verify Your Email</h1>
-            <p>Hi ${user.name},</p>
-            <p>Please verify your email by clicking the link below:</p>
-            <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/verify-email?token=${verificationToken}">Verify Email</a>
-          `
-        });
-      } catch (emailError) {
-        console.error('Error sending verification email:', emailError);
-      }
-
-      return res.status(403).json({ 
-        message: 'Please verify your email. A new verification link has been sent.',
-        requiresVerification: true 
-      });
-    }
+    // ✅ FIXED: Skip email verification check - allow login even if not verified
+    // if (!user.verified) {
+    //   // ... verification code removed ...
+    // }
 
     // Update last login
     await pool.query(
@@ -290,7 +244,8 @@ router.post('/login', loginValidation, validate, async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        verified: user.verified
       }
     });
   } catch (error) {
