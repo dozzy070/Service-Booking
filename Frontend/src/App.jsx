@@ -7,7 +7,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider, useSocket, socketService } from './context/SocketContext';
 
-// Layouts (Sidebars are integrated inside these layouts)
+// Layouts
 import Navbar from './components/Layout/Navbar';
 import Footer from './components/Layout/Footer';
 import ProtectedRoute from './components/common/ProtectedRoute';
@@ -15,7 +15,7 @@ import AdminLayout from './components/Layout/AdminLayout';
 import CustomerLayout from './components/Layout/CustomerLayout';
 import ProviderLayout from './components/Layout/ProviderLayout';
 
-// Public Pages
+// Public Pages - ✅ Make sure these files exist
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -30,7 +30,7 @@ import Profile from './pages/Profile';
 import Chat from './pages/Chat';
 import HelpCenter from './pages/HelpCenter';
 
-// Customer Pages/Components - ✅ Fixed import paths
+// Customer Pages - ✅ Make sure these files exist
 import CustomerDashboard from './components/customer/CustomerDashboard';
 import Bookings from './components/customer/Bookings';
 import Notifications from './components/customer/Notifications';
@@ -40,7 +40,7 @@ import Wallet from './components/customer/Wallet';
 import BookingHistory from './components/customer/BookingHistory';
 import CustomerSettings from './components/customer/CustomerSettings';
 
-// Provider Pages/Components
+// Provider Pages - ✅ Make sure these files exist
 import ProviderDashboard from './components/provider/ProviderDashboard';
 import CreateService from './components/provider/CreateService';
 import MyServices from './components/provider/MyServices';
@@ -62,7 +62,6 @@ const AnalyticsLazy = React.lazy(() => import('./components/admin/Analytics'));
 const AdminPaymentsLazy = React.lazy(() => import('./components/admin/AdminPayments'));
 const AdminReportsLazy = React.lazy(() => import('./components/admin/AdminReports'));
 const SettingsLazy = React.lazy(() => import('./components/admin/AdminSettings'));
-const AdminActivityLazy = React.lazy(() => import('./components/admin/AdminActivity'));
 
 // Payment Pages
 import PaymentMethods from './pages/PaymentMethods';
