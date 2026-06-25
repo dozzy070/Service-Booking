@@ -250,12 +250,78 @@ router.get('/', async (req, res) => {
   }
 });
 
+// =========================================================================
+// GET /api/bookings/upcoming - MUST COME BEFORE /:id
+// =========================================================================
+
+// GET /api/bookings/upcoming - Get upcoming bookings
+router.get('/upcoming', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const limit = parseInt(req.query.limit) || 10;
+
+    let conditions = [];
+    let params = [];
+    let paramIndex = 1;
+
+    if (userRole === 'customer') {
+      conditions.push(`b.customer_id = $${paramIndex}`);
+    } else if (userRole === 'provider') {
+      conditions.push(`b.provider_id = $${paramIndex}`);
+    } else {
+      return res.status(403).json({ message: 'Invalid role' });
+    }
+    params.push(userId);
+    paramIndex++;
+
+    conditions.push(`b.status IN ('pending', 'confirmed')`);
+    conditions.push(`b.booking_date >= CURRENT_DATE`);
+
+    const whereClause = conditions.join(' AND ');
+
+    const query = `
+      SELECT 
+        b.*,
+        s.title as service_title,
+        s.images as service_images,
+        u.name as other_party_name,
+        u.avatar as other_party_avatar
+      FROM bookings b
+      JOIN services s ON b.service_id = s.id
+      JOIN users u ON u.id = CASE 
+        WHEN $1 = b.customer_id THEN b.provider_id 
+        ELSE b.customer_id 
+      END
+      WHERE ${whereClause}
+      ORDER BY b.booking_date ASC, b.booking_time ASC
+      LIMIT $${paramIndex}
+    `;
+    params.push(limit);
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching upcoming bookings:', error);
+    res.status(500).json({ message: 'Failed to fetch upcoming bookings' });
+  }
+});
+
+// =========================================================================
+// GET /api/bookings/:id - MUST COME AFTER SPECIFIC ROUTES
+// =========================================================================
+
 // GET /api/bookings/:id - Get a single booking
 router.get('/:id', async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user.id;
     const userRole = req.user.role;
+
+    // Check if it's a valid integer
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ message: 'Invalid booking ID' });
+    }
 
     const query = `
       SELECT 
@@ -856,59 +922,6 @@ router.get('/my-bookings', async (req, res) => {
   } catch (error) {
     console.error('Error fetching user bookings:', error);
     res.status(500).json({ message: 'Failed to fetch bookings' });
-  }
-});
-
-// GET /api/bookings/upcoming - Get upcoming bookings
-router.get('/upcoming', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userRole = req.user.role;
-    const limit = parseInt(req.query.limit) || 10;
-
-    let conditions = [];
-    let params = [];
-    let paramIndex = 1;
-
-    if (userRole === 'customer') {
-      conditions.push(`b.customer_id = $${paramIndex}`);
-    } else if (userRole === 'provider') {
-      conditions.push(`b.provider_id = $${paramIndex}`);
-    } else {
-      return res.status(403).json({ message: 'Invalid role' });
-    }
-    params.push(userId);
-    paramIndex++;
-
-    conditions.push(`b.status IN ('pending', 'confirmed')`);
-    conditions.push(`b.booking_date >= CURRENT_DATE`);
-
-    const whereClause = conditions.join(' AND ');
-
-    const query = `
-      SELECT 
-        b.*,
-        s.title as service_title,
-        s.images as service_images,
-        u.name as other_party_name,
-        u.avatar as other_party_avatar
-      FROM bookings b
-      JOIN services s ON b.service_id = s.id
-      JOIN users u ON u.id = CASE 
-        WHEN $1 = b.customer_id THEN b.provider_id 
-        ELSE b.customer_id 
-      END
-      WHERE ${whereClause}
-      ORDER BY b.booking_date ASC, b.booking_time ASC
-      LIMIT $${paramIndex}
-    `;
-    params.push(limit);
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching upcoming bookings:', error);
-    res.status(500).json({ message: 'Failed to fetch upcoming bookings' });
   }
 });
 
