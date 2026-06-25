@@ -37,7 +37,6 @@ import {
   FaEye,
   FaRegClock,
   FaFire,
-  FaTrendUp,
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
