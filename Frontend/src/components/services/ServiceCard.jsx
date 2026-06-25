@@ -1,8 +1,19 @@
+// src/components/services/ServiceCard.jsx
 import React from 'react';
 import { Card, Button, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { FaStar, FaMapMarkerAlt } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
+
+// Format currency helper
+const formatCurrency = (amount) => {
+  return new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount || 0);
+};
 
 const ServiceCard = ({ service }) => {
   const rating = service.average_rating || service.rating || 0;
@@ -10,10 +21,12 @@ const ServiceCard = ({ service }) => {
 
   return (
     <Card className="h-100 border-0 shadow-sm hover-shadow">
+      {/* ✅ FIXED: Proper image src with function call */}
       <Card.Img
         variant="top"
-        src={service.images?.[0] || 'getServiceImage(null, service.title, 300, 200)'}
+        src={service.images?.[0] || getServiceImage(service.title, service.id, 300, 200)}
         style={{ height: '200px', objectFit: 'cover' }}
+        onError={(e) => handleServiceImageError(e, service.title)}
       />
       <Card.Body>
         <div className="d-flex justify-content-between align-items-start mb-2">

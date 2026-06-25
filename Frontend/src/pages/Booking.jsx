@@ -25,7 +25,6 @@ import {
   FaCheckCircle
 } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../utils/imageUtils';
-
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -50,7 +49,12 @@ const Booking = () => {
   const [bookingId, setBookingId] = useState(null);
 
   const formatCurrency = (amount) => {
-    return `$${parseFloat(amount || 0).toFixed(2)}`;
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount || 0);
   };
 
   const formatDate = (date) => {
@@ -142,6 +146,19 @@ const Booking = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <Container className="py-5">
+        <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+          <div className="text-center">
+            <Spinner animation="border" variant="primary" />
+            <p className="mt-3 text-muted">Loading service details...</p>
+          </div>
+        </div>
+      </Container>
+    );
+  }
+
   if (!service) {
     return (
       <Container className="py-5">
@@ -190,12 +207,13 @@ const Booking = () => {
             <Card.Body>
               <Row>
                 <Col md={4}>
+                  {/* ✅ FIXED: Correct image src with proper function call */}
                   <img
-                    src={service.images?.[0] || 'getServiceImage(null, service.title, 300, 200)'}
+                    src={service.images?.[0] || getServiceImage(service.title, service.id, 300, 200)}
                     alt={service.title}
                     className="img-fluid rounded"
                     style={{ width: '100%', height: '150px', objectFit: 'cover' }}
-                    onError={(e) => { e.target.src = 'getServiceImage(null, service.title, 300, 200)'; }}
+                    onError={(e) => handleServiceImageError(e, service.title)}
                   />
                 </Col>
                 <Col md={8}>

@@ -30,7 +30,6 @@ import {
   FaEnvelope
 } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
-
 import { useAuth } from '../../context/AuthContext';
 import { customerAPI } from '../../api/api';
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns';
@@ -41,14 +40,11 @@ import toast from 'react-hot-toast';
 // ============================================================
 
 const styles = {
-  // Container
   container: {
     minHeight: '100vh',
     background: '#f0f4f8',
     padding: '24px',
   },
-
-  // Header / Welcome
   welcomeCard: {
     background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
     borderRadius: '24px',
@@ -121,8 +117,6 @@ const styles = {
     alignItems: 'center',
     gap: '10px',
   },
-
-  // Stats Grid
   statsGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -175,8 +169,6 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
   },
-
-  // Membership Card
   membershipCard: {
     background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
     borderRadius: '16px',
@@ -210,8 +202,6 @@ const styles = {
     borderRadius: '3px',
     transition: 'width 0.6s ease',
   }),
-
-  // Main Layout
   mainGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 380px',
@@ -227,8 +217,6 @@ const styles = {
     flexDirection: 'column',
     gap: '24px',
   },
-
-  // Cards
   card: {
     background: 'white',
     borderRadius: '16px',
@@ -264,8 +252,6 @@ const styles = {
     gap: '4px',
     fontWeight: '500',
   },
-
-  // Booking Item
   bookingItem: {
     padding: '16px 0',
     borderBottom: '1px solid #f0f4f8',
@@ -358,8 +344,6 @@ const styles = {
     color: 'white',
     border: 'none',
   },
-
-  // Empty State
   emptyState: {
     textAlign: 'center',
     padding: '40px 20px',
@@ -379,8 +363,6 @@ const styles = {
     color: '#a0aec0',
     marginBottom: '16px',
   },
-
-  // Activity Item
   activityItem: {
     display: 'flex',
     alignItems: 'center',
@@ -413,8 +395,6 @@ const styles = {
     fontSize: '12px',
     color: '#a0aec0',
   },
-
-  // Badge
   badge: (bg, color) => ({
     display: 'inline-flex',
     alignItems: 'center',
@@ -426,8 +406,6 @@ const styles = {
     background: bg,
     color: color,
   }),
-
-  // Quick Actions
   quickActions: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
@@ -449,8 +427,6 @@ const styles = {
     justifyContent: 'center',
     gap: '8px',
   }),
-
-  // Recommended Service
   recommendedItem: {
     display: 'flex',
     gap: '14px',
@@ -508,8 +484,6 @@ const styles = {
     transition: 'all 0.2s',
     textDecoration: 'none',
   },
-
-  // Reminder
   reminderItem: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -534,8 +508,6 @@ const styles = {
     fontSize: '12px',
     color: '#a0aec0',
   },
-
-  // Responsive
   '@media (max-width: 1024px)': {
     mainGrid: {
       gridTemplateColumns: '1fr',
@@ -603,7 +575,6 @@ const CustomerDashboard = () => {
   const [trendingServices, setTrendingServices] = useState([]);
   const [hoveredStat, setHoveredStat] = useState(null);
 
-  // Format currency
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -619,7 +590,6 @@ const CustomerDashboard = () => {
     return formatNaira(amount);
   };
 
-  // Set greeting
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour < 12) setGreeting('Good Morning');
@@ -627,7 +597,6 @@ const CustomerDashboard = () => {
     else setGreeting('Good Evening');
   }, []);
 
-  // Fetch dashboard data
   const fetchDashboardData = useCallback(async () => {
     try {
       const [statsRes, bookingsRes, recommendationsRes, remindersRes, featuredRes, trendingRes] =
@@ -665,7 +634,6 @@ const CustomerDashboard = () => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Get status badge
   const getStatusBadge = (status) => {
     const map = {
       pending: { bg: '#fef3c7', color: '#b45309', label: 'Pending', icon: FaClock },
@@ -683,7 +651,6 @@ const CustomerDashboard = () => {
     );
   };
 
-  // Get date badge
   const getDateBadge = (date) => {
     const d = new Date(date);
     if (isToday(d)) {
@@ -695,7 +662,6 @@ const CustomerDashboard = () => {
     return null;
   };
 
-  // Get membership tier
   const getMembershipTier = () => {
     if (stats.totalSpent >= 500000) return { name: 'Platinum', icon: FaCrown, color: '#7c3aed' };
     if (stats.totalSpent >= 200000) return { name: 'Gold', icon: FaTrophy, color: '#d97706' };
@@ -706,7 +672,6 @@ const CustomerDashboard = () => {
   const tier = getMembershipTier();
   const TierIcon = tier.icon;
 
-  // Loading state
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
@@ -720,9 +685,7 @@ const CustomerDashboard = () => {
 
   return (
     <div style={styles.container}>
-      {/* ============================================================
-          WELCOME CARD
-          ============================================================ */}
+      {/* Welcome Card */}
       <div style={styles.welcomeCard}>
         <div style={styles.welcomeCardBg}></div>
         <div style={styles.welcomeCardBg2}></div>
@@ -773,9 +736,7 @@ const CustomerDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          STATS CARDS
-          ============================================================ */}
+      {/* Stats Cards */}
       <div style={styles.statsGrid}>
         {[
           { key: 'total', icon: FaCalendarCheck, label: 'Total Bookings', value: stats.totalBookings, color: '#6366f1', bg: '#eef2ff', detail: `${stats.upcomingBookings} upcoming` },
@@ -817,9 +778,7 @@ const CustomerDashboard = () => {
         })}
       </div>
 
-      {/* ============================================================
-          MEMBERSHIP CARD
-          ============================================================ */}
+      {/* Membership Card */}
       <div style={styles.membershipCard}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -864,11 +823,9 @@ const CustomerDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          MAIN GRID
-          ============================================================ */}
+      {/* Main Grid */}
       <div style={styles.mainGrid}>
-        {/* LEFT COLUMN */}
+        {/* Left Column */}
         <div style={styles.leftColumn}>
           {/* Upcoming Bookings */}
           <div style={styles.card}>
@@ -975,7 +932,7 @@ const CustomerDashboard = () => {
           </div>
         </div>
 
-        {/* RIGHT COLUMN */}
+        {/* Right Column */}
         <div style={styles.rightColumn}>
           {/* Quick Actions */}
           <div style={styles.card}>
@@ -1000,7 +957,7 @@ const CustomerDashboard = () => {
             </div>
           </div>
 
-          {/* Recommended Services */}
+          {/* Recommended Services - ✅ FIXED IMAGE USAGE */}
           {recommendedServices.length > 0 && (
             <div style={styles.card}>
               <div style={styles.cardHeader}>
@@ -1015,10 +972,10 @@ const CustomerDashboard = () => {
                 {recommendedServices.slice(0, 3).map(service => (
                   <div key={service.id} style={styles.recommendedItem}>
                     <img
-                      src={service.image || 'getServiceImage(null, service.title, 64, 64)'}
+                      src={service.image || getServiceImage(service.title, service.id, 64, 64)}
                       alt={service.title}
                       style={styles.recommendedImg}
-                      onError={(e) => { e.target.src = 'getServiceImage(null, service.title, 64, 64)'; }}
+                      onError={(e) => handleServiceImageError(e, service.title)}
                     />
                     <div style={styles.recommendedInfo}>
                       <div>
@@ -1067,9 +1024,6 @@ const CustomerDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          GLOBAL STYLES
-          ============================================================ */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
@@ -1088,7 +1042,6 @@ const CustomerDashboard = () => {
         button {
           font-family: inherit;
         }
-        /* Scrollbar */
         ::-webkit-scrollbar {
           width: 6px;
           height: 6px;

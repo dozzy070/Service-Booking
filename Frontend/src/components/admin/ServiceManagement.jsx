@@ -113,14 +113,14 @@ import {
   FaPlay,
   FaPause,
   FaStop,
-  FaStepForward,        // ✅ Fixed: removed FaFa
-  FaStepBackward,       // ✅ Fixed: removed FaFa
+  FaStepForward,
+  FaStepBackward,
   FaFastForward,
   FaFastBackward,
-  FaVolumeUp,           // ✅ Fixed: removed FaFa
-  FaVolumeDown,         // ✅ Fixed: removed FaFa
-  FaVolumeMute,         // ✅ Fixed: removed FaFa
-  FaVolumeOff,          // ✅ Fixed: removed FaFa
+  FaVolumeUp,
+  FaVolumeDown,
+  FaVolumeMute,
+  FaVolumeOff,
   FaVideo,
   FaFilm,
   FaCamera,
@@ -173,7 +173,6 @@ import {
   FaSync
 } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
-
 import { format, formatDistanceToNow } from 'date-fns';
 
 const ServiceManagement = () => {
@@ -912,11 +911,13 @@ const ServiceManagement = () => {
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-3">
+                              {/* ✅ FIXED: Correct image src with proper function call */}
                               <img 
-                                src={service.images?.[0] || 'getServiceImage(null, service.title, 50, 50)'} 
+                                src={service.images?.[0] || getServiceImage(service.title, service.id, 50, 50)} 
                                 alt={service.title} 
                                 className="rounded" 
                                 style={{ width: '50px', height: '50px', objectFit: 'cover' }} 
+                                onError={(e) => handleServiceImageError(e, service.title)}
                               />
                               <div>
                                 <div className="fw-semibold">{service.title}</div>
@@ -1127,7 +1128,7 @@ const ServiceManagement = () => {
         </Card>
       </Container>
 
-      {/* Modals */}
+      {/* Modals - same as before */}
       {/* View/Edit/Add Modal */}
       <Modal show={showServiceModal} onHide={() => setShowServiceModal(false)} size="xl" centered>
         <Modal.Header closeButton className="border-0 pb-0">
