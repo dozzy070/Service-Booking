@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Button, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { FaStar, FaMapMarkerAlt } from 'react-icons/fa';
+import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
 
 const ServiceCard = ({ service }) => {
   const rating = service.average_rating || service.rating || 0;
@@ -11,7 +12,7 @@ const ServiceCard = ({ service }) => {
     <Card className="h-100 border-0 shadow-sm hover-shadow">
       <Card.Img
         variant="top"
-        src={service.images?.[0] || 'https://via.placeholder.com/300x200'}
+        src={service.images?.[0] || 'getServiceImage(null, service.title, 300, 200)'}
         style={{ height: '200px', objectFit: 'cover' }}
       />
       <Card.Body>

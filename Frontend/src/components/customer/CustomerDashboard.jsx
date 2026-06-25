@@ -29,6 +29,8 @@ import {
   FaPhone,
   FaEnvelope
 } from 'react-icons/fa';
+import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
+
 import { useAuth } from '../../context/AuthContext';
 import { customerAPI } from '../../api/api';
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns';
@@ -1013,10 +1015,10 @@ const CustomerDashboard = () => {
                 {recommendedServices.slice(0, 3).map(service => (
                   <div key={service.id} style={styles.recommendedItem}>
                     <img
-                      src={service.image || 'https://via.placeholder.com/64'}
+                      src={service.image || 'getServiceImage(null, service.title, 64, 64)'}
                       alt={service.title}
                       style={styles.recommendedImg}
-                      onError={(e) => { e.target.src = 'https://via.placeholder.com/64'; }}
+                      onError={(e) => { e.target.src = 'getServiceImage(null, service.title, 64, 64)'; }}
                     />
                     <div style={styles.recommendedInfo}>
                       <div>

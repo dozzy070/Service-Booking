@@ -172,6 +172,7 @@ import {
   FaArrowDown,
   FaSync
 } from 'react-icons/fa';
+import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
 
 import { format, formatDistanceToNow } from 'date-fns';
 
@@ -912,7 +913,7 @@ const ServiceManagement = () => {
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-3">
                               <img 
-                                src={service.images?.[0] || 'https://via.placeholder.com/50'} 
+                                src={service.images?.[0] || 'getServiceImage(null, service.title, 50, 50)'} 
                                 alt={service.title} 
                                 className="rounded" 
                                 style={{ width: '50px', height: '50px', objectFit: 'cover' }} 

@@ -24,6 +24,7 @@ import {
   FaShieldAlt,
   FaCheckCircle
 } from 'react-icons/fa';
+import { getServiceImage, handleServiceImageError } from '../utils/imageUtils';
 
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -190,11 +191,11 @@ const Booking = () => {
               <Row>
                 <Col md={4}>
                   <img
-                    src={service.images?.[0] || 'https://via.placeholder.com/300x200?text=Service'}
+                    src={service.images?.[0] || 'getServiceImage(null, service.title, 300, 200)'}
                     alt={service.title}
                     className="img-fluid rounded"
                     style={{ width: '100%', height: '150px', objectFit: 'cover' }}
-                    onError={(e) => { e.target.src = 'https://via.placeholder.com/300x200?text=Service'; }}
+                    onError={(e) => { e.target.src = 'getServiceImage(null, service.title, 300, 200)'; }}
                   />
                 </Col>
                 <Col md={8}>
