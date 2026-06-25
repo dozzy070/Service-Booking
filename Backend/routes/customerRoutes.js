@@ -1,3 +1,4 @@
+// Backend/routes/customerRoutes.js
 import express from 'express';
 import { protect } from '../middleware/auth.js';
 import pool from '../config/db.js';
@@ -18,26 +19,16 @@ router.use(protect);
 // PAYMENT METHODS
 // =========================================================================
 
-// GET /api/customer/payment-methods - Get user's payment methods
 router.get('/payment-methods', getPaymentMethods);
-
-// POST /api/customer/payment-methods - Add a payment method
 router.post('/payment-methods', addPaymentMethod);
-
-// PUT /api/customer/payment-methods/:id/default - Set default payment method
 router.put('/payment-methods/:id/default', setDefaultPaymentMethod);
-
-// DELETE /api/customer/payment-methods/:id - Delete a payment method
 router.delete('/payment-methods/:id', deletePaymentMethod);
-
-// GET /api/customer/payment-summary - Get payment summary
 router.get('/payment-summary', getPaymentSummary);
 
 // =========================================================================
 // FAVORITES
 // =========================================================================
 
-// GET /api/customer/favorites - Get user's favorite services
 router.get('/favorites', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -67,50 +58,30 @@ router.get('/favorites', async (req, res) => {
     `;
 
     const result = await pool.query(query, [userId]);
-    const favorites = result.rows.map(row => ({
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      category: row.category || 'Uncategorized',
-      price: parseFloat(row.price),
-      duration: row.duration,
-      location: row.location,
-      rating: parseFloat(row.rating),
-      review_count: parseInt(row.review_count),
-      provider_name: row.provider_name,
-      provider_avatar: row.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(row.provider_name)}&background=10b981&color=fff`,
-      image: row.images,
-      favorited_at: row.favorited_at
-    }));
-
-    res.json(favorites);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching favorites:', error);
-    res.status(500).json({ message: 'Failed to fetch favorites' });
+    res.json([]);
   }
 });
 
-// POST /api/customer/favorites/:serviceId - Toggle favorite
 router.post('/favorites/:serviceId', async (req, res) => {
   try {
     const userId = req.user.id;
     const serviceId = req.params.serviceId;
 
-    // Check if already favorited
     const check = await pool.query(
       'SELECT id FROM favorites WHERE user_id = $1 AND service_id = $2',
       [userId, serviceId]
     );
 
     if (check.rows.length > 0) {
-      // Remove from favorites
       await pool.query(
         'DELETE FROM favorites WHERE user_id = $1 AND service_id = $2',
         [userId, serviceId]
       );
       res.json({ favorited: false, message: 'Removed from favorites' });
     } else {
-      // Add to favorites
       await pool.query(
         'INSERT INTO favorites (user_id, service_id) VALUES ($1, $2)',
         [userId, serviceId]
@@ -123,7 +94,6 @@ router.post('/favorites/:serviceId', async (req, res) => {
   }
 });
 
-// GET /api/customer/favorites/:serviceId/check - Check if service is favorited
 router.get('/favorites/:serviceId/check', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -145,51 +115,91 @@ router.get('/favorites/:serviceId/check', async (req, res) => {
 // DASHBOARD STATS
 // =========================================================================
 
-// GET /api/customer/dashboard/stats - Get dashboard statistics
 router.get('/dashboard/stats', async (req, res) => {
   try {
     const userId = req.user.id;
+
+    // Check if user has any bookings
+    const hasBookings = await pool.query(
+      'SELECT COUNT(*) as count FROM bookings WHERE customer_id = $1',
+      [userId]
+    );
+
+    if (parseInt(hasBookings.rows[0].count) === 0) {
+      return res.json({
+        totalBookings: 0,
+        pendingBookings: 0,
+        upcomingBookings: 0,
+        completedBookings: 0,
+        cancelledBookings: 0,
+        totalSpent: 0,
+        totalProviders: 0,
+        totalFavorites: 0,
+        totalReviews: 0,
+        loyaltyPoints: 0,
+        tier: 'Bronze'
+      });
+    }
 
     const statsQuery = `
       SELECT
         COUNT(*) as total_bookings,
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_bookings,
-        COUNT(CASE WHEN status = 'upcoming' OR status = 'confirmed' THEN 1 END) as upcoming_bookings,
+        COUNT(CASE WHEN status IN ('pending', 'confirmed') THEN 1 END) as upcoming_bookings,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_bookings,
         COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_bookings,
         COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount END), 0) as total_spent,
-        COUNT(DISTINCT provider_id) as total_providers,
-        (SELECT COUNT(*) FROM favorites WHERE user_id = $1) as total_favorites,
-        (SELECT COUNT(*) FROM reviews WHERE user_id = $1) as total_reviews
+        COUNT(DISTINCT provider_id) as total_providers
       FROM bookings
       WHERE customer_id = $1
     `;
 
     const statsResult = await pool.query(statsQuery, [userId]);
-    const stats = statsResult.rows[0];
+    const stats = statsResult.rows[0] || {};
 
-    // Get loyalty points
+    const favorites = await pool.query(
+      'SELECT COUNT(*) as count FROM favorites WHERE user_id = $1',
+      [userId]
+    );
+
+    const reviews = await pool.query(
+      'SELECT COUNT(*) as count FROM reviews WHERE reviewer_id = $1',
+      [userId]
+    );
+
     const wallet = await pool.query(
       'SELECT points, tier FROM wallets WHERE user_id = $1',
       [userId]
     );
 
     res.json({
-      totalBookings: parseInt(stats.total_bookings),
-      pendingBookings: parseInt(stats.pending_bookings),
-      upcomingBookings: parseInt(stats.upcoming_bookings),
-      completedBookings: parseInt(stats.completed_bookings),
-      cancelledBookings: parseInt(stats.cancelled_bookings),
-      totalSpent: parseFloat(stats.total_spent),
-      totalProviders: parseInt(stats.total_providers),
-      totalFavorites: parseInt(stats.total_favorites),
-      totalReviews: parseInt(stats.total_reviews),
-      loyaltyPoints: wallet.rows.length > 0 ? parseInt(wallet.rows[0].points) : 0,
-      tier: wallet.rows.length > 0 ? wallet.rows[0].tier : 'Bronze'
+      totalBookings: parseInt(stats.total_bookings || 0),
+      pendingBookings: parseInt(stats.pending_bookings || 0),
+      upcomingBookings: parseInt(stats.upcoming_bookings || 0),
+      completedBookings: parseInt(stats.completed_bookings || 0),
+      cancelledBookings: parseInt(stats.cancelled_bookings || 0),
+      totalSpent: parseFloat(stats.total_spent || 0),
+      totalProviders: parseInt(stats.total_providers || 0),
+      totalFavorites: parseInt(favorites.rows[0]?.count || 0),
+      totalReviews: parseInt(reviews.rows[0]?.count || 0),
+      loyaltyPoints: wallet.rows.length > 0 ? parseInt(wallet.rows[0].points || 0) : 0,
+      tier: wallet.rows.length > 0 ? wallet.rows[0].tier || 'Bronze' : 'Bronze'
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ message: 'Failed to fetch dashboard stats' });
+    res.json({
+      totalBookings: 0,
+      pendingBookings: 0,
+      upcomingBookings: 0,
+      completedBookings: 0,
+      cancelledBookings: 0,
+      totalSpent: 0,
+      totalProviders: 0,
+      totalFavorites: 0,
+      totalReviews: 0,
+      loyaltyPoints: 0,
+      tier: 'Bronze'
+    });
   }
 });
 
@@ -197,7 +207,6 @@ router.get('/dashboard/stats', async (req, res) => {
 // RECENT BOOKINGS
 // =========================================================================
 
-// GET /api/customer/bookings/recent - Get recent bookings
 router.get('/bookings/recent', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -224,21 +233,10 @@ router.get('/bookings/recent', async (req, res) => {
     `;
 
     const result = await pool.query(query, [userId, limit]);
-    const bookings = result.rows.map(booking => ({
-      id: booking.id,
-      serviceTitle: booking.service_title,
-      providerName: booking.provider_name,
-      providerAvatar: booking.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(booking.provider_name)}&background=10b981&color=fff`,
-      bookingDate: booking.booking_date,
-      status: booking.status,
-      totalPrice: parseFloat(booking.total_amount),
-      serviceImage: booking.images && booking.images.length > 0 ? booking.images[0] : null
-    }));
-
-    res.json(bookings);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching recent bookings:', error);
-    res.status(500).json({ message: 'Failed to fetch recent bookings' });
+    res.json([]);
   }
 });
 
@@ -246,7 +244,6 @@ router.get('/bookings/recent', async (req, res) => {
 // BOOKING HISTORY
 // =========================================================================
 
-// GET /api/customer/bookings/history - Get booking history with pagination
 router.get('/bookings/history', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -304,7 +301,7 @@ router.get('/bookings/history', async (req, res) => {
       FROM bookings b
       JOIN services s ON b.service_id = s.id
       JOIN users u ON b.provider_id = u.id
-      LEFT JOIN reviews r ON r.booking_id = b.id AND r.user_id = b.customer_id
+      LEFT JOIN reviews r ON r.booking_id = b.id AND r.reviewer_id = b.customer_id
       WHERE ${whereClause}
       ORDER BY b.booking_date DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -325,7 +322,10 @@ router.get('/bookings/history', async (req, res) => {
   }
 });
 
-// GET /api/customer/bookings/upcoming - Get upcoming bookings
+// =========================================================================
+// UPCOMING BOOKINGS
+// =========================================================================
+
 router.get('/bookings/upcoming', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -341,22 +341,24 @@ router.get('/bookings/upcoming', async (req, res) => {
       JOIN services s ON b.service_id = s.id
       JOIN users u ON b.provider_id = u.id
       WHERE b.customer_id = $1
-        AND b.status IN ('pending', 'confirmed', 'upcoming')
+        AND b.status IN ('pending', 'confirmed')
         AND b.booking_date >= NOW()
       ORDER BY b.booking_date ASC
       LIMIT $2
     `;
     
     const result = await pool.query(query, [userId, limit]);
-    
-    res.json(result.rows);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching upcoming bookings:', error);
-    res.status(500).json({ message: 'Failed to fetch upcoming bookings' });
+    res.json([]);
   }
 });
 
-// GET /api/customer/bookings/:id - Get booking details
+// =========================================================================
+// BOOKING DETAILS
+// =========================================================================
+
 router.get('/bookings/:id', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -379,7 +381,7 @@ router.get('/bookings/:id', async (req, res) => {
       FROM bookings b
       JOIN services s ON b.service_id = s.id
       JOIN users u ON b.provider_id = u.id
-      LEFT JOIN reviews r ON r.booking_id = b.id AND r.user_id = b.customer_id
+      LEFT JOIN reviews r ON r.booking_id = b.id AND r.reviewer_id = b.customer_id
       WHERE b.id = $1 AND b.customer_id = $2
     `;
     
@@ -396,14 +398,16 @@ router.get('/bookings/:id', async (req, res) => {
   }
 });
 
-// PUT /api/customer/bookings/:id/cancel - Cancel a booking
+// =========================================================================
+// CANCEL BOOKING
+// =========================================================================
+
 router.put('/bookings/:id/cancel', async (req, res) => {
   try {
     const userId = req.user.id;
     const bookingId = req.params.id;
     const { reason } = req.body;
     
-    // Check booking belongs to user and is cancellable
     const check = await pool.query(
       `SELECT status FROM bookings WHERE id = $1 AND customer_id = $2`,
       [bookingId, userId]
@@ -422,6 +426,7 @@ router.put('/bookings/:id/cancel', async (req, res) => {
       `UPDATE bookings 
        SET status = 'cancelled', 
            cancellation_reason = $1,
+           cancelled_at = NOW(),
            updated_at = NOW() 
        WHERE id = $2`,
       [reason || 'Customer requested cancellation', bookingId]
@@ -434,7 +439,10 @@ router.put('/bookings/:id/cancel', async (req, res) => {
   }
 });
 
-// PUT /api/customer/bookings/:id/reschedule - Reschedule a booking
+// =========================================================================
+// RESCHEDULE BOOKING
+// =========================================================================
+
 router.put('/bookings/:id/reschedule', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -445,7 +453,6 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
       return res.status(400).json({ message: 'New date is required' });
     }
     
-    // Check booking belongs to user
     const check = await pool.query(
       `SELECT status FROM bookings WHERE id = $1 AND customer_id = $2`,
       [bookingId, userId]
@@ -481,7 +488,6 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
 // BOOKING STATS
 // =========================================================================
 
-// GET /api/customer/bookings/stats - Get booking statistics
 router.get('/bookings/stats', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -502,15 +508,15 @@ router.get('/bookings/stats', async (req, res) => {
     `, [userId]);
     
     res.json({
-      total: parseInt(result.rows[0].total),
-      pending: parseInt(result.rows[0].pending),
-      confirmed: parseInt(result.rows[0].confirmed),
-      completed: parseInt(result.rows[0].completed),
-      cancelled: parseInt(result.rows[0].cancelled),
-      totalSpent: parseFloat(result.rows[0].total_spent),
-      pendingAmount: parseFloat(result.rows[0].pending_amount),
-      averageSpent: parseFloat(result.rows[0].average_spent),
-      totalProviders: parseInt(result.rows[0].total_providers)
+      total: parseInt(result.rows[0].total || 0),
+      pending: parseInt(result.rows[0].pending || 0),
+      confirmed: parseInt(result.rows[0].confirmed || 0),
+      completed: parseInt(result.rows[0].completed || 0),
+      cancelled: parseInt(result.rows[0].cancelled || 0),
+      totalSpent: parseFloat(result.rows[0].total_spent || 0),
+      pendingAmount: parseFloat(result.rows[0].pending_amount || 0),
+      averageSpent: parseFloat(result.rows[0].average_spent || 0),
+      totalProviders: parseInt(result.rows[0].total_providers || 0)
     });
   } catch (err) {
     console.error(err);
@@ -522,7 +528,6 @@ router.get('/bookings/stats', async (req, res) => {
 // REMINDERS
 // =========================================================================
 
-// GET /api/customer/reminders - Get upcoming reminders
 router.get('/reminders', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -550,20 +555,10 @@ router.get('/reminders', async (req, res) => {
     `;
 
     const result = await pool.query(query, [userId, limit]);
-    const reminders = result.rows.map(reminder => ({
-      id: reminder.id,
-      serviceTitle: reminder.service_title,
-      providerName: reminder.provider_name,
-      providerAvatar: reminder.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(reminder.provider_name)}&background=10b981&color=fff`,
-      bookingDate: reminder.booking_date,
-      daysUntil: Math.ceil((new Date(reminder.booking_date) - new Date()) / (1000 * 60 * 60 * 24)),
-      status: reminder.status
-    }));
-
-    res.json(reminders);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching reminders:', error);
-    res.status(500).json({ message: 'Failed to fetch reminders' });
+    res.json([]);
   }
 });
 
@@ -571,14 +566,13 @@ router.get('/reminders', async (req, res) => {
 // REVIEWS
 // =========================================================================
 
-// GET /api/customer/reviews - Get customer reviews
 router.get('/reviews', async (req, res) => {
   try {
     const userId = req.user.id;
     const { page = 1, limit = 10, rating } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    let conditions = ['r.user_id = $1'];
+    let conditions = ['r.reviewer_id = $1'];
     let params = [userId];
     let paramIndex = 2;
     
@@ -597,7 +591,7 @@ router.get('/reviews', async (req, res) => {
       WHERE ${whereClause}
     `;
     const countResult = await pool.query(countQuery, params);
-    const total = parseInt(countResult.rows[0].total);
+    const total = parseInt(countResult.rows[0].total || 0);
     
     const query = `
       SELECT 
@@ -629,7 +623,6 @@ router.get('/reviews', async (req, res) => {
   }
 });
 
-// POST /api/customer/reviews - Add a review
 router.post('/reviews', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -643,19 +636,17 @@ router.post('/reviews', async (req, res) => {
       return res.status(400).json({ message: 'Rating must be between 1 and 5' });
     }
     
-    // Check booking belongs to user
     const bookingCheck = await pool.query(
-      'SELECT id FROM bookings WHERE id = $1 AND customer_id = $2 AND status = \'completed\'',
-      [bookingId, userId]
+      'SELECT id FROM bookings WHERE id = $1 AND customer_id = $2 AND status = $3',
+      [bookingId, userId, 'completed']
     );
     
     if (bookingCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Completed booking not found' });
     }
     
-    // Check if review already exists
     const reviewCheck = await pool.query(
-      'SELECT id FROM reviews WHERE booking_id = $1 AND user_id = $2',
+      'SELECT id FROM reviews WHERE booking_id = $1 AND reviewer_id = $2',
       [bookingId, userId]
     );
     
@@ -663,13 +654,19 @@ router.post('/reviews', async (req, res) => {
       return res.status(400).json({ message: 'Review already exists for this booking' });
     }
     
+    // Get provider_id from booking
+    const booking = await pool.query(
+      'SELECT provider_id FROM bookings WHERE id = $1',
+      [bookingId]
+    );
+    const providerId = booking.rows[0]?.provider_id;
+
     const result = await pool.query(
-      `INSERT INTO reviews (user_id, service_id, booking_id, rating, comment, images, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING *`,
-      [userId, serviceId, bookingId, rating, comment || '', images || []]
+      `INSERT INTO reviews (reviewer_id, service_id, booking_id, provider_id, rating, comment, images, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING *`,
+      [userId, serviceId, bookingId, providerId, rating, comment || '', images || []]
     );
     
-    // Update service average rating
     await pool.query(`
       UPDATE services 
       SET avg_rating = (
@@ -688,7 +685,6 @@ router.post('/reviews', async (req, res) => {
   }
 });
 
-// GET /api/customer/reviews/:id - Get review details
 router.get('/reviews/:id', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -699,7 +695,7 @@ router.get('/reviews/:id', async (req, res) => {
       FROM reviews r
       JOIN services s ON r.service_id = s.id
       JOIN users u ON s.provider_id = u.id
-      WHERE r.id = $1 AND r.user_id = $2
+      WHERE r.id = $1 AND r.reviewer_id = $2
     `, [reviewId, userId]);
     
     if (result.rows.length === 0) {
@@ -713,7 +709,6 @@ router.get('/reviews/:id', async (req, res) => {
   }
 });
 
-// PUT /api/customer/reviews/:id - Update a review
 router.put('/reviews/:id', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -729,9 +724,8 @@ router.put('/reviews/:id', async (req, res) => {
        SET rating = COALESCE($1, rating),
            comment = COALESCE($2, comment),
            images = COALESCE($3, images),
-           updated_at = NOW(),
-           is_edited = true
-       WHERE id = $4 AND user_id = $5
+           updated_at = NOW()
+       WHERE id = $4 AND reviewer_id = $5
        RETURNING *`,
       [rating, comment, images, reviewId, userId]
     );
@@ -740,7 +734,6 @@ router.put('/reviews/:id', async (req, res) => {
       return res.status(404).json({ message: 'Review not found' });
     }
     
-    // Update service average rating
     const review = result.rows[0];
     await pool.query(`
       UPDATE services 
@@ -757,14 +750,13 @@ router.put('/reviews/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/customer/reviews/:id - Delete a review
 router.delete('/reviews/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const reviewId = req.params.id;
     
     const result = await pool.query(
-      'DELETE FROM reviews WHERE id = $1 AND user_id = $2 RETURNING *',
+      'DELETE FROM reviews WHERE id = $1 AND reviewer_id = $2 RETURNING *',
       [reviewId, userId]
     );
     
@@ -772,7 +764,6 @@ router.delete('/reviews/:id', async (req, res) => {
       return res.status(404).json({ message: 'Review not found' });
     }
     
-    // Update service average rating
     const review = result.rows[0];
     await pool.query(`
       UPDATE services 
@@ -796,13 +787,12 @@ router.delete('/reviews/:id', async (req, res) => {
 // PROFILE
 // =========================================================================
 
-// GET /api/customer/profile - Get customer profile
 router.get('/profile', async (req, res) => {
   try {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, name, email, phone, address, city, state, zip_code, bio, avatar, created_at
+      `SELECT id, name, email, phone, address, city, state, zip_code, bio, avatar, created_at, is_active, verified
        FROM users WHERE id = $1 AND role = 'customer'`,
       [userId]
     );
@@ -818,13 +808,12 @@ router.get('/profile', async (req, res) => {
   }
 });
 
-// PUT /api/customer/profile - Update customer profile
 router.put('/profile', async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phone, address, city, state, zip_code, bio } = req.body;
+    const { name, phone, address, city, state, zip_code, bio, avatar } = req.body;
     
-    await pool.query(
+    const result = await pool.query(
       `UPDATE users SET 
         name = COALESCE($1, name),
         phone = COALESCE($2, phone),
@@ -833,15 +822,154 @@ router.put('/profile', async (req, res) => {
         state = COALESCE($5, state),
         zip_code = COALESCE($6, zip_code),
         bio = COALESCE($7, bio),
+        avatar = COALESCE($8, avatar),
         updated_at = NOW()
-      WHERE id = $8 AND role = 'customer'`,
-      [name, phone, address, city, state, zip_code, bio, userId]
+      WHERE id = $9 AND role = 'customer'
+      RETURNING id, name, email, phone, address, city, state, zip_code, bio, avatar, created_at, is_active, verified`,
+      [name, phone, address, city, state, zip_code, bio, avatar, userId]
     );
     
-    res.json({ message: 'Profile updated successfully' });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+    
+    res.json({ message: 'Profile updated successfully', user: result.rows[0] });
   } catch (error) {
     console.error('Error updating profile:', error);
     res.status(500).json({ message: 'Failed to update profile' });
+  }
+});
+
+// =========================================================================
+// FEATURED SERVICES
+// =========================================================================
+
+router.get('/featured-services', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.title,
+        s.description,
+        s.price,
+        s.images,
+        s.location,
+        s.avg_rating,
+        s.review_count,
+        u.name as provider_name,
+        c.name as category_name
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      LEFT JOIN categories c ON s.category_id = c.id
+      WHERE s.is_featured = true AND s.status = 'approved' AND s.deleted_at IS NULL
+      ORDER BY s.created_at DESC
+      LIMIT 5
+    `);
+
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('Error fetching featured services:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// TRENDING SERVICES
+// =========================================================================
+
+router.get('/trending-services', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.title,
+        s.description,
+        s.price,
+        s.images,
+        s.location,
+        s.avg_rating,
+        s.review_count,
+        u.name as provider_name,
+        c.name as category_name,
+        COUNT(b.id) as booking_count
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN bookings b ON b.service_id = s.id AND b.status = 'completed'
+      WHERE s.status = 'approved' AND s.deleted_at IS NULL
+      GROUP BY s.id, u.name, c.name
+      ORDER BY booking_count DESC, s.avg_rating DESC
+      LIMIT 5
+    `);
+
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('Error fetching trending services:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// RECOMMENDED SERVICES
+// =========================================================================
+
+router.get('/recommended-services', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        s.title,
+        s.description,
+        s.price,
+        s.images,
+        s.location,
+        s.avg_rating,
+        s.review_count,
+        u.name as provider_name,
+        c.name as category_name
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      LEFT JOIN categories c ON s.category_id = c.id
+      WHERE s.status = 'approved' AND s.deleted_at IS NULL
+      ORDER BY s.avg_rating DESC, s.review_count DESC
+      LIMIT 5
+    `);
+
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('Error fetching recommended services:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// WALLET - GET
+// =========================================================================
+
+router.get('/wallet', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const result = await pool.query(
+      `SELECT * FROM wallets WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        balance: 0,
+        points: 0,
+        tier: 'Bronze',
+        lifetime_earnings: 0,
+        total_withdrawn: 0,
+        pending_payout: 0
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching wallet:', error);
+    res.status(500).json({ message: 'Failed to fetch wallet' });
   }
 });
 

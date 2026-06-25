@@ -7,13 +7,10 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider, useSocket, socketService } from './context/SocketContext';
 
-// Layouts
+// Layouts (Sidebars are integrated inside these layouts)
 import Navbar from './components/Layout/Navbar';
 import Footer from './components/Layout/Footer';
 import ProtectedRoute from './components/common/ProtectedRoute';
-import AdminSidebar from './components/Layout/AdminSidebar';
-import CustomerSidebar from './components/Layout/CustomerSidebar';
-import ProviderSidebar from './components/Layout/ProviderSidebar';
 import AdminLayout from './components/Layout/AdminLayout';
 import CustomerLayout from './components/Layout/CustomerLayout';
 import ProviderLayout from './components/Layout/ProviderLayout';

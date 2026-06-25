@@ -1,7 +1,6 @@
 // src/pages/dashboard/AdminDashboard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { Container, Row, Col, Card, Button, ProgressBar, Badge, Table, Spinner, Alert } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   FaUsers,
   FaServicestack,
@@ -36,48 +35,503 @@ import {
   FaWallet,
   FaSync,
   FaEye,
-  FaEyeSlash,
-  FaBell,
-  FaEnvelope,
-  FaPhone,
-  FaMapMarkerAlt,
-  FaGlobe,
-  FaLink,
-  FaWhatsapp,
-  FaTelegram,
-  FaDiscord,
-  FaSlack,
-  FaGithub
+  FaRegClock,
+  FaFire,
+  FaTrendUp,
 } from 'react-icons/fa';
-
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
-import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Line, Bar, Pie, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 
+// ============================================================
+// STYLES
+// ============================================================
+
+const styles = {
+  container: {
+    minHeight: '100vh',
+    background: '#f0f4f8',
+    padding: '24px',
+  },
+
+  // Welcome Card
+  welcomeCard: {
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    borderRadius: '24px',
+    padding: '32px 40px',
+    color: 'white',
+    marginBottom: '28px',
+    position: 'relative',
+    overflow: 'hidden',
+    boxShadow: '0 10px 40px rgba(102, 126, 234, 0.3)',
+  },
+  welcomeCardBg: {
+    position: 'absolute',
+    top: '-50%',
+    right: '-10%',
+    width: '400px',
+    height: '400px',
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.05)',
+  },
+  welcomeCardBg2: {
+    position: 'absolute',
+    bottom: '-30%',
+    left: '20%',
+    width: '300px',
+    height: '300px',
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.03)',
+  },
+  welcomeContent: {
+    position: 'relative',
+    zIndex: 1,
+  },
+  welcomeTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    marginBottom: '8px',
+  },
+  welcomeSubtitle: {
+    fontSize: '16px',
+    opacity: 0.9,
+    marginBottom: '16px',
+  },
+  welcomeTime: {
+    fontSize: '14px',
+    opacity: 0.8,
+    marginLeft: '16px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  welcomeActions: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  btnLight: {
+    background: 'white',
+    color: '#667eea',
+    border: 'none',
+    padding: '10px 24px',
+    borderRadius: '50px',
+    fontWeight: '600',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  btnOutlineLight: {
+    background: 'transparent',
+    color: 'white',
+    border: '2px solid rgba(255,255,255,0.4)',
+    padding: '10px 24px',
+    borderRadius: '50px',
+    fontWeight: '600',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+
+  // Stats Grid
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '20px',
+    marginBottom: '28px',
+  },
+  statCard: {
+    background: 'white',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    transition: 'all 0.3s ease',
+    cursor: 'pointer',
+    border: '1px solid rgba(0,0,0,0.04)',
+  },
+  statCardHover: {
+    transform: 'translateY(-4px)',
+    boxShadow: '0 8px 25px rgba(0,0,0,0.08)',
+  },
+  statIconWrapper: (color, bgColor) => ({
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    background: bgColor,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: color,
+    fontSize: '22px',
+    flexShrink: 0,
+  }),
+  statValue: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1a202c',
+    lineHeight: 1.2,
+    marginBottom: '2px',
+  },
+  statLabel: {
+    fontSize: '14px',
+    color: '#718096',
+    marginBottom: 0,
+  },
+  statTrend: (isUp) => ({
+    padding: '3px 10px',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: '600',
+    background: isUp ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+    color: isUp ? '#10b981' : '#ef4444',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  }),
+  statDetail: {
+    marginTop: '12px',
+    paddingTop: '12px',
+    borderTop: '1px solid #edf2f7',
+    fontSize: '13px',
+    color: '#4a5568',
+    display: 'flex',
+    justifyContent: 'space-between',
+  },
+  progressBar: {
+    height: '4px',
+    borderRadius: '2px',
+    background: '#e2e8f0',
+    marginBottom: '8px',
+    overflow: 'hidden',
+  },
+  progressFill: (percent, color) => ({
+    width: `${Math.min(percent, 100)}%`,
+    height: '100%',
+    background: color || 'linear-gradient(90deg, #667eea, #764ba2)',
+    borderRadius: '2px',
+    transition: 'width 0.6s ease',
+  }),
+
+  // Quick Actions
+  quickActions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+  },
+  quickActionBtn: (color, bg) => ({
+    padding: '8px 18px',
+    borderRadius: '50px',
+    border: '1px solid #e2e8f0',
+    background: bg || 'transparent',
+    color: color || '#4a5568',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+    },
+  }),
+
+  // Main Grid
+  mainGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 380px',
+    gap: '24px',
+  },
+  leftColumn: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+  },
+  rightColumn: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+  },
+
+  // Cards
+  card: {
+    background: 'white',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    border: '1px solid rgba(0,0,0,0.04)',
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    padding: '20px 24px',
+    borderBottom: '1px solid #f0f4f8',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '12px',
+  },
+  cardTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#1a202c',
+    margin: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  cardBody: {
+    padding: '20px 24px',
+  },
+  viewAllLink: {
+    fontSize: '13px',
+    color: '#667eea',
+    textDecoration: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontWeight: '500',
+  },
+
+  // Chart
+  chartContainer: {
+    width: '100%',
+    height: '300px',
+    position: 'relative',
+  },
+  chartViewBtn: (active) => ({
+    background: 'none',
+    border: 'none',
+    fontSize: '13px',
+    fontWeight: active ? '600' : '400',
+    color: active ? '#667eea' : '#a0aec0',
+    cursor: 'pointer',
+    padding: '4px 12px',
+    transition: 'all 0.2s',
+    '&:hover': {
+      color: '#667eea',
+    },
+  }),
+  chartHint: {
+    textAlign: 'center',
+    marginTop: '12px',
+    fontSize: '12px',
+    color: '#a0aec0',
+  },
+
+  // Activity Timeline
+  activityTimeline: {
+    position: 'relative',
+    paddingLeft: '30px',
+  },
+  activityItem: {
+    position: 'relative',
+    paddingBottom: '20px',
+  },
+  activityIcon: (color) => ({
+    position: 'absolute',
+    left: '-30px',
+    top: '0',
+    width: '24px',
+    height: '24px',
+    borderRadius: '50%',
+    background: color || '#f0f4f8',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '11px',
+    color: '#4a5568',
+    zIndex: 1,
+  }),
+  activityContent: {
+    paddingLeft: '15px',
+  },
+  activityText: {
+    marginBottom: '4px',
+    fontSize: '14px',
+    color: '#1a202c',
+  },
+  activityTime: {
+    fontSize: '12px',
+    color: '#a0aec0',
+  },
+  activityLine: {
+    position: 'absolute',
+    left: '-18px',
+    top: '24px',
+    bottom: '-10px',
+    width: '2px',
+    background: '#e2e8f0',
+  },
+
+  // Table
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  th: {
+    padding: '12px 16px',
+    textAlign: 'left',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4a5568',
+    background: '#f8fafc',
+    borderBottom: '2px solid #e2e8f0',
+  },
+  td: {
+    padding: '12px 16px',
+    fontSize: '14px',
+    color: '#1a202c',
+    borderBottom: '1px solid #f0f4f8',
+  },
+  tdLast: {
+    borderBottom: 'none',
+  },
+
+  // Badge
+  badge: (bg, color) => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 12px',
+    borderRadius: '50px',
+    fontSize: '12px',
+    fontWeight: '500',
+    background: bg,
+    color: color,
+  }),
+
+  // Health Items
+  healthItem: {
+    padding: '10px 12px',
+    borderRadius: '10px',
+    transition: 'all 0.2s',
+    marginBottom: '12px',
+  },
+  healthItemHover: {
+    background: '#f8fafc',
+  },
+
+  // Distribution
+  distributionItem: {
+    marginBottom: '16px',
+  },
+
+  // Popular Service
+  popularServiceItem: {
+    padding: '12px 0',
+    borderBottom: '1px solid #f0f4f8',
+    transition: 'all 0.2s',
+    cursor: 'pointer',
+  },
+  popularServiceItemLast: {
+    borderBottom: 'none',
+    paddingBottom: 0,
+  },
+
+  // Achievement
+  achievementCard: {
+    textAlign: 'center',
+    padding: '16px',
+    background: '#f8fafc',
+    borderRadius: '12px',
+    transition: 'all 0.3s ease',
+    cursor: 'pointer',
+  },
+  achievementCardHover: {
+    background: '#edf2f7',
+    transform: 'scale(1.05)',
+  },
+
+  // Empty State
+  emptyState: {
+    textAlign: 'center',
+    padding: '30px 20px',
+  },
+  emptyIcon: {
+    fontSize: '32px',
+    color: '#cbd5e0',
+    marginBottom: '8px',
+  },
+  emptyText: {
+    fontSize: '14px',
+    color: '#a0aec0',
+    margin: 0,
+  },
+
+  // Responsive
+  '@media (max-width: 1024px)': {
+    mainGrid: {
+      gridTemplateColumns: '1fr',
+    },
+  },
+  '@media (max-width: 640px)': {
+    container: {
+      padding: '16px',
+    },
+    welcomeCard: {
+      padding: '24px',
+    },
+    welcomeTitle: {
+      fontSize: '22px',
+    },
+    welcomeTime: {
+      display: 'block',
+      marginLeft: '0',
+      marginTop: '8px',
+    },
+    statsGrid: {
+      gridTemplateColumns: 'repeat(2, 1fr)',
+      gap: '12px',
+    },
+    statCard: {
+      padding: '16px',
+    },
+    statValue: {
+      fontSize: '22px',
+    },
+    quickActions: {
+      flexDirection: 'column',
+    },
+    chartContainer: {
+      height: '200px',
+    },
+  },
+};
+
+// ============================================================
+// COMPONENT
+// ============================================================
 
 const AdminDashboard = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [greeting, setGreeting] = useState('');
   const [timeAgo, setTimeAgo] = useState('');
   const [selectedChartView, setSelectedChartView] = useState('monthly');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [hoveredStat, setHoveredStat] = useState(null);
+  const [hoveredAchievement, setHoveredAchievement] = useState(null);
+  const [hoveredHealth, setHoveredHealth] = useState(null);
 
-  // State for all dashboard data
   const [stats, setStats] = useState({
-    users: { total: 0, new: 0, active: 0, suspended: 0, verified: 0, unverified: 0,
-             providers: 0, customers: 0, admins: 0, growth: 0 },
-    services: { total: 0, pending: 0, approved: 0, rejected: 0, featured: 0,
-                categories: 0, growth: 0 },
-    bookings: { total: 0, pending: 0, active: 0, completed: 0, cancelled: 0,
-                disputes: 0, growth: 0 },
-    revenue: { total: 0, monthly: 0, weekly: 0, daily: 0, average: 0,
-               commission: 0, growth: 0 },
-    ratings: { average: 0, total: 0, fiveStar: 0, fourStar: 0, threeStar: 0,
-               twoStar: 0, oneStar: 0 }
+    users: { total: 0, new: 0, active: 0, suspended: 0, verified: 0, unverified: 0, providers: 0, customers: 0, admins: 0, growth: 0 },
+    services: { total: 0, pending: 0, approved: 0, rejected: 0, featured: 0, categories: 0, growth: 0 },
+    bookings: { total: 0, pending: 0, active: 0, completed: 0, cancelled: 0, disputes: 0, growth: 0 },
+    revenue: { total: 0, monthly: 0, weekly: 0, daily: 0, average: 0, commission: 0, growth: 0 },
+    ratings: { average: 0, total: 0, fiveStar: 0, fourStar: 0, threeStar: 0, twoStar: 0, oneStar: 0 },
   });
 
   const [chartData, setChartData] = useState({ labels: [], data: [], maxValue: 0 });
@@ -89,16 +543,16 @@ const AdminDashboard = () => {
     server: { status: 'healthy', uptime: '99.9%', responseTime: 45 },
     database: { status: 'healthy', queries: 1200, slowQueries: 3 },
     cache: { status: 'healthy', hitRate: 92 },
-    api: { status: 'healthy', requests: 450, errors: 2 }
+    api: { status: 'healthy', requests: 450, errors: 2 },
   });
 
-  // Format currency to NGN
+  // Format currency
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0
+      maximumFractionDigits: 0,
     }).format(amount || 0);
   };
 
@@ -109,15 +563,15 @@ const AdminDashboard = () => {
   };
 
   const formatNumber = (num) => num?.toLocaleString() || 0;
-  const getGrowthIcon = (growth) => growth > 0 ? <FaArrowUp className="text-success" size={12} /> : <FaArrowDown className="text-danger" size={12} />;
-  
+
   const getStatusBadge = (status) => {
-    const badges = {
-      healthy: { bg: 'success', text: 'Healthy' },
-      warning: { bg: 'warning', text: 'Warning' },
-      critical: { bg: 'danger', text: 'Critical' }
+    const map = {
+      healthy: { bg: '#d1fae5', color: '#065f46', label: 'Healthy' },
+      warning: { bg: '#fef3c7', color: '#b45309', label: 'Warning' },
+      critical: { bg: '#fee2e2', color: '#991b1b', label: 'Critical' },
     };
-    return badges[status] || badges.healthy;
+    const item = map[status] || map.healthy;
+    return <span style={styles.badge(item.bg, item.color)}>{item.label}</span>;
   };
 
   // API Calls
@@ -143,7 +597,7 @@ const AdminDashboard = () => {
   const fetchActivities = useCallback(async () => {
     try {
       const res = await adminAPI.getActivities();
-      setRecentActivities(res.data);
+      setRecentActivities(res.data || []);
     } catch (err) {
       console.error('Failed to fetch activities:', err);
     }
@@ -152,7 +606,7 @@ const AdminDashboard = () => {
   const fetchTopProviders = useCallback(async () => {
     try {
       const res = await adminAPI.getTopProviders();
-      setTopProviders(res.data);
+      setTopProviders(res.data || []);
     } catch (err) {
       console.error('Failed to fetch top providers:', err);
     }
@@ -161,7 +615,7 @@ const AdminDashboard = () => {
   const fetchPopularServices = useCallback(async () => {
     try {
       const res = await adminAPI.getPopularServices();
-      setPopularServices(res.data);
+      setPopularServices(res.data || []);
     } catch (err) {
       console.error('Failed to fetch popular services:', err);
     }
@@ -195,7 +649,7 @@ const AdminDashboard = () => {
       fetchTopProviders(),
       fetchPopularServices(),
       fetchPendingApprovals(),
-      fetchSystemHealth()
+      fetchSystemHealth(),
     ]);
     setLoading(false);
   }, [selectedChartView, fetchStats, fetchChartData, fetchActivities, fetchTopProviders, fetchPopularServices, fetchPendingApprovals, fetchSystemHealth]);
@@ -209,13 +663,11 @@ const AdminDashboard = () => {
 
   // Initial load
   useEffect(() => {
-    // Set greeting
     const hour = new Date().getHours();
     if (hour < 12) setGreeting('Good Morning');
     else if (hour < 18) setGreeting('Good Afternoon');
     else setGreeting('Good Evening');
 
-    // Clock updater
     const updateTimeAgo = () => {
       const now = new Date();
       setTimeAgo(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -223,10 +675,8 @@ const AdminDashboard = () => {
     updateTimeAgo();
     const timeInterval = setInterval(updateTimeAgo, 1000);
 
-    // Fetch all data
     fetchAllData();
 
-    // Auto-refresh every 60 seconds
     const refreshInterval = setInterval(() => {
       fetchAllData();
     }, 60000);
@@ -237,7 +687,6 @@ const AdminDashboard = () => {
     };
   }, [fetchAllData]);
 
-  // Refetch chart when view changes
   useEffect(() => {
     fetchChartData(selectedChartView);
   }, [selectedChartView, fetchChartData]);
@@ -246,651 +695,558 @@ const AdminDashboard = () => {
     toast.info(`${label} Revenue: ${formatNaira(value)}`);
   };
 
+  // Get activity icon
+  const getActivityIcon = (type) => {
+    const icons = {
+      user: FaUserPlus,
+      service: FaServicestack,
+      booking: FaCalendarCheck,
+      payment: FaMoneyBillWave,
+      review: FaStar,
+      dispute: FaExclamationTriangle,
+    };
+    const Icon = icons[type] || FaClock;
+    return Icon;
+  };
+
+  const getActivityColor = (type) => {
+    const colors = {
+      user: '#10b981',
+      service: '#3b82f6',
+      booking: '#8b5cf6',
+      payment: '#f59e0b',
+      review: '#ec4899',
+      dispute: '#ef4444',
+    };
+    return colors[type] || '#667eea';
+  };
+
+  // Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading dashboard...</p>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
+          <p style={{ color: '#718096' }}>Loading dashboard...</p>
         </div>
       </div>
     );
   }
 
+  const statItems = [
+    { key: 'users', icon: FaUsers, label: 'Total Users', value: formatNumber(stats.users.total), color: '#667eea', bg: 'rgba(102, 126, 234, 0.1)', growth: stats.users.growth, detail: `${formatNumber(stats.users.active)} Active • +${stats.users.new} Today` },
+    { key: 'services', icon: FaServicestack, label: 'Total Services', value: formatNumber(stats.services.total), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', growth: stats.services.growth, detail: `${stats.services.approved} Approved • ${stats.services.pending} Pending` },
+    { key: 'bookings', icon: FaCalendarCheck, label: 'Total Bookings', value: formatNumber(stats.bookings.total), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', growth: stats.bookings.growth, detail: `${stats.bookings.active} Active • ${stats.bookings.completed} Completed` },
+    { key: 'revenue', icon: FaMoneyBillWave, label: 'Total Revenue', value: formatCompactNaira(stats.revenue.total), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', growth: stats.revenue.growth, detail: `${formatCompactNaira(stats.revenue.monthly)} This Month` },
+  ];
+
+  const achievements = [
+    { icon: FaAward, label: 'Total Bookings', value: formatNumber(stats.bookings.total), color: '#667eea' },
+    { icon: FaTrophy, label: 'Total Users', value: formatNumber(stats.users.total), color: '#f59e0b' },
+    { icon: FaMedal, label: 'Avg Rating', value: stats.ratings.average.toFixed(1), color: '#10b981' },
+    { icon: FaCrown, label: 'Revenue', value: formatCompactNaira(stats.revenue.total), color: '#8b5cf6' },
+  ];
+
+  const healthItems = [
+    { key: 'server', label: 'Server', status: systemHealth.server.status, details: [`Uptime: ${systemHealth.server.uptime}`, `Response: ${systemHealth.server.responseTime}ms`] },
+    { key: 'database', label: 'Database', status: systemHealth.database.status, details: [`Queries: ${systemHealth.database.queries}/s`, `Slow: ${systemHealth.database.slowQueries}`] },
+    { key: 'cache', label: 'Cache', status: systemHealth.cache.status, details: [`Hit Rate: ${systemHealth.cache.hitRate}%`] },
+    { key: 'api', label: 'API', status: systemHealth.api.status, details: [`Requests: ${systemHealth.api.requests}/min`, `Errors: ${systemHealth.api.errors}`] },
+  ];
+
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-      <Container fluid className="py-4">
-        {/* Welcome Section */}
-        <div className="welcome-card mb-4">
-          <Row className="align-items-center">
-            <Col lg={7}>
-              <h1 className="welcome-title">
+    <div style={styles.container}>
+      {/* ============================================================
+          WELCOME CARD
+          ============================================================ */}
+      <div style={styles.welcomeCard}>
+        <div style={styles.welcomeCardBg}></div>
+        <div style={styles.welcomeCardBg2}></div>
+        <div style={styles.welcomeContent}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+            <div>
+              <h1 style={styles.welcomeTitle}>
                 {greeting}, {user?.name?.split(' ')[0] || 'Admin'}! 👋
               </h1>
-              <p className="welcome-subtitle">
+              <p style={styles.welcomeSubtitle}>
                 Welcome back to your admin dashboard. Here's what's happening on your platform today.
-                <span className="welcome-time ms-3">
-                  <FaClock className="me-1" /> {timeAgo}
+                <span style={styles.welcomeTime}>
+                  <FaClock size={12} /> {timeAgo}
                 </span>
               </p>
-            </Col>
-            <Col lg={5} className="text-lg-end mt-3 mt-lg-0">
-              <div className="d-flex flex-wrap gap-2 justify-content-lg-end">
-                <Button as={Link} to="/admin/reports" variant="light" className="px-4 py-2 rounded-pill">
-                  <FaChartLine className="me-2" /> Reports
-                </Button>
-                <Button as={Link} to="/admin/settings" variant="outline-light" className="px-4 py-2 rounded-pill">
-                  <FaCog className="me-2" /> Settings
-                </Button>
-                <Button variant="outline-light" onClick={refreshData} disabled={refreshing} className="px-4 py-2 rounded-pill">
-                  <FaSync className={refreshing ? 'spin' : ''} />
-                </Button>
+            </div>
+            <div style={styles.welcomeActions}>
+              <button
+                onClick={refreshData}
+                disabled={refreshing}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  color: 'white',
+                  padding: '8px 16px',
+                  borderRadius: '50px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  backdropFilter: 'blur(10px)',
+                }}
+              >
+                {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
+              </button>
+              <Link to="/admin/reports" style={styles.btnLight}>
+                <FaChartLine size={14} /> Reports
+              </Link>
+              <Link to="/admin/settings" style={styles.btnOutlineLight}>
+                <FaCog size={14} /> Settings
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================
+          STATS CARDS
+          ============================================================ */}
+      <div style={styles.statsGrid}>
+        {statItems.map((item, idx) => {
+          const Icon = item.icon;
+          const isHovered = hoveredStat === idx;
+          const isUp = item.growth >= 0;
+          return (
+            <div
+              key={idx}
+              style={{
+                ...styles.statCard,
+                ...(isHovered ? styles.statCardHover : {}),
+              }}
+              onMouseEnter={() => setHoveredStat(idx)}
+              onMouseLeave={() => setHoveredStat(null)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={styles.statIconWrapper(item.color, item.bg)}>
+                  <Icon />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={styles.statValue}>{item.value}</div>
+                    <div style={styles.statTrend(isUp)}>
+                      {isUp ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
+                      {Math.abs(item.growth)}%
+                    </div>
+                  </div>
+                  <div style={styles.statLabel}>{item.label}</div>
+                </div>
               </div>
-            </Col>
-          </Row>
+              <div style={styles.statDetail}>
+                <span>{item.detail}</span>
+                <FaArrowUp size={12} style={{ color: '#cbd5e0' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ============================================================
+          QUICK ACTIONS
+          ============================================================ */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={styles.card}>
+          <div style={{ ...styles.cardBody, padding: '16px 24px' }}>
+            <div style={styles.quickActions}>
+              <Link to="/admin/users" style={styles.quickActionBtn('#b45309', '#fef3c7')}>
+                <FaUserClock size={12} /> Pending Users ({pendingApprovals.users})
+              </Link>
+              <Link to="/admin/services" style={styles.quickActionBtn('#1d4ed8', '#dbeafe')}>
+                <FaClock size={12} /> Pending Services ({pendingApprovals.services})
+              </Link>
+              <Link to="/admin/reviews" style={styles.quickActionBtn('#b45309', '#fef3c7')}>
+                <FaStar size={12} /> Moderate Reviews ({pendingApprovals.reviews})
+              </Link>
+              <Link to="/admin/bookings" style={styles.quickActionBtn('#991b1b', '#fee2e2')}>
+                <FaExclamationTriangle size={12} /> Disputes ({pendingApprovals.disputes})
+              </Link>
+              <Link to="/admin/reports" style={styles.quickActionBtn('#1e40af', '#dbeafe')}>
+                <FaFileAlt size={12} /> Generate Report
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================
+          MAIN GRID
+          ============================================================ */}
+      <div style={styles.mainGrid}>
+        {/* LEFT COLUMN */}
+        <div style={styles.leftColumn}>
+          {/* Revenue Chart */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaChartLine style={{ color: '#667eea' }} /> Revenue Overview
+              </h5>
+              <div>
+                {['weekly', 'monthly', 'yearly'].map((view) => (
+                  <button
+                    key={view}
+                    style={styles.chartViewBtn(selectedChartView === view)}
+                    onClick={() => setSelectedChartView(view)}
+                  >
+                    {view.charAt(0).toUpperCase() + view.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={styles.cardBody}>
+              <div style={styles.chartContainer}>
+                {/* Simple bar chart representation */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: '12px', paddingTop: '20px' }}>
+                  {chartData.labels?.map((label, idx) => {
+                    const value = chartData.data[idx] || 0;
+                    const max = chartData.maxValue || 1;
+                    const height = (value / max) * 250;
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '8px',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => handleBarClick(label, value)}
+                      >
+                        <div
+                          style={{
+                            width: '100%',
+                            height: `${Math.max(height, 10)}px`,
+                            background: `linear-gradient(180deg, #667eea 0%, #764ba2 100%)`,
+                            borderRadius: '8px 8px 0 0',
+                            transition: 'all 0.3s ease',
+                            opacity: value > 0 ? 1 : 0.3,
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '0.8';
+                            e.currentTarget.style.transform = 'scaleY(1.05)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = '1';
+                            e.currentTarget.style.transform = 'scaleY(1)';
+                          }}
+                        />
+                        <div style={{ fontSize: '11px', color: '#a0aec0', textAlign: 'center' }}>
+                          {label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={styles.chartHint}>
+                <FaInfoCircle size={12} /> Click any bar for details
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activities */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaRocket style={{ color: '#667eea' }} /> Recent Activities
+              </h5>
+              <Link to="/admin/logs" style={styles.viewAllLink}>
+                <FaFileAlt size={12} /> View All Logs
+              </Link>
+            </div>
+            <div style={styles.cardBody}>
+              {recentActivities.length === 0 ? (
+                <div style={styles.emptyState}>
+                  <FaClock style={styles.emptyIcon} />
+                  <p style={styles.emptyText}>No recent activities</p>
+                </div>
+              ) : (
+                <div style={styles.activityTimeline}>
+                  {recentActivities.slice(0, 5).map((activity, idx) => {
+                    const Icon = getActivityIcon(activity.type);
+                    const color = getActivityColor(activity.type);
+                    return (
+                      <div key={activity.id || idx} style={styles.activityItem}>
+                        <div style={styles.activityIcon(color + '20')}>
+                          <Icon style={{ color }} size={12} />
+                        </div>
+                        <div style={styles.activityContent}>
+                          <p style={styles.activityText}>
+                            <span style={{ fontWeight: '600' }}>{activity.user}</span> {activity.action}
+                          </p>
+                          <span style={styles.activityTime}>
+                            {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
+                          </span>
+                        </div>
+                        {idx < recentActivities.length - 1 && <div style={styles.activityLine} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Top Providers */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaTrophy style={{ color: '#f59e0b' }} /> Top Performing Providers
+              </h5>
+              <Link to="/admin/users" style={styles.viewAllLink}>
+                View All
+              </Link>
+            </div>
+            <div style={{ ...styles.cardBody, padding: 0 }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Provider</th>
+                      <th style={{ ...styles.th, textAlign: 'center' }}>Services</th>
+                      <th style={{ ...styles.th, textAlign: 'center' }}>Bookings</th>
+                      <th style={{ ...styles.th, textAlign: 'center' }}>Rating</th>
+                      <th style={{ ...styles.th, textAlign: 'right' }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topProviders.slice(0, 5).map((provider, idx) => (
+                      <tr key={provider.id}>
+                        <td style={{ ...styles.td, ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <img
+                              src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name}&background=667eea&color=fff&size=30`}
+                              alt={provider.name}
+                              style={{ width: 30, height: 30, borderRadius: '50%' }}
+                            />
+                            <span style={{ fontWeight: '500' }}>{provider.name}</span>
+                          </div>
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                          {provider.services}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                          {provider.bookings}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                          <span style={{ color: '#f59e0b' }}>
+                            <FaStar size={12} style={{ marginRight: '4px' }} />
+                            {provider.rating}
+                          </span>
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'right', fontWeight: '600', color: '#667eea', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                          {formatNaira(provider.revenue)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Key Metrics */}
-        <Row className="g-4 mb-4">
-          <Col xl={3} lg={6} md={6}>
-            <Card className="metric-card border-0 shadow-sm">
-              <Card.Body>
-                <div className="d-flex align-items-center">
-                  <div className="metric-icon-wrapper bg-primary bg-opacity-10">
-                    <FaUsers className="text-primary" size={24} />
-                  </div>
-                  <div className="ms-3 flex-grow-1">
-                    <h3 className="metric-value">{formatNumber(stats.users.total)}</h3>
-                    <p className="metric-label mb-0">Total Users</p>
-                  </div>
-                  <div className={`metric-growth ${stats.users.growth >= 0 ? 'up' : 'down'}`}>
-                    <span>{stats.users.growth >= 0 ? '+' : ''}{stats.users.growth}%</span>
-                    {getGrowthIcon(stats.users.growth)}
-                  </div>
-                </div>
-                <div className="metric-details mt-3">
-                  <ProgressBar now={(stats.users.active / (stats.users.total || 1)) * 100} variant="success" className="mb-2" style={{ height: '4px' }} />
-                  <div className="d-flex justify-content-between small">
-                    <span><FaUserCheck className="text-success me-1" /> {formatNumber(stats.users.active)} Active</span>
-                    <span><FaUserPlus className="text-info me-1" /> +{stats.users.new} Today</span>
-                    <span><FaUserTimes className="text-danger me-1" /> {stats.users.suspended} Suspended</span>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-
-          <Col xl={3} lg={6} md={6}>
-            <Card className="metric-card border-0 shadow-sm">
-              <Card.Body>
-                <div className="d-flex align-items-center">
-                  <div className="metric-icon-wrapper bg-success bg-opacity-10">
-                    <FaServicestack className="text-success" size={24} />
-                  </div>
-                  <div className="ms-3 flex-grow-1">
-                    <h3 className="metric-value">{formatNumber(stats.services.total)}</h3>
-                    <p className="metric-label mb-0">Total Services</p>
-                  </div>
-                  <div className={`metric-growth ${stats.services.growth >= 0 ? 'up' : 'down'}`}>
-                    <span>{stats.services.growth >= 0 ? '+' : ''}{stats.services.growth}%</span>
-                    {getGrowthIcon(stats.services.growth)}
-                  </div>
-                </div>
-                <div className="metric-details mt-3">
-                  <div className="d-flex justify-content-between small">
-                    <span><FaCheckCircle className="text-success me-1" /> {stats.services.approved} Approved</span>
-                    <span><FaClock className="text-warning me-1" /> {stats.services.pending} Pending</span>
-                    <span><FaExclamationCircle className="text-danger me-1" /> {stats.services.rejected} Rejected</span>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-
-          <Col xl={3} lg={6} md={6}>
-            <Card className="metric-card border-0 shadow-sm">
-              <Card.Body>
-                <div className="d-flex align-items-center">
-                  <div className="metric-icon-wrapper bg-warning bg-opacity-10">
-                    <FaCalendarCheck className="text-warning" size={24} />
-                  </div>
-                  <div className="ms-3 flex-grow-1">
-                    <h3 className="metric-value">{formatNumber(stats.bookings.total)}</h3>
-                    <p className="metric-label mb-0">Total Bookings</p>
-                  </div>
-                  <div className={`metric-growth ${stats.bookings.growth >= 0 ? 'up' : 'down'}`}>
-                    <span>{stats.bookings.growth >= 0 ? '+' : ''}{stats.bookings.growth}%</span>
-                    {getGrowthIcon(stats.bookings.growth)}
-                  </div>
-                </div>
-                <div className="metric-details mt-3">
-                  <div className="d-flex justify-content-between small">
-                    <span><FaRocket className="text-info me-1" /> {stats.bookings.active} Active</span>
-                    <span><FaCheckCircle className="text-success me-1" /> {stats.bookings.completed} Completed</span>
-                    <span><FaExclamationTriangle className="text-danger me-1" /> {stats.bookings.disputes} Disputes</span>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-
-          <Col xl={3} lg={6} md={6}>
-            <Card className="metric-card border-0 shadow-sm">
-              <Card.Body>
-                <div className="d-flex align-items-center">
-                  <div className="metric-icon-wrapper bg-info bg-opacity-10">
-                    <FaMoneyBillWave className="text-info" size={24} />
-                  </div>
-                  <div className="ms-3 flex-grow-1">
-                    <h3 className="metric-value">{formatCompactNaira(stats.revenue.total)}</h3>
-                    <p className="metric-label mb-0">Total Revenue</p>
-                  </div>
-                  <div className={`metric-growth ${stats.revenue.growth >= 0 ? 'up' : 'down'}`}>
-                    <span>{stats.revenue.growth >= 0 ? '+' : ''}{stats.revenue.growth}%</span>
-                    {getGrowthIcon(stats.revenue.growth)}
-                  </div>
-                </div>
-                <div className="metric-details mt-3">
-                  <div className="d-flex justify-content-between small">
-                    <span><FaWallet className="text-success me-1" /> {formatCompactNaira(stats.revenue.monthly)} This Month</span>
-                    <span><FaPercentage className="text-info me-1" /> {formatCompactNaira(stats.revenue.commission)} Commission</span>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Quick Actions */}
-        <Row className="mb-4">
-          <Col>
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <h6 className="fw-bold mb-3">Quick Actions</h6>
-                <div className="d-flex flex-wrap gap-2">
-                  <Button as={Link} to="/admin/users" variant="outline-warning" size="sm" className="rounded-pill">
-                    <FaUserClock className="me-2" /> Pending Users ({pendingApprovals.users})
-                  </Button>
-                  <Button as={Link} to="/admin/services" variant="outline-info" size="sm" className="rounded-pill">
-                    <FaClock className="me-2" /> Pending Services ({pendingApprovals.services})
-                  </Button>
-                  <Button as={Link} to="/admin/analytics" variant="outline-success" size="sm" className="rounded-pill">
-                    <FaStar className="me-2" /> Moderate Reviews ({pendingApprovals.reviews})
-                  </Button>
-                  <Button as={Link} to="/admin/bookings" variant="outline-danger" size="sm" className="rounded-pill">
-                    <FaExclamationTriangle className="me-2" /> Disputes ({pendingApprovals.disputes})
-                  </Button>
-                  <Button as={Link} to="/admin/reports" variant="outline-primary" size="sm" className="rounded-pill">
-                    <FaChartLine className="me-2" /> Generate Report
-                  </Button>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Main Content Grid */}
-        <Row className="g-4">
-          {/* Left Column */}
-          <Col lg={8}>
-            {/* Revenue Chart */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <div className="d-flex flex-wrap justify-content-between align-items-center gap-3">
-                  <h5 className="fw-bold mb-0">
-                    <FaChartLine className="text-primary me-2" /> Revenue Overview
-                  </h5>
-                  <div>
-                    {['weekly', 'monthly', 'yearly'].map(view => (
-                      <Button key={view} 
-                        variant="link" 
-                        size="sm"
-                        className={`text-decoration-none me-2 ${selectedChartView === view ? 'active fw-bold text-primary' : 'text-secondary'}`}
-                        onClick={() => setSelectedChartView(view)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        {view.charAt(0).toUpperCase() + view.slice(1)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </Card.Header>
-              <Card.Body>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={chartData.labels?.map((label, idx) => ({ 
-                    name: label, 
-                    value: chartData.data[idx] || 0 
-                  })) || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis tickFormatter={(v) => formatCompactNaira(v)} />
-                    <Tooltip formatter={(v) => formatNaira(v)} />
-                    <Bar dataKey="value" fill="#667eea" radius={[8, 8, 0, 0]}>
-                      {chartData.labels?.map((_, idx) => (
-                        <Cell key={idx} fill={`hsl(${240 - (chartData.data[idx] / (chartData.maxValue || 1)) * 120}, 70%, 60%)`} />
+        {/* RIGHT COLUMN */}
+        <div style={styles.rightColumn}>
+          {/* System Health */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaHeartbeat style={{ color: '#ef4444' }} /> System Health
+              </h5>
+            </div>
+            <div style={styles.cardBody}>
+              {healthItems.map((item, idx) => {
+                const isHovered = hoveredHealth === idx;
+                return (
+                  <div
+                    key={item.key}
+                    style={{
+                      ...styles.healthItem,
+                      ...(isHovered ? styles.healthItemHover : {}),
+                    }}
+                    onMouseEnter={() => setHoveredHealth(idx)}
+                    onMouseLeave={() => setHoveredHealth(null)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: '600' }}>{item.label}</span>
+                      {getStatusBadge(item.status)}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#718096' }}>
+                      {item.details.map((detail, i) => (
+                        <span key={i} style={detail.includes('Slow') || detail.includes('Errors') ? { color: '#ef4444' } : {}}>
+                          {detail}
+                        </span>
                       ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="text-center mt-3">
-                  <small className="text-muted">
-                    <FaInfoCircle className="me-1" /> Click any bar for details
-                  </small>
-                </div>
-              </Card.Body>
-            </Card>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-            {/* Recent Activities */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <h5 className="fw-bold mb-0">
-                    <FaRocket className="text-primary me-2" /> Recent Activities
-                  </h5>
-                  <Button variant="link" className="text-primary text-decoration-none small p-0">
-                    <FaFileAlt className="me-1" /> View All Logs
-                  </Button>
+          {/* User Distribution */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaChartPie style={{ color: '#667eea' }} /> User Distribution
+              </h5>
+            </div>
+            <div style={styles.cardBody}>
+              <div style={styles.distributionItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '500' }}>Customers</span>
+                  <span style={{ fontWeight: '600', color: '#667eea' }}>{formatNumber(stats.users.customers)}</span>
                 </div>
-              </Card.Header>
-              <Card.Body>
-                {recentActivities.length === 0 ? (
-                  <div className="text-center py-4">
-                    <FaClock size={32} className="text-muted opacity-50" />
-                    <p className="text-muted mb-0">No recent activities</p>
-                  </div>
-                ) : (
-                  <div className="activity-timeline">
-                    {recentActivities.slice(0, 5).map((activity, idx) => (
-                      <div key={activity.id || idx} className="activity-item">
-                        <div className="activity-icon" style={{ backgroundColor: `${activity.color || '#667eea'}20` }}>
-                          {activity.type === 'user' && <FaUserPlus />}
-                          {activity.type === 'service' && <FaServicestack />}
-                          {activity.type === 'booking' && <FaCalendarCheck />}
-                          {activity.type === 'payment' && <FaMoneyBillWave />}
-                          {activity.type === 'review' && <FaStar />}
-                          {activity.type === 'dispute' && <FaExclamationTriangle />}
-                        </div>
-                        <div className="activity-content">
-                          <p className="mb-1">
-                            <span className="fw-semibold">{activity.user}</span> {activity.action}
-                          </p>
-                          <small className="text-muted">
-                            {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
-                          </small>
-                        </div>
-                        {idx < recentActivities.length - 1 && <div className="activity-line" />}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card.Body>
-            </Card>
+                <div style={styles.progressBar}>
+                  <div style={styles.progressFill((stats.users.customers / (stats.users.total || 1)) * 100, '#667eea')} />
+                </div>
+                <small style={{ color: '#a0aec0' }}>{((stats.users.customers / (stats.users.total || 1)) * 100).toFixed(1)}%</small>
+              </div>
+              <div style={styles.distributionItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '500' }}>Providers</span>
+                  <span style={{ fontWeight: '600', color: '#10b981' }}>{formatNumber(stats.users.providers)}</span>
+                </div>
+                <div style={styles.progressBar}>
+                  <div style={styles.progressFill((stats.users.providers / (stats.users.total || 1)) * 100, '#10b981')} />
+                </div>
+                <small style={{ color: '#a0aec0' }}>{((stats.users.providers / (stats.users.total || 1)) * 100).toFixed(1)}%</small>
+              </div>
+              <div style={styles.distributionItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '500' }}>Admins</span>
+                  <span style={{ fontWeight: '600', color: '#3b82f6' }}>{formatNumber(stats.users.admins)}</span>
+                </div>
+                <div style={styles.progressBar}>
+                  <div style={styles.progressFill((stats.users.admins / (stats.users.total || 1)) * 100, '#3b82f6')} />
+                </div>
+                <small style={{ color: '#a0aec0' }}>{((stats.users.admins / (stats.users.total || 1)) * 100).toFixed(2)}%</small>
+              </div>
+            </div>
+          </div>
 
-            {/* Top Providers */}
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <h5 className="fw-bold mb-0">
-                    <FaTrophy className="text-warning me-2" /> Top Performing Providers
-                  </h5>
-                  <Link to="/admin/users" className="text-primary text-decoration-none small">View All</Link>
+          {/* Popular Services */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaStar style={{ color: '#f59e0b' }} /> Popular Services
+              </h5>
+              <Link to="/admin/services" style={styles.viewAllLink}>
+                View All
+              </Link>
+            </div>
+            <div style={styles.cardBody}>
+              {popularServices.length === 0 ? (
+                <div style={styles.emptyState}>
+                  <FaServicestack style={styles.emptyIcon} />
+                  <p style={styles.emptyText}>No services yet</p>
                 </div>
-              </Card.Header>
-              <Card.Body className="p-0">
-                <div className="table-responsive">
-                  <Table hover className="mb-0">
-                    <thead style={{ background: '#f8fafc' }}>
-                      <tr>
-                        <th style={{ padding: '16px' }}>Provider</th>
-                        <th style={{ padding: '16px' }} className="text-center">Services</th>
-                        <th style={{ padding: '16px' }} className="text-center">Bookings</th>
-                        <th style={{ padding: '16px' }} className="text-center">Rating</th>
-                        <th style={{ padding: '16px' }} className="text-end">Revenue</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topProviders.slice(0, 5).map(provider => (
-                        <tr key={provider.id}>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center">
-                              <img 
-                                src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name}&background=667eea&color=fff&size=30`} 
-                                alt={provider.name} 
-                                className="rounded-circle me-2" 
-                                style={{ width: 30, height: 30 }} 
-                              />
-                              <span className="fw-semibold">{provider.name}</span>
-                            </div>
-                          </td>
-                          <td className="text-center">{provider.services}</td>
-                          <td className="text-center">{provider.bookings}</td>
-                          <td className="text-center">
-                            <span className="text-warning">
-                              <FaStar className="me-1" size={12} />
-                              {provider.rating}
-                            </span>
-                          </td>
-                          <td className="text-end fw-semibold text-primary">{formatNaira(provider.revenue)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-
-          {/* Right Column */}
-          <Col lg={4}>
-            {/* System Health */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <h5 className="fw-bold mb-0">
-                  <FaHeartbeat className="text-danger me-2" /> System Health
-                </h5>
-              </Card.Header>
-              <Card.Body>
-                <div className="health-item mb-3">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Server</span>
-                    <Badge bg={getStatusBadge(systemHealth.server.status).bg}>
-                      {getStatusBadge(systemHealth.server.status).text}
-                    </Badge>
-                  </div>
-                  <div className="d-flex justify-content-between small">
-                    <span className="text-muted">Uptime: {systemHealth.server.uptime}</span>
-                    <span className="text-muted">Response: {systemHealth.server.responseTime}ms</span>
-                  </div>
-                </div>
-                <div className="health-item mb-3">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Database</span>
-                    <Badge bg={getStatusBadge(systemHealth.database.status).bg}>
-                      {getStatusBadge(systemHealth.database.status).text}
-                    </Badge>
-                  </div>
-                  <div className="d-flex justify-content-between small">
-                    <span className="text-muted">Queries: {systemHealth.database.queries}/s</span>
-                    <span className="text-warning">Slow: {systemHealth.database.slowQueries}</span>
-                  </div>
-                </div>
-                <div className="health-item mb-3">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Cache</span>
-                    <Badge bg={getStatusBadge(systemHealth.cache.status).bg}>
-                      {getStatusBadge(systemHealth.cache.status).text}
-                    </Badge>
-                  </div>
-                  <div className="d-flex justify-content-between small">
-                    <span className="text-muted">Hit Rate: {systemHealth.cache.hitRate}%</span>
-                  </div>
-                </div>
-                <div className="health-item">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">API</span>
-                    <Badge bg={getStatusBadge(systemHealth.api.status).bg}>
-                      {getStatusBadge(systemHealth.api.status).text}
-                    </Badge>
-                  </div>
-                  <div className="d-flex justify-content-between small">
-                    <span className="text-muted">Requests: {systemHealth.api.requests}/min</span>
-                    <span className="text-danger">Errors: {systemHealth.api.errors}</span>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-
-            {/* User Distribution */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <h5 className="fw-bold mb-0">
-                  <FaChartPie className="text-primary me-2" /> User Distribution
-                </h5>
-              </Card.Header>
-              <Card.Body>
-                <div className="distribution-item mb-3">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Customers</span>
-                    <span className="text-primary fw-bold">{formatNumber(stats.users.customers)}</span>
-                  </div>
-                  <ProgressBar now={(stats.users.customers / (stats.users.total || 1)) * 100} variant="primary" style={{ height: '6px', borderRadius: '3px' }} />
-                  <small className="text-muted">{((stats.users.customers / (stats.users.total || 1)) * 100).toFixed(1)}%</small>
-                </div>
-                <div className="distribution-item mb-3">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Providers</span>
-                    <span className="text-success fw-bold">{formatNumber(stats.users.providers)}</span>
-                  </div>
-                  <ProgressBar now={(stats.users.providers / (stats.users.total || 1)) * 100} variant="success" style={{ height: '6px', borderRadius: '3px' }} />
-                  <small className="text-muted">{((stats.users.providers / (stats.users.total || 1)) * 100).toFixed(1)}%</small>
-                </div>
-                <div className="distribution-item">
-                  <div className="d-flex justify-content-between">
-                    <span className="fw-semibold">Admins</span>
-                    <span className="text-info fw-bold">{formatNumber(stats.users.admins)}</span>
-                  </div>
-                  <ProgressBar now={(stats.users.admins / (stats.users.total || 1)) * 100} variant="info" style={{ height: '6px', borderRadius: '3px' }} />
-                  <small className="text-muted">{((stats.users.admins / (stats.users.total || 1)) * 100).toFixed(2)}%</small>
-                </div>
-              </Card.Body>
-            </Card>
-
-            {/* Popular Services */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <h5 className="fw-bold mb-0">
-                    <FaStar className="text-warning me-2" /> Popular Services
-                  </h5>
-                  <Link to="/admin/services" className="text-primary text-decoration-none small">View All</Link>
-                </div>
-              </Card.Header>
-              <Card.Body>
-                {popularServices.slice(0, 3).map((service, idx) => (
-                  <div key={service.id} className="popular-service-item mb-3">
-                    <div className="d-flex justify-content-between">
+              ) : (
+                popularServices.slice(0, 3).map((service, idx) => (
+                  <div
+                    key={service.id}
+                    style={{
+                      ...styles.popularServiceItem,
+                      ...(idx === popularServices.length - 1 ? styles.popularServiceItemLast : {}),
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        <h6 className="mb-1">{service.title}</h6>
-                        <small className="text-muted">{service.category}</small>
+                        <h6 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>{service.title}</h6>
+                        <small style={{ color: '#a0aec0' }}>{service.category}</small>
                       </div>
-                      <div className="text-end">
-                        <Badge bg="warning" text="dark" className="mb-1">
-                          <FaStar className="me-1" size={10} />
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={styles.badge('#fef3c7', '#b45309')}>
+                          <FaStar size={10} style={{ marginRight: '4px' }} />
                           {service.rating}
-                        </Badge>
-                        <div>
-                          <small className="text-primary fw-semibold">{service.bookings} bookings</small>
+                        </span>
+                        <div style={{ fontSize: '12px', color: '#667eea', fontWeight: '600', marginTop: '4px' }}>
+                          {service.bookings} bookings
                         </div>
                       </div>
                     </div>
-                    {idx < popularServices.length - 1 && <hr className="my-2" />}
                   </div>
-                ))}
-              </Card.Body>
-            </Card>
+                ))
+              )}
+            </div>
+          </div>
 
-            {/* Platform Achievements */}
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <h5 className="fw-bold mb-0">
-                  <FaGem className="text-warning me-2" /> Platform Achievements
-                </h5>
-              </Card.Header>
-              <Card.Body>
-                <Row className="g-3">
-                  <Col xs={6}>
-                    <div className="achievement-card text-center p-3">
-                      <FaAward className="text-primary mb-2" size={24} />
-                      <h6 className="mb-1">{formatNumber(stats.bookings.total)}</h6>
-                      <small className="text-muted">Total Bookings</small>
+          {/* Platform Achievements */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h5 style={styles.cardTitle}>
+                <FaGem style={{ color: '#f59e0b' }} /> Platform Achievements
+              </h5>
+            </div>
+            <div style={styles.cardBody}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {achievements.map((item, idx) => {
+                  const Icon = item.icon;
+                  const isHovered = hoveredAchievement === idx;
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        ...styles.achievementCard,
+                        ...(isHovered ? styles.achievementCardHover : {}),
+                      }}
+                      onMouseEnter={() => setHoveredAchievement(idx)}
+                      onMouseLeave={() => setHoveredAchievement(null)}
+                    >
+                      <Icon size={24} style={{ color: item.color, marginBottom: '8px' }} />
+                      <h6 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1a202c' }}>{item.value}</h6>
+                      <small style={{ color: '#a0aec0' }}>{item.label}</small>
                     </div>
-                  </Col>
-                  <Col xs={6}>
-                    <div className="achievement-card text-center p-3">
-                      <FaTrophy className="text-warning mb-2" size={24} />
-                      <h6 className="mb-1">{formatNumber(stats.users.total)}</h6>
-                      <small className="text-muted">Total Users</small>
-                    </div>
-                  </Col>
-                  <Col xs={6}>
-                    <div className="achievement-card text-center p-3">
-                      <FaMedal className="text-info mb-2" size={24} />
-                      <h6 className="mb-1">{stats.ratings.average.toFixed(1)}</h6>
-                      <small className="text-muted">Avg Rating</small>
-                    </div>
-                  </Col>
-                  <Col xs={6}>
-                    <div className="achievement-card text-center p-3">
-                      <FaCrown className="text-success mb-2" size={24} />
-                      <h6 className="mb-1">{formatCompactNaira(stats.revenue.total)}</h6>
-                      <small className="text-muted">Revenue</small>
-                    </div>
-                  </Col>
-                </Row>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
+      {/* ============================================================
+          GLOBAL STYLES
+          ============================================================ */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .spin {
-          animation: spin 1s linear infinite;
+        * {
+          box-sizing: border-box;
         }
-
-        .welcome-card {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          padding: 30px;
-          border-radius: 20px;
-          color: #fff;
-        }
-        .welcome-title {
-          font-size: 2rem;
-          font-weight: 700;
-          margin-bottom: 10px;
-        }
-        .welcome-subtitle {
-          font-size: 1rem;
-          opacity: 0.9;
-          margin-bottom: 0;
-        }
-        .welcome-time {
-          font-size: 0.9rem;
-          opacity: 0.8;
-        }
-        .metric-card {
-          border-radius: 15px;
-          transition: all 0.3s ease;
-        }
-        .metric-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 10px 30px rgba(0,0,0,0.1) !important;
-        }
-        .metric-icon-wrapper {
-          width: 50px;
-          height: 50px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .metric-value {
-          font-size: 1.8rem;
-          font-weight: 700;
+        body {
           margin: 0;
-          line-height: 1.2;
-          color: #2d3748;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #f0f4f8;
         }
-        .metric-label {
-          color: #718096;
-          font-size: 0.9rem;
+        a {
+          text-decoration: none;
         }
-        .metric-growth {
-          padding: 3px 8px;
-          border-radius: 20px;
-          font-size: 0.8rem;
-          font-weight: 600;
+        button {
+          font-family: inherit;
         }
-        .metric-growth.up {
-          background: rgba(72,187,120,0.1);
-          color: #48bb78;
+        ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
         }
-        .metric-growth.down {
-          background: rgba(245,101,101,0.1);
-          color: #f56565;
+        ::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 3px;
         }
-        .activity-timeline {
-          position: relative;
-          padding-left: 30px;
+        ::-webkit-scrollbar-thumb {
+          background: #cbd5e0;
+          border-radius: 3px;
         }
-        .activity-item {
-          position: relative;
-          padding-bottom: 20px;
-        }
-        .activity-icon {
-          position: absolute;
-          left: -30px;
-          top: 0;
-          width: 24px;
-          height: 24px;
-          background: #f7fafc;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.8rem;
-          z-index: 1;
-        }
-        .activity-content {
-          padding-left: 15px;
-        }
-        .activity-line {
-          position: absolute;
-          left: -18px;
-          top: 24px;
-          bottom: -10px;
-          width: 2px;
-          background: #e2e8f0;
-        }
-        .popular-service-item {
-          transition: all 0.3s ease;
-        }
-        .popular-service-item:hover {
-          transform: translateX(5px);
-        }
-        .achievement-card {
-          background: #f7fafc;
-          border-radius: 12px;
-          transition: all 0.3s ease;
-        }
-        .achievement-card:hover {
-          background: #edf2f7;
-          transform: scale(1.05);
-        }
-        .health-item {
-          padding: 10px;
-          border-radius: 10px;
-          transition: all 0.3s ease;
-        }
-        .health-item:hover {
-          background: #f7fafc;
-        }
-        @media (max-width: 768px) {
-          .welcome-title {
-            font-size: 1.5rem;
-          }
-          .metric-value {
-            font-size: 1.5rem;
-          }
-          .welcome-time {
-            display: block;
-            margin-left: 0 !important;
-            margin-top: 10px;
-          }
+        ::-webkit-scrollbar-thumb:hover {
+          background: #a0aec0;
         }
       `}</style>
     </div>
