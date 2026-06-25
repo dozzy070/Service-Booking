@@ -8,17 +8,17 @@ import { socketService } from './SocketContext';
 // Create the context
 const AuthContext = createContext(null);
 
-// Custom hook
-export const useAuth = () => {
+// ✅ FIX: Export the hook as a named export
+export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
+}
 
-// Provider component
-export const AuthProvider = ({ children }) => {
+// ✅ FIX: Export the provider as a named export too
+export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -289,6 +289,8 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
+// ✅ FIX: Use a single export statement at the bottom
+export { AuthContext };
 export default AuthProvider;

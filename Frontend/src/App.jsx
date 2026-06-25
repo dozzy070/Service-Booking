@@ -30,7 +30,7 @@ import Profile from './pages/Profile';
 import Chat from './pages/Chat';
 import HelpCenter from './pages/HelpCenter';
 
-// Customer Pages/Components
+// Customer Pages/Components - ✅ Fixed import paths
 import CustomerDashboard from './components/customer/CustomerDashboard';
 import Bookings from './components/customer/Bookings';
 import Notifications from './components/customer/Notifications';
@@ -91,7 +91,6 @@ const WebSocketInitializer = () => {
       socketService.connect(token, user.id);
     }
     
-    // Cleanup on unmount or when user logs out
     return () => {
       if (!token || !user) {
         console.log('🔌 Cleaning up WebSocket connection');
@@ -107,7 +106,6 @@ const WebSocketInitializer = () => {
 const WebSocketStatus = () => {
   const { isConnected, onlineUsers, getConnectionStatus } = useSocket();
   
-  // Don't show on login/register pages
   const location = useLocation();
   const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
   if (hiddenPaths.includes(location.pathname)) {
@@ -148,7 +146,6 @@ const initializeToken = () => {
   }
 };
 
-// Call token initialization
 initializeToken();
 
 // ================= APP CONTENT =================
@@ -157,9 +154,7 @@ function AppContent() {
   const location = useLocation();
   const pathname = location.pathname;
 
-  // Determine if navbar/footer should be hidden
   const shouldShowNavbarFooter = React.useMemo(() => {
-    // Hide navbar/footer on admin, provider, customer dashboards and auth pages
     const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
     const dashboardPaths = ['/admin', '/provider', '/customer'];
     
@@ -168,7 +163,6 @@ function AppContent() {
     return true;
   }, [pathname]);
 
-  // Loading state
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center min-vh-100">
@@ -184,7 +178,6 @@ function AppContent() {
 
   return (
     <div className="d-flex flex-column min-vh-100">
-      {/* Navbar - only show on public pages */}
       {shouldShowNavbarFooter && <Navbar />}
 
       <div className="flex-grow-1">
@@ -227,281 +220,175 @@ function AppContent() {
             </ProtectedRoute>
           } />
 
-          {/* ========== CUSTOMER ROUTES ========== */}
-          <Route path="/customer/dashboard" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><CustomerDashboard /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/bookings" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Bookings /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/bookings/:id" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Bookings /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/favorites" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Favorites /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/reviews" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Reviews /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/wallet" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Wallet /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/booking-history" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><BookingHistory /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/help" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><HelpCenter /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/profile" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Profile /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/profile/:section" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Profile /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/notifications" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Notifications /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/settings" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><CustomerSettings /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/chat" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Chat /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/chat/:conversationId" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><Chat /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/payment-methods" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><PaymentMethods /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/payment/:bookingId" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><PaymentPage /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/payment-success" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><PaymentSuccess /></CustomerLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/customer/payment-cancel" element={
-            <ProtectedRoute allowedRoles={['customer']}>
-              <CustomerLayout><PaymentCancel /></CustomerLayout>
-            </ProtectedRoute>
-          } />
+          {/* ========== CUSTOMER ROUTES (Nested with Layout) ========== */}
+          <Route 
+            path="/customer" 
+            element={
+              <ProtectedRoute allowedRoles={['customer']}>
+                <CustomerLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/customer/dashboard" replace />} />
+            <Route path="dashboard" element={<CustomerDashboard />} />
+            <Route path="bookings" element={<Bookings />} />
+            <Route path="bookings/:id" element={<Bookings />} />
+            <Route path="favorites" element={<Favorites />} />
+            <Route path="reviews" element={<Reviews />} />
+            <Route path="wallet" element={<Wallet />} />
+            <Route path="booking-history" element={<BookingHistory />} />
+            <Route path="help" element={<HelpCenter />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="profile/:section" element={<Profile />} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="settings" element={<CustomerSettings />} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="chat/:conversationId" element={<Chat />} />
+            <Route path="payment-methods" element={<PaymentMethods />} />
+            <Route path="payment/:bookingId" element={<PaymentPage />} />
+            <Route path="payment-success" element={<PaymentSuccess />} />
+            <Route path="payment-cancel" element={<PaymentCancel />} />
+          </Route>
 
-          {/* ========== PROVIDER ROUTES ========== */}
-          <Route path="/provider/dashboard" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderDashboard /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/my-services" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><MyServices /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/create-service" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><CreateService /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/edit-service/:id" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><CreateService /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/bookings" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderBookings /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/bookings/:id" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderBookings /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/reviews" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderReviews /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/profile" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderProfile /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/profile/:section" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderProfile /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/wallet" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderWallet /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/help" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderHelpCenter /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/settings" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderSettings /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/chat" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderChat /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/chat/:conversationId" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><ProviderChat /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/payment-methods" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><PaymentMethods /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/payment/:bookingId" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><PaymentPage /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/payment-success" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><PaymentSuccess /></ProviderLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/provider/payment-cancel" element={
-            <ProtectedRoute allowedRoles={['provider']}>
-              <ProviderLayout><PaymentCancel /></ProviderLayout>
-            </ProtectedRoute>
-          } />
+          {/* ========== PROVIDER ROUTES (Nested with Layout) ========== */}
+          <Route 
+            path="/provider" 
+            element={
+              <ProtectedRoute allowedRoles={['provider']}>
+                <ProviderLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/provider/dashboard" replace />} />
+            <Route path="dashboard" element={<ProviderDashboard />} />
+            <Route path="my-services" element={<MyServices />} />
+            <Route path="create-service" element={<CreateService />} />
+            <Route path="edit-service/:id" element={<CreateService />} />
+            <Route path="bookings" element={<ProviderBookings />} />
+            <Route path="bookings/:id" element={<ProviderBookings />} />
+            <Route path="reviews" element={<ProviderReviews />} />
+            <Route path="profile" element={<ProviderProfile />} />
+            <Route path="profile/:section" element={<ProviderProfile />} />
+            <Route path="wallet" element={<ProviderWallet />} />
+            <Route path="help" element={<ProviderHelpCenter />} />
+            <Route path="settings" element={<ProviderSettings />} />
+            <Route path="chat" element={<ProviderChat />} />
+            <Route path="chat/:conversationId" element={<ProviderChat />} />
+            <Route path="payment-methods" element={<PaymentMethods />} />
+            <Route path="payment/:bookingId" element={<PaymentPage />} />
+            <Route path="payment-success" element={<PaymentSuccess />} />
+            <Route path="payment-cancel" element={<PaymentCancel />} />
+          </Route>
 
-          {/* ========== ADMIN ROUTES ========== */}
-          <Route path="/admin/dashboard" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading admin dashboard...</div>}>
-                <AdminLayout><AdminDashboardLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/users" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading user management...</div>}>
-                <AdminLayout><UserManagementLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/users/:id" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading user details...</div>}>
-                <AdminLayout><UserManagementLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/services" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading service management...</div>}>
-                <AdminLayout><ServiceManagementLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/services/:id" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading service details...</div>}>
-                <AdminLayout><ServiceManagementLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/bookings" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading bookings...</div>}>
-                <AdminLayout><AdminBookingsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/bookings/:id" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading booking details...</div>}>
-                <AdminLayout><AdminBookingsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/categories" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading categories...</div>}>
-                <AdminLayout><AdminCategoriesLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/analytics" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading analytics...</div>}>
-                <AdminLayout><AnalyticsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/payments" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading payment data...</div>}>
-                <AdminLayout><AdminPaymentsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/reports" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading reports...</div>}>
-                <AdminLayout><AdminReportsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
-          <Route path="/admin/settings" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <React.Suspense fallback={<div className="text-center p-5">Loading settings...</div>}>
-                <AdminLayout><SettingsLazy /></AdminLayout>
-              </React.Suspense>
-            </ProtectedRoute>
-          } />
+          {/* ========== ADMIN ROUTES (Nested with Layout) ========== */}
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/admin/dashboard" replace />} />
+            <Route 
+              path="dashboard" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading admin dashboard...</div>}>
+                  <AdminDashboardLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="users" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading user management...</div>}>
+                  <UserManagementLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="users/:id" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading user details...</div>}>
+                  <UserManagementLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="services" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading service management...</div>}>
+                  <ServiceManagementLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="services/:id" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading service details...</div>}>
+                  <ServiceManagementLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="bookings" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading bookings...</div>}>
+                  <AdminBookingsLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="bookings/:id" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading booking details...</div>}>
+                  <AdminBookingsLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="categories" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading categories...</div>}>
+                  <AdminCategoriesLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="analytics" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading analytics...</div>}>
+                  <AnalyticsLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="payments" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading payment data...</div>}>
+                  <AdminPaymentsLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="reports" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading reports...</div>}>
+                  <AdminReportsLazy />
+                </React.Suspense>
+              } 
+            />
+            <Route 
+              path="settings" 
+              element={
+                <React.Suspense fallback={<div className="text-center p-5">Loading settings...</div>}>
+                  <SettingsLazy />
+                </React.Suspense>
+              } 
+            />
+          </Route>
           
           {/* ========== REDIRECTS ========== */}
-          <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="/provider" element={<Navigate to="/provider/dashboard" replace />} />
-          <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
-
           <Route path="/dashboard" element={
             user?.role === 'admin' ? <Navigate to="/admin/dashboard" replace /> :
               user?.role === 'provider' ? <Navigate to="/provider/dashboard" replace /> :
@@ -516,16 +403,11 @@ function AppContent() {
         </Routes>
       </div>
 
-      {/* Footer - only show on public pages */}
       {shouldShowNavbarFooter && <Footer />}
 
-      {/* WebSocket Status Indicator */}
       <WebSocketStatus />
-
-      {/* WebSocket Initializer */}
       <WebSocketInitializer />
 
-      {/* Toast Notifications */}
       <Toaster
         position="top-right"
         toastOptions={{

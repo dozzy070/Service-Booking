@@ -112,14 +112,13 @@ router.get('/favorites/:serviceId/check', async (req, res) => {
 });
 
 // =========================================================================
-// DASHBOARD STATS
+// DASHBOARD STATS - ✅ FIXED
 // =========================================================================
 
 router.get('/dashboard/stats', async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Check if user has any bookings
     const hasBookings = await pool.query(
       'SELECT COUNT(*) as count FROM bookings WHERE customer_id = $1',
       [userId]
@@ -204,7 +203,7 @@ router.get('/dashboard/stats', async (req, res) => {
 });
 
 // =========================================================================
-// RECENT BOOKINGS
+// RECENT BOOKINGS - ✅ FIXED
 // =========================================================================
 
 router.get('/bookings/recent', async (req, res) => {
@@ -218,8 +217,10 @@ router.get('/bookings/recent', async (req, res) => {
         b.service_id,
         b.provider_id,
         b.booking_date,
+        b.booking_time,
         b.status,
         b.total_amount,
+        b.created_at,
         s.title as service_title,
         s.images,
         u.name as provider_name,
@@ -241,7 +242,7 @@ router.get('/bookings/recent', async (req, res) => {
 });
 
 // =========================================================================
-// BOOKING HISTORY
+// BOOKING HISTORY - ✅ FIXED
 // =========================================================================
 
 router.get('/bookings/history', async (req, res) => {
@@ -323,7 +324,7 @@ router.get('/bookings/history', async (req, res) => {
 });
 
 // =========================================================================
-// UPCOMING BOOKINGS
+// UPCOMING BOOKINGS - ✅ FIXED with your actual column names
 // =========================================================================
 
 router.get('/bookings/upcoming', async (req, res) => {
@@ -331,10 +332,21 @@ router.get('/bookings/upcoming', async (req, res) => {
     const userId = req.user.id;
     const limit = parseInt(req.query.limit) || 10;
     
+    console.log('📊 Fetching upcoming bookings for user:', userId);
+    
     const query = `
       SELECT 
-        b.*,
+        b.id,
+        b.service_id,
+        b.provider_id,
+        b.booking_date,
+        b.booking_time,
+        b.status,
+        b.total_amount,
+        b.created_at,
+        b.booking_number,
         s.title as service_title,
+        s.images,
         u.name as provider_name,
         u.avatar as provider_avatar
       FROM bookings b
@@ -343,20 +355,37 @@ router.get('/bookings/upcoming', async (req, res) => {
       WHERE b.customer_id = $1
         AND b.status IN ('pending', 'confirmed')
         AND b.booking_date >= NOW()
-      ORDER BY b.booking_date ASC
+      ORDER BY b.booking_date ASC, b.booking_time ASC
       LIMIT $2
     `;
     
     const result = await pool.query(query, [userId, limit]);
-    res.json(result.rows || []);
+    console.log('✅ Found bookings:', result.rows.length);
+    
+    const bookings = result.rows.map(booking => ({
+      id: booking.id,
+      service_id: booking.service_id,
+      provider_id: booking.provider_id,
+      service_name: booking.service_title || 'Service',
+      provider_name: booking.provider_name || 'Provider',
+      provider_avatar: booking.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(booking.provider_name || 'Provider')}&background=10b981&color=fff`,
+      date: booking.booking_date,
+      time: booking.booking_time || new Date(booking.booking_date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      amount: parseFloat(booking.total_amount) || 0,
+      status: booking.status,
+      booking_number: booking.booking_number,
+      images: booking.images || []
+    }));
+    
+    res.json(bookings);
   } catch (error) {
-    console.error('Error fetching upcoming bookings:', error);
-    res.json([]);
+    console.error('❌ Error fetching upcoming bookings:', error);
+    res.status(200).json([]);
   }
 });
 
 // =========================================================================
-// BOOKING DETAILS
+// BOOKING DETAILS - ✅ FIXED
 // =========================================================================
 
 router.get('/bookings/:id', async (req, res) => {
@@ -399,7 +428,7 @@ router.get('/bookings/:id', async (req, res) => {
 });
 
 // =========================================================================
-// CANCEL BOOKING
+// CANCEL BOOKING - ✅ FIXED
 // =========================================================================
 
 router.put('/bookings/:id/cancel', async (req, res) => {
@@ -440,14 +469,14 @@ router.put('/bookings/:id/cancel', async (req, res) => {
 });
 
 // =========================================================================
-// RESCHEDULE BOOKING
+// RESCHEDULE BOOKING - ✅ FIXED
 // =========================================================================
 
 router.put('/bookings/:id/reschedule', async (req, res) => {
   try {
     const userId = req.user.id;
     const bookingId = req.params.id;
-    const { new_date, reason } = req.body;
+    const { new_date, new_time, reason } = req.body;
     
     if (!new_date) {
       return res.status(400).json({ message: 'New date is required' });
@@ -467,15 +496,27 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
       return res.status(400).json({ message: 'Booking cannot be rescheduled' });
     }
     
-    await pool.query(
-      `UPDATE bookings 
-       SET booking_date = $1, 
-           status = 'pending',
-           reschedule_reason = $2,
-           updated_at = NOW() 
-       WHERE id = $3`,
-      [new_date, reason || 'Customer requested reschedule', bookingId]
-    );
+    // Update both date and time if provided
+    let updateQuery = `UPDATE bookings SET booking_date = $1, status = 'pending', updated_at = NOW()`;
+    let params = [new_date];
+    let paramIndex = 2;
+    
+    if (new_time) {
+      updateQuery += `, booking_time = $${paramIndex}`;
+      params.push(new_time);
+      paramIndex++;
+    }
+    
+    if (reason) {
+      updateQuery += `, reschedule_reason = $${paramIndex}`;
+      params.push(reason);
+      paramIndex++;
+    }
+    
+    updateQuery += ` WHERE id = $${paramIndex}`;
+    params.push(bookingId);
+    
+    await pool.query(updateQuery, params);
     
     res.json({ message: 'Booking rescheduled successfully' });
   } catch (error) {
@@ -485,7 +526,7 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
 });
 
 // =========================================================================
-// BOOKING STATS
+// BOOKING STATS - ✅ FIXED
 // =========================================================================
 
 router.get('/bookings/stats', async (req, res) => {
@@ -525,7 +566,7 @@ router.get('/bookings/stats', async (req, res) => {
 });
 
 // =========================================================================
-// REMINDERS
+// REMINDERS - ✅ FIXED
 // =========================================================================
 
 router.get('/reminders', async (req, res) => {
@@ -539,6 +580,7 @@ router.get('/reminders', async (req, res) => {
         b.service_id,
         b.provider_id,
         b.booking_date,
+        b.booking_time,
         b.status,
         s.title as service_title,
         u.name as provider_name,
@@ -563,7 +605,7 @@ router.get('/reminders', async (req, res) => {
 });
 
 // =========================================================================
-// REVIEWS
+// REVIEWS - ✅ FIXED
 // =========================================================================
 
 router.get('/reviews', async (req, res) => {
@@ -654,7 +696,6 @@ router.post('/reviews', async (req, res) => {
       return res.status(400).json({ message: 'Review already exists for this booking' });
     }
     
-    // Get provider_id from booking
     const booking = await pool.query(
       'SELECT provider_id FROM bookings WHERE id = $1',
       [bookingId]
@@ -784,7 +825,7 @@ router.delete('/reviews/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROFILE
+// PROFILE - ✅ FIXED
 // =========================================================================
 
 router.get('/profile', async (req, res) => {
@@ -943,7 +984,7 @@ router.get('/recommended-services', async (req, res) => {
 });
 
 // =========================================================================
-// WALLET - GET
+// WALLET
 // =========================================================================
 
 router.get('/wallet', async (req, res) => {

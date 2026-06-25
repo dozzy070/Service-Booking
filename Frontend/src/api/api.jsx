@@ -1,4 +1,4 @@
-// src/api/api.jsx
+// src/api/api.js
 import axios from 'axios';
 
 // ==================== DEBUG LOGGING ====================
@@ -95,30 +95,58 @@ export const checkBackendHealth = async () => {
 
 // ==================== CUSTOMER API ====================
 export const customerAPI = {
+  // Dashboard
   getDashboardStats: () => api.get('/customer/dashboard/stats'),
   getRecentBookings: () => api.get('/customer/bookings/recent'),
   getReminders: () => api.get('/customer/reminders'),
+  
+  // Services
   getServices: (params) => api.get('/services', { params }),
   getPopularServices: () => api.get('/services/popular'),
   getRecommendedServices: () => api.get('/services/recommended'),
   getServiceById: (id) => api.get(`/services/${id}`),
   getCategories: () => api.get('/categories'),
+  
+  // Featured & Trending Services
+  getFeaturedServices: () => api.get('/customer/featured-services'),
+  getTrendingServices: () => api.get('/customer/trending-services'),
+  
+  // Bookings
   createBooking: (data) => api.post('/bookings', data),
   getBookings: () => api.get('/bookings/my-bookings'),
   getBookingById: (id) => api.get(`/bookings/${id}`),
   cancelBooking: (id) => api.put(`/bookings/${id}/cancel`),
   rescheduleBooking: (id, newDate) => api.put(`/bookings/${id}/reschedule`, { new_date: newDate }),
   getAvailableSlots: (serviceId, date) => api.get(`/bookings/available-slots?service_id=${serviceId}&date=${date}`),
-  getUpcomingBookings: () => api.get('/bookings/upcoming'),
+  
+  // ✅ FIXED: getUpcomingBookings - now properly defined
+  getUpcomingBookings: async () => {
+    try {
+      const response = await api.get('/bookings/upcoming');
+      return response;
+    } catch (error) {
+      console.error('Error fetching upcoming bookings:', error);
+      throw error;
+    }
+  },
+  
   getBookingStats: () => api.get('/bookings/stats'),
+  
+  // Reviews
   addReview: (serviceId, data) => api.post(`/services/${serviceId}/reviews`, data),
+  
+  // Favorites
   getFavorites: () => api.get('/customer/favorites'),
   toggleFavorite: (serviceId) => api.post(`/services/${serviceId}/favorite`),
   isFavorite: (serviceId) => api.get(`/services/${serviceId}/is-favorite`),
+  
+  // Wallet
   getWallet: () => api.get('/wallet'),
   getTransactions: () => api.get('/wallet/transactions'),
   getRewards: () => api.get('/wallet/rewards'),
   redeemReward: (rewardId) => api.post('/wallet/redeem', { rewardId }),
+  
+  // Payment
   getPaymentMethods: () => api.get('/customer/payment-methods'),
   addPaymentMethod: (data) => api.post('/customer/payment-methods', data),
   setDefaultPaymentMethod: (id) => api.put(`/customer/payment-methods/${id}/default`),
@@ -129,23 +157,32 @@ export const customerAPI = {
 
 // ==================== PROVIDER API ====================
 export const providerAPI = {
+  // Dashboard
   getDashboardStats: () => api.get('/provider/dashboard/stats'),
   getRecentBookings: () => api.get('/provider/dashboard/recent-bookings'),
   getTodaySchedule: () => api.get('/provider/dashboard/today-schedule'),
   getStats: () => api.get('/provider/stats'),
+  
+  // Bookings
   getBookings: () => api.get('/provider/bookings'),
   getBookingById: (id) => api.get(`/provider/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/provider/bookings/${id}/status`, { status }),
   completeBooking: (id) => api.put(`/provider/bookings/${id}/complete`),
   startBooking: (id) => api.post(`/provider/bookings/${id}/start`),
   rescheduleBooking: (id, newDate) => api.put(`/provider/bookings/${id}/reschedule`, { new_date: newDate }),
+  
+  // Services
   getServices: () => api.get('/provider/services'),
   getServiceById: (id) => api.get(`/provider/services/${id}`),
   createService: (data) => api.post('/provider/services', data),
   updateService: (id, data) => api.put(`/provider/services/${id}`, data),
   deleteService: (id) => api.delete(`/provider/services/${id}`),
+  
+  // Reviews
   getReviews: () => api.get('/provider/reviews'),
   respondToReview: (id, response) => api.post(`/provider/reviews/${id}/respond`, { response }),
+  
+  // Wallet
   getWallet: () => api.get('/wallet'),
   getTransactions: () => api.get('/wallet/transactions'),
   withdrawFunds: (amount, methodId) => api.post('/wallet/withdraw', { amount, withdrawalMethodId: methodId }),
@@ -155,12 +192,15 @@ export const providerAPI = {
   getRedeemHistory: () => api.get('/wallet/redeem-history'),
   getPaymentMethods: () => api.get('/wallet/payment-methods'),
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
+  
+  // Profile
   getProfile: () => api.get('/provider/profile'),
   updateProfile: (data) => api.put('/provider/profile', data),
 };
 
 // ==================== ADMIN API ====================
 export const adminAPI = {
+  // Dashboard
   getStats: () => api.get('/admin/dashboard/stats'),
   getRevenueChart: (view = 'monthly') => api.get(`/admin/dashboard/revenue-chart?view=${view}`),
   getActivities: () => api.get('/admin/dashboard/activities'),
@@ -168,6 +208,8 @@ export const adminAPI = {
   getPopularServices: () => api.get('/admin/dashboard/popular-services'),
   getPendingApprovals: () => api.get('/admin/dashboard/pending-approvals'),
   getSystemHealth: () => api.get('/admin/dashboard/system-health'),
+  
+  // User Management
   getUsers: () => api.get('/admin/users'),
   getUserById: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
@@ -175,36 +217,55 @@ export const adminAPI = {
   verifyUser: (id) => api.put(`/admin/users/${id}/verify`),
   suspendUser: (id) => api.put(`/admin/users/${id}/suspend`),
   unsuspendUser: (id) => api.put(`/admin/users/${id}/unsuspend`),
+  
+  // Provider Management
   getProviders: () => api.get('/admin/providers'),
   getProviderDetails: (id) => api.get(`/admin/providers/${id}`),
+  
+  // Service Management
   getServices: () => api.get('/admin/services'),
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
   rejectService: (id, reason) => api.put(`/admin/services/${id}/reject`, { reason }),
   deleteService: (id) => api.delete(`/admin/services/${id}`),
   toggleFeatured: (id) => api.put(`/admin/services/${id}/featured`),
+  
+  // Booking Management
   getBookings: () => api.get('/admin/bookings'),
   getBookingById: (id) => api.get(`/admin/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/admin/bookings/${id}/status`, { status }),
+  
+  // Category Management
   getCategories: () => api.get('/admin/categories'),
   createCategory: (data) => api.post('/admin/categories', data),
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
+  
+  // Payments
   getPayments: () => api.get('/admin/payments'),
   getPaymentOverview: () => api.get('/admin/payments/overview'),
   getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
   getPaymentTrends: () => api.get('/admin/payments/trends'),
   refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
+  
+  // Reports
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
+  
+  // Notifications
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
+  
+  // System
   getActivityLog: (params) => api.get('/admin/activities', { params }),
 };
 
 // ==================== NOTIFICATION API ====================
 export const notificationAPI = {
-  getNotifications: () => api.get('/notifications'),
+  getNotifications: (params) => {
+    const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return api.get(`/notifications${query}`);
+  },
   getUnreadCount: () => api.get('/notifications/unread/count'),
   markAsRead: (id) => api.put(`/notifications/${id}/read`),
   markAllAsRead: () => api.put('/notifications/read-all'),
@@ -242,5 +303,6 @@ export const authAPI = {
   },
 };
 
+// ==================== EXPORTS ====================
 export default api;
 export { API_BASE_URL };
