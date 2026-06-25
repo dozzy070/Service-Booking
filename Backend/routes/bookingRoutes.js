@@ -229,7 +229,7 @@ router.get('/', async (req, res) => {
       JOIN services s ON b.service_id = s.id
       JOIN users u ON b.provider_id = u.id
       JOIN users u2 ON b.customer_id = u2.id
-      LEFT JOIN reviews r ON r.booking_id = b.id AND r.user_id = b.customer_id
+      LEFT JOIN reviews r ON r.booking_id = b.id AND r.reviewer_id = b.customer_id
       ${whereClause}
       ORDER BY b.booking_date DESC, b.booking_time DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -281,7 +281,7 @@ router.get('/:id', async (req, res) => {
       JOIN services s ON b.service_id = s.id
       JOIN users u ON b.provider_id = u.id
       JOIN users u2 ON b.customer_id = u2.id
-      LEFT JOIN reviews r ON r.booking_id = b.id AND r.user_id = b.customer_id
+      LEFT JOIN reviews r ON r.booking_id = b.id AND r.reviewer_id = b.customer_id
       WHERE b.id = $1
     `;
     
