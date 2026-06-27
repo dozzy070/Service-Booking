@@ -36,9 +36,10 @@ import {
   FileText,
   Search,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  TrendingUp,        // ✅ ADD THIS - from lucide-react it's TrendingUp
+  TrendingDown        // ✅ Also add for potential downward trends
 } from 'lucide-react';
-// No duplicate imports from react-icons/fa
 
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
@@ -72,7 +73,37 @@ const ProviderReviews = () => {
 
   const itemsPerPage = 10;
 
-  // Fetch reviews
+  // ✅ Calculate stats from reviews (no API call)
+  const calculateStatsFromReviews = useCallback((reviewsData) => {
+    if (!reviewsData || reviewsData.length === 0) {
+      setStats({
+        average: 0,
+        total: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+      });
+      return;
+    }
+
+    const total = reviewsData.length;
+    const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
+    const average = sum / total;
+
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviewsData.forEach(review => {
+      const rating = Math.round(review.rating || 0);
+      if (rating >= 1 && rating <= 5) {
+        distribution[rating]++;
+      }
+    });
+
+    setStats({
+      average: parseFloat(average.toFixed(1)),
+      total: total,
+      distribution: distribution
+    });
+  }, []);
+
+  // ✅ Fetch reviews (stats calculated from reviews data)
   const fetchReviews = useCallback(async () => {
     try {
       const params = {
@@ -84,35 +115,31 @@ const ProviderReviews = () => {
       };
 
       const response = await providerAPI.getReviews(params);
-      setReviews(response.data.reviews || []);
+      const reviewsData = response.data.reviews || [];
+      setReviews(reviewsData);
       setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
       setTotalReviews(response.data.total || 0);
+      
+      // ✅ Calculate stats from reviews
+      calculateStatsFromReviews(reviewsData);
+      
       return response.data;
     } catch (error) {
       console.error('Error fetching reviews:', error);
       toast.error('Failed to load reviews');
+      setReviews([]);
+      setTotalPages(1);
+      setTotalReviews(0);
       return null;
     }
-  }, [currentPage, filter, sortBy, dateRange]);
+  }, [currentPage, filter, sortBy, dateRange, calculateStatsFromReviews]);
 
-  // Fetch stats
-  const fetchStats = useCallback(async () => {
-    try {
-      const response = await providerAPI.getReviewStats();
-      setStats({
-        average: response.data.average_rating || 0,
-        total: response.data.total_reviews || 0,
-        distribution: response.data.rating_distribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  }, []);
+  // ✅ REMOVED: fetchStats - no longer needed, stats come from reviews
 
-  // Load all data
+  // Load all data - only fetch reviews
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.all([fetchReviews(), fetchStats()]);
+    await fetchReviews();
     setLoading(false);
   };
 
@@ -208,15 +235,23 @@ const ProviderReviews = () => {
 
   // Render stars
   const renderStars = (rating, size = 16) => {
-    return [...Array(5)].map((_, i) => (
-      <Star
-        key={i}
-        size={size}
-        fill={i < rating ? '#fbbf24' : '#e2e8f0'}
-        color={i < rating ? '#fbbf24' : '#e2e8f0'}
-        style={{ marginRight: '2px', cursor: 'pointer' }}
-      />
-    ));
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+    return (
+      <div className="d-flex align-items-center gap-1">
+        {[...Array(fullStars)].map((_, i) => (
+          <Star key={i} size={size} fill="#fbbf24" color="#fbbf24" />
+        ))}
+        {hasHalfStar && (
+          <Star size={size} fill="#fbbf24" color="#fbbf24" style={{ opacity: 0.5 }} />
+        )}
+        {[...Array(emptyStars)].map((_, i) => (
+          <Star key={i + fullStars + (hasHalfStar ? 1 : 0)} size={size} fill="#e2e8f0" color="#e2e8f0" />
+        ))}
+      </div>
+    );
   };
 
   // Get rating color
@@ -225,6 +260,11 @@ const ProviderReviews = () => {
     if (rating >= 3) return 'warning';
     return 'danger';
   };
+
+  // Calculate response rate
+  const responseRate = totalReviews > 0 
+    ? (reviews.filter(r => r.response).length / totalReviews) * 100 
+    : 0;
 
   if (loading) {
     return (
@@ -236,9 +276,6 @@ const ProviderReviews = () => {
       </div>
     );
   }
-
-  const averageRating = stats.average;
-  const totalRatingCount = stats.total;
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
@@ -280,17 +317,17 @@ const ProviderReviews = () => {
               <Card.Body className="p-4 text-center">
                 <div className="mb-3">
                   <div style={{ fontSize: '56px', fontWeight: 'bold', color: '#fbbf24' }}>
-                    {averageRating.toFixed(1)}
+                    {stats.average.toFixed(1)}
                     <span style={{ fontSize: '24px', color: '#94a3b8' }}>/5</span>
                   </div>
                   <div className="mb-2">
-                    {renderStars(Math.floor(averageRating), 20)}
+                    {renderStars(stats.average, 20)}
                   </div>
-                  <p className="mb-0 text-muted">Based on {totalRatingCount} reviews</p>
+                  <p className="mb-0 text-muted">Based on {stats.total} reviews</p>
                 </div>
                 <div className="mt-3 pt-3 border-top">
-                  <Badge bg={getRatingColor(averageRating)} className="px-3 py-2">
-                    {averageRating >= 4 ? 'Excellent' : averageRating >= 3 ? 'Good' : 'Needs Improvement'}
+                  <Badge bg={getRatingColor(stats.average)} className="px-3 py-2">
+                    {stats.average >= 4 ? 'Excellent' : stats.average >= 3 ? 'Good' : 'Needs Improvement'}
                   </Badge>
                 </div>
               </Card.Body>
@@ -302,7 +339,7 @@ const ProviderReviews = () => {
               <Card.Body className="p-4">
                 {[5, 4, 3, 2, 1].map(star => {
                   const count = stats.distribution[star] || 0;
-                  const percentage = totalRatingCount > 0 ? (count / totalRatingCount) * 100 : 0;
+                  const percentage = stats.total > 0 ? (count / stats.total) * 100 : 0;
                   
                   return (
                     <div key={star} className="mb-3">
@@ -333,7 +370,7 @@ const ProviderReviews = () => {
           </Col>
         </Row>
 
-        {/* Additional Stats Cards */}
+        {/* Additional Stats Cards - ✅ Fixed TrendingUp import */}
         <Row className="mb-4 g-4">
           <Col md={4}>
             <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
@@ -345,7 +382,7 @@ const ProviderReviews = () => {
                   <div>
                     <small className="text-muted">Response Rate</small>
                     <h6 className="mb-0 fw-bold">
-                      {((reviews.filter(r => r.response).length / totalReviews) * 100 || 0).toFixed(1)}%
+                      {responseRate.toFixed(1)}%
                     </h6>
                   </div>
                 </div>

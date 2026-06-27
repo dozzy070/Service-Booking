@@ -100,7 +100,8 @@ const ProviderProfile = () => {
     repeatCustomers: 0
   });
 
-  const [recentActivity, setRecentActivity] = useState([]);
+  // ✅ REMOVED: recentActivity state - using bookings instead
+  const [recentBookings, setRecentBookings] = useState([]);
   const [specialtyInput, setSpecialtyInput] = useState('');
   const [languageInput, setLanguageInput] = useState('');
   const [serviceAreaInput, setServiceAreaInput] = useState('');
@@ -155,26 +156,38 @@ const ProviderProfile = () => {
   const fetchStats = useCallback(async () => {
     try {
       const response = await providerAPI.getStats();
+      const data = response.data || {};
       setStats({
-        totalJobs: response.data.total_jobs || 0,
-        rating: response.data.rating || 0,
-        responseTime: response.data.response_time || '< 1 hour',
-        completionRate: response.data.completion_rate || 0,
-        totalEarnings: response.data.total_earnings || 0,
-        repeatCustomers: response.data.repeat_customers || 0
+        totalJobs: data.total_jobs || data.totalBookings || 0,
+        rating: data.rating || data.averageRating || 0,
+        responseTime: data.response_time || data.responseTime || '< 1 hour',
+        completionRate: data.completion_rate || data.completionRate || 0,
+        totalEarnings: data.total_earnings || data.totalEarnings || 0,
+        repeatCustomers: data.repeat_customers || data.repeatCustomers || 0
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Use default stats
+      setStats({
+        totalJobs: 0,
+        rating: 0,
+        responseTime: '< 1 hour',
+        completionRate: 0,
+        totalEarnings: 0,
+        repeatCustomers: 0
+      });
     }
   }, []);
 
-  // Fetch recent activity
-  const fetchRecentActivity = useCallback(async () => {
+  // ✅ REPLACED: fetchRecentActivity with fetchRecentBookings
+  const fetchRecentBookings = useCallback(async () => {
     try {
-      const response = await providerAPI.getRecentActivity();
-      setRecentActivity(response.data || []);
+      const response = await providerAPI.getRecentBookings({ limit: 5 });
+      const bookings = response.data || [];
+      setRecentBookings(bookings);
     } catch (error) {
-      console.error('Error fetching activity:', error);
+      console.error('Error fetching recent bookings:', error);
+      setRecentBookings([]);
     }
   }, []);
 
@@ -184,7 +197,7 @@ const ProviderProfile = () => {
     await Promise.all([
       fetchProviderProfile(),
       fetchStats(),
-      fetchRecentActivity()
+      fetchRecentBookings() // ✅ Replaced fetchRecentActivity
     ]);
     setLoading(false);
   };
@@ -326,6 +339,21 @@ const ProviderProfile = () => {
       setPreviewUrl(URL.createObjectURL(file));
     }
   };
+
+  // ✅ Generate activity from bookings
+  const getActivityFromBookings = () => {
+    if (recentBookings.length === 0) return [];
+    
+    return recentBookings.map(booking => ({
+      id: booking.id,
+      type: booking.status === 'completed' ? 'job' : 'booking',
+      title: booking.service || booking.service_name || 'Service',
+      description: `${booking.customer || booking.customer_name || 'Customer'} - ${booking.status || 'pending'}`,
+      date: booking.booking_date || booking.date || booking.created_at || new Date().toISOString()
+    }));
+  };
+
+  const activityItems = getActivityFromBookings();
 
   if (loading) {
     return (
@@ -494,7 +522,7 @@ const ProviderProfile = () => {
               <div className="text-center">
                 <div className="d-flex align-items-center gap-1">
                   <Star size={16} fill="#fbbf24" color="#fbbf24" />
-                  <strong className="h5 mb-0">{stats.rating.toFixed(1)}</strong>
+                  <strong className="h5 mb-0">{stats.rating?.toFixed(1) || '0.0'}</strong>
                 </div>
                 <small className="text-muted">Rating</small>
               </div>
@@ -503,15 +531,15 @@ const ProviderProfile = () => {
                 <div><small className="text-muted">Jobs Completed</small></div>
               </div>
               <div className="text-center">
-                <strong className="h5 mb-0">{stats.responseTime}</strong>
+                <strong className="h5 mb-0">{stats.responseTime || '< 1 hour'}</strong>
                 <div><small className="text-muted">Response Time</small></div>
               </div>
               <div className="text-center">
-                <strong className="h5 mb-0">{stats.completionRate}%</strong>
+                <strong className="h5 mb-0">{stats.completionRate || 0}%</strong>
                 <div><small className="text-muted">Completion Rate</small></div>
               </div>
               <div className="text-center">
-                <strong className="h5 mb-0">{stats.repeatCustomers}</strong>
+                <strong className="h5 mb-0">{stats.repeatCustomers || 0}</strong>
                 <div><small className="text-muted">Repeat Customers</small></div>
               </div>
             </div>
@@ -657,7 +685,7 @@ const ProviderProfile = () => {
                   </div>
                   <ProgressBar 
                     variant="success" 
-                    now={(stats.totalEarnings / 1000000) * 100} 
+                    now={Math.min((stats.totalEarnings / 1000000) * 100, 100)} 
                     label={`₦${(stats.totalEarnings / 1000).toFixed(0)}k`}
                     style={{ height: '8px', borderRadius: '4px' }}
                   />
@@ -835,19 +863,19 @@ const ProviderProfile = () => {
               </Card.Body>
             </Card>
 
-            {/* Recent Activity */}
+            {/* ✅ Recent Activity - Now using bookings data */}
             <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
               <Card.Header className="bg-white border-0 pt-4">
                 <h5 className="fw-bold mb-0">Recent Activity</h5>
               </Card.Header>
               <Card.Body>
-                {recentActivity.length === 0 ? (
+                {activityItems.length === 0 ? (
                   <div className="text-center py-4">
                     <Clock size={32} className="text-muted mb-2 opacity-50" />
                     <p className="text-muted mb-0">No recent activity</p>
                   </div>
                 ) : (
-                  recentActivity.map((activity, index) => (
+                  activityItems.map((activity, index) => (
                     <div key={index} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
                       <div 
                         className="rounded-circle d-flex align-items-center justify-content-center"

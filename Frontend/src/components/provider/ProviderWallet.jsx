@@ -39,14 +39,17 @@ import {
   Minus,
   ArrowUp,
   ArrowDown,
-  Shield
+  Shield,
+  TrendingUp,        // ✅ ADD THIS
+  TrendingDown        // ✅ ADD THIS
 } from 'lucide-react';
 
-// No duplicate imports from react-icons/fa
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, subDays } from 'date-fns';
 import toast from 'react-hot-toast';
+
+// ... rest of your component
 
 const ProviderWallet = () => {
   const { user } = useAuth();

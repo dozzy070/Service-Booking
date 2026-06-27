@@ -18,7 +18,6 @@ router.get('/stats', async (req, res) => {
   try {
     const providerId = req.user.id;
 
-    // Check if provider exists
     const providerCheck = await pool.query(
       'SELECT id FROM users WHERE id = $1 AND role = $2',
       [providerId, 'provider']
@@ -85,7 +84,6 @@ router.get('/dashboard/stats', async (req, res) => {
   try {
     const providerId = req.user.id;
 
-    // Check if provider exists
     const providerCheck = await pool.query(
       'SELECT id FROM users WHERE id = $1 AND role = $2',
       [providerId, 'provider']
@@ -510,7 +508,7 @@ router.get('/bookings', async (req, res) => {
     const countResult = await pool.query(countQuery, params);
     const total = parseInt(countResult.rows[0]?.total || 0);
     
-    // Get bookings
+    // Get bookings with correct column names
     const query = `
       SELECT 
         b.id,
@@ -527,7 +525,9 @@ router.get('/bookings', async (req, res) => {
         b.created_at,
         b.duration,
         b.location_type,
-        b.address as booking_address
+        b.address as booking_address,
+        b.provider_notes,
+        b.admin_notes
       FROM bookings b
       JOIN users u ON b.customer_id = u.id
       JOIN services s ON b.service_id = s.id
@@ -551,6 +551,8 @@ router.get('/bookings', async (req, res) => {
       price: parseFloat(b.price || 0),
       status: b.status || 'pending',
       notes: b.notes || '',
+      provider_notes: b.provider_notes || '',
+      admin_notes: b.admin_notes || '',
       duration: b.duration || 'N/A',
       location_type: b.location_type || 'onsite',
       booking_address: b.booking_address || '',
@@ -1240,6 +1242,5 @@ router.delete('/withdrawal-methods/:id', async (req, res) => {
     res.status(500).json({ message: 'Failed to delete withdrawal method' });
   }
 });
-
 
 export default router;

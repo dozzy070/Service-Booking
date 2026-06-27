@@ -47,7 +47,6 @@ import {
   Briefcase,
   Calendar
 } from 'lucide-react';
-// No duplicate imports from react-icons/fa
 
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI, authAPI } from '../../api/api';
@@ -80,7 +79,7 @@ const ProviderSettings = () => {
     timezone: 'Africa/Lagos',
     language: 'English',
     
-    // Notification Settings
+    // Notification Settings - LOCAL ONLY
     emailNotifications: true,
     pushNotifications: true,
     smsNotifications: false,
@@ -124,16 +123,38 @@ const ProviderSettings = () => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount || 0);
   };
+
+  // ✅ Load notification preferences from localStorage
+  const loadNotificationPrefsFromStorage = useCallback(() => {
+    try {
+      const saved = localStorage.getItem('provider_notification_prefs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setSettings(prev => ({
+          ...prev,
+          emailNotifications: parsed.emailNotifications !== undefined ? parsed.emailNotifications : true,
+          pushNotifications: parsed.pushNotifications !== undefined ? parsed.pushNotifications : true,
+          smsNotifications: parsed.smsNotifications || false,
+          newBookingAlerts: parsed.newBookingAlerts !== undefined ? parsed.newBookingAlerts : true,
+          paymentAlerts: parsed.paymentAlerts !== undefined ? parsed.paymentAlerts : true,
+          marketingEmails: parsed.marketingEmails || false,
+          promotionalSMS: parsed.promotionalSMS || false
+        }));
+      }
+    } catch (e) {
+      // Use defaults
+    }
+  }, []);
 
   // Fetch provider profile
   const fetchProviderProfile = useCallback(async () => {
     try {
       const response = await providerAPI.getProfile();
-      const profileData = response.data;
+      const profileData = response.data || {};
       setSettings(prev => ({
         ...prev,
         businessName: profileData.business_name || '',
@@ -162,33 +183,17 @@ const ProviderSettings = () => {
     }
   }, [user]);
 
-  // Fetch notification preferences
-  const fetchNotificationPrefs = useCallback(async () => {
-    try {
-      const response = await providerAPI.getNotificationPreferences();
-      const prefs = response.data;
-      setSettings(prev => ({
-        ...prev,
-        emailNotifications: prefs.email_notifications !== false,
-        pushNotifications: prefs.push_notifications !== false,
-        smsNotifications: prefs.sms_notifications || false,
-        newBookingAlerts: prefs.new_booking_alerts !== false,
-        paymentAlerts: prefs.payment_alerts !== false,
-        marketingEmails: prefs.marketing_emails || false,
-        promotionalSMS: prefs.promotional_sms || false
-      }));
-    } catch (error) {
-      console.error('Error fetching notification preferences:', error);
-    }
-  }, []);
+  // ✅ REMOVED: fetchNotificationPrefs - using localStorage instead
 
   // Load all data
   const loadAllData = async () => {
     setLoading(true);
     await Promise.all([
       fetchProviderProfile(),
-      fetchNotificationPrefs()
+      // ✅ REMOVED: fetchNotificationPrefs()
     ]);
+    // ✅ Load notification prefs from localStorage
+    loadNotificationPrefsFromStorage();
     setLoading(false);
   };
 
@@ -248,19 +253,21 @@ const ProviderSettings = () => {
     }
   };
 
-  // Save notification preferences
+  // ✅ Save notification preferences to localStorage only
   const handleSaveNotifications = async () => {
     setSaving(true);
     try {
-      await providerAPI.updateNotificationPreferences({
-        email_notifications: settings.emailNotifications,
-        push_notifications: settings.pushNotifications,
-        sms_notifications: settings.smsNotifications,
-        new_booking_alerts: settings.newBookingAlerts,
-        payment_alerts: settings.paymentAlerts,
-        marketing_emails: settings.marketingEmails,
-        promotional_sms: settings.promotionalSMS
-      });
+      // Save to localStorage
+      const prefs = {
+        emailNotifications: settings.emailNotifications,
+        pushNotifications: settings.pushNotifications,
+        smsNotifications: settings.smsNotifications,
+        newBookingAlerts: settings.newBookingAlerts,
+        paymentAlerts: settings.paymentAlerts,
+        marketingEmails: settings.marketingEmails,
+        promotionalSMS: settings.promotionalSMS
+      };
+      localStorage.setItem('provider_notification_prefs', JSON.stringify(prefs));
       toast.success('Notification preferences saved');
     } catch (error) {
       console.error('Error saving notifications:', error);
@@ -307,10 +314,13 @@ const ProviderSettings = () => {
   const handleEnable2FA = async () => {
     setSaving(true);
     try {
-      const response = await providerAPI.enable2FA();
-      // Show QR code or setup instructions
-      toast.success('2FA setup initiated');
-      // You can add QR code display logic here
+      // This API may not exist yet - handle gracefully
+      if (typeof providerAPI.enable2FA === 'function') {
+        const response = await providerAPI.enable2FA();
+        toast.success('2FA setup initiated');
+      } else {
+        toast.info('2FA feature coming soon');
+      }
     } catch (error) {
       console.error('Error enabling 2FA:', error);
       toast.error('Failed to enable 2FA');
@@ -560,10 +570,13 @@ const ProviderSettings = () => {
                   </div>
                 )}
 
-                {/* Notification Settings */}
+                {/* Notification Settings - LOCAL ONLY */}
                 {activeTab === 'notifications' && (
                   <div>
                     <h5 className="fw-bold mb-4">Notification Preferences</h5>
+                    <p className="text-muted small mb-3">
+                      Preferences are saved locally in your browser.
+                    </p>
                     
                     <div className="mb-4">
                       <h6 className="mb-3">Channels</h6>
@@ -862,7 +875,7 @@ const ProviderSettings = () => {
                             <strong>Deactivate Account</strong>
                             <p className="mb-0 small">Once you deactivate your account, all your data will be removed.</p>
                           </div>
-                          <Button variant="outline-danger" size="sm">
+                          <Button variant="outline-danger" size="sm" onClick={logout}>
                             Deactivate Account
                           </Button>
                         </div>

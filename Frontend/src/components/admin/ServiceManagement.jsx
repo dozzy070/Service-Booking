@@ -1,6 +1,6 @@
 // src/pages/admin/ServiceManagement.jsx
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import api from '../../api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { adminAPI } from '../../api/api';
 import {
   Container,
   Row,
@@ -170,10 +170,12 @@ import {
   FaInfoCircle,
   FaArrowUp,
   FaArrowDown,
-  FaSync
+  FaSync,
+  FaSave
 } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
 import { format, formatDistanceToNow } from 'date-fns';
+import toast from 'react-hot-toast';
 
 const ServiceManagement = () => {
   // UI State
@@ -188,7 +190,6 @@ const ServiceManagement = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
-  const [toastMessage, setToastMessage] = useState({ show: false, message: '', type: '' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -239,13 +240,7 @@ const ServiceManagement = () => {
     return formatNaira(amount);
   };
 
-  // Toast helper
-  const showToast = (message, type = 'success') => {
-    setToastMessage({ show: true, message, type });
-    setTimeout(() => setToastMessage({ show: false, message: '', type: '' }), 3000);
-  };
-
-  // API Calls
+  // ✅ Fetch services with proper data extraction
   const fetchServices = useCallback(async () => {
     try {
       const params = {
@@ -260,67 +255,81 @@ const ServiceManagement = () => {
         sortBy: sortConfig.key,
         sortOrder: sortConfig.direction
       };
-      const response = await api.get('/admin/services', { params });
-      setServices(response.data);
-      calculateStats(response.data);
+      const response = await adminAPI.getServices(params);
+      // ✅ Extract services array safely
+      const serviceList = Array.isArray(response.data) ? response.data : 
+                          Array.isArray(response.data?.services) ? response.data.services : [];
+      setServices(serviceList);
+      calculateStats(serviceList);
     } catch (error) {
       console.error('Error fetching services:', error);
-      showToast('Failed to load services', 'danger');
+      toast.error('Failed to load services');
+      setServices([]);
     } finally {
       setLoading(false);
     }
   }, [dateRange, priceRange, filterCategory, filterStatus, filterProvider, searchTerm, sortConfig]);
 
+  // ✅ Fetch categories with proper data extraction
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/admin/categories');
-      setCategories(response.data);
+      const response = await adminAPI.getCategories();
+      const categoryList = Array.isArray(response.data) ? response.data : 
+                           Array.isArray(response.data?.categories) ? response.data.categories : [];
+      setCategories(categoryList);
     } catch (error) {
       console.error('Error fetching categories:', error);
+      setCategories([]);
     }
   }, []);
 
+  // ✅ Fetch providers with proper data extraction
   const fetchProviders = useCallback(async () => {
     try {
-      const response = await api.get('/admin/providers');
-      setProviders(response.data);
+      const response = await adminAPI.getProviders();
+      const providerList = Array.isArray(response.data) ? response.data : 
+                           Array.isArray(response.data?.providers) ? response.data.providers : [];
+      setProviders(providerList);
     } catch (error) {
       console.error('Error fetching providers:', error);
+      setProviders([]);
     }
   }, []);
 
+  // ✅ Calculate stats with safety checks
   const calculateStats = (serviceList) => {
+    const list = Array.isArray(serviceList) ? serviceList : [];
     const newStats = {
-      total: serviceList.length,
-      pending: serviceList.filter(s => s.status === 'pending').length,
-      approved: serviceList.filter(s => s.status === 'approved').length,
-      rejected: serviceList.filter(s => s.status === 'rejected').length,
-      featured: serviceList.filter(s => s.featured).length,
-      categories: new Set(serviceList.map(s => s.category)).size,
-      providers: new Set(serviceList.map(s => s.providerId)).size,
-      averagePrice: serviceList.length ? Math.round(serviceList.reduce((sum, s) => sum + (s.price || 0), 0) / serviceList.length) : 0,
-      totalBookings: serviceList.reduce((sum, s) => sum + (s.bookings || 0), 0),
-      totalRevenue: serviceList.reduce((sum, s) => sum + (s.revenue || 0), 0)
+      total: list.length,
+      pending: list.filter(s => s?.status === 'pending').length,
+      approved: list.filter(s => s?.status === 'approved').length,
+      rejected: list.filter(s => s?.status === 'rejected').length,
+      featured: list.filter(s => s?.featured).length,
+      categories: new Set(list.map(s => s?.category).filter(Boolean)).size,
+      providers: new Set(list.map(s => s?.providerId).filter(Boolean)).size,
+      averagePrice: list.length ? Math.round(list.reduce((sum, s) => sum + (s?.price || 0), 0) / list.length) : 0,
+      totalBookings: list.reduce((sum, s) => sum + (s?.bookings || 0), 0),
+      totalRevenue: list.reduce((sum, s) => sum + (s?.revenue || 0), 0)
     };
     setStats(newStats);
   };
 
+  // ✅ Fetch all data
   const fetchAllData = useCallback(async () => {
+    setLoading(true);
     await Promise.all([fetchServices(), fetchCategories(), fetchProviders()]);
+    setLoading(false);
   }, [fetchServices, fetchCategories, fetchProviders]);
 
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData();
     setRefreshing(false);
-    showToast('Data refreshed', 'info');
+    toast.success('Data refreshed');
   };
 
-  // Auto-refresh every 30 seconds
   useEffect(() => {
     fetchAllData();
-    const interval = setInterval(fetchAllData, 30000);
-    return () => clearInterval(interval);
   }, [fetchAllData]);
 
   // Refetch when filters change
@@ -333,15 +342,15 @@ const ServiceManagement = () => {
     setCurrentPage(1);
   }, [searchTerm, filterCategory, filterStatus, filterProvider, dateRange, priceRange, activeTab]);
 
-  // Service actions
+  // ✅ Service actions with adminAPI
   const handleStatusChange = async (serviceId, newStatus, reason = '') => {
     setProcessing(true);
     try {
-      await api.put(`/admin/services/${serviceId}/status`, { status: newStatus, rejectionReason: reason });
+      await adminAPI.updateServiceStatus(serviceId, { status: newStatus, rejectionReason: reason });
       await fetchServices();
-      showToast(`Service ${newStatus}`, 'success');
+      toast.success(`Service ${newStatus}`);
     } catch (error) {
-      showToast('Failed to update status', 'danger');
+      toast.error('Failed to update status');
     } finally {
       setProcessing(false);
     }
@@ -351,13 +360,13 @@ const ServiceManagement = () => {
     if (!selectedService) return;
     setProcessing(true);
     try {
-      await api.delete(`/admin/services/${selectedService.id}`);
+      await adminAPI.deleteService(selectedService.id);
       await fetchServices();
       setShowDeleteModal(false);
       setSelectedService(null);
-      showToast('Service deleted', 'success');
+      toast.success('Service deleted');
     } catch (error) {
-      showToast('Failed to delete service', 'danger');
+      toast.error('Failed to delete service');
     } finally {
       setProcessing(false);
     }
@@ -366,11 +375,11 @@ const ServiceManagement = () => {
   const handleFeaturedToggle = async (serviceId) => {
     try {
       const service = services.find(s => s.id === serviceId);
-      await api.put(`/admin/services/${serviceId}/featured`, { featured: !service.featured });
+      await adminAPI.toggleFeatured(serviceId, { featured: !service?.featured });
       await fetchServices();
-      showToast(`Service ${service.featured ? 'removed from' : 'added to'} featured`, 'success');
+      toast.success(`Service ${service?.featured ? 'removed from' : 'added to'} featured`);
     } catch (error) {
-      showToast('Failed to update featured status', 'danger');
+      toast.error('Failed to update featured status');
     }
   };
 
@@ -378,17 +387,17 @@ const ServiceManagement = () => {
     setProcessing(true);
     try {
       if (modalMode === 'add') {
-        await api.post('/admin/services', formData);
-        showToast('Service added', 'success');
+        await adminAPI.createService(formData);
+        toast.success('Service added');
       } else if (modalMode === 'edit' && selectedService) {
-        await api.put(`/admin/services/${selectedService.id}`, formData);
-        showToast('Service updated', 'success');
+        await adminAPI.updateService(selectedService.id, formData);
+        toast.success('Service updated');
       }
       await fetchServices();
       setShowServiceModal(false);
       setSelectedService(null);
     } catch (error) {
-      showToast(`Failed to ${modalMode === 'add' ? 'add' : 'update'} service`, 'danger');
+      toast.error(`Failed to ${modalMode === 'add' ? 'add' : 'update'} service`);
     } finally {
       setProcessing(false);
     }
@@ -398,13 +407,13 @@ const ServiceManagement = () => {
     if (selectedServices.length === 0) return;
     setProcessing(true);
     try {
-      await api.post('/admin/services/bulk', { serviceIds: selectedServices, action: newStatus });
+      await adminAPI.bulkServiceAction({ serviceIds: selectedServices, action: newStatus });
       await fetchServices();
       setSelectedServices([]);
       setShowBulkActions(false);
-      showToast(`${selectedServices.length} services updated to ${newStatus}`, 'success');
+      toast.success(`${selectedServices.length} services updated to ${newStatus}`);
     } catch (error) {
-      showToast('Bulk update failed', 'danger');
+      toast.error('Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -414,13 +423,13 @@ const ServiceManagement = () => {
     if (selectedServices.length === 0) return;
     setProcessing(true);
     try {
-      await api.post('/admin/services/bulk-delete', { serviceIds: selectedServices });
+      await adminAPI.bulkServiceDelete({ serviceIds: selectedServices });
       await fetchServices();
       setSelectedServices([]);
       setShowBulkActions(false);
-      showToast(`${selectedServices.length} services deleted`, 'success');
+      toast.success(`${selectedServices.length} services deleted`);
     } catch (error) {
-      showToast('Bulk delete failed', 'danger');
+      toast.error('Bulk delete failed');
     } finally {
       setProcessing(false);
     }
@@ -435,7 +444,7 @@ const ServiceManagement = () => {
     a.download = `services_export_${format(new Date(), 'yyyy-MM-dd')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Services exported', 'success');
+    toast.success('Services exported');
   };
 
   // Selection handlers
@@ -443,7 +452,7 @@ const ServiceManagement = () => {
     if (selectedServices.length === filteredServices.length) {
       setSelectedServices([]);
     } else {
-      setSelectedServices(filteredServices.map(s => s.id));
+      setSelectedServices(filteredServices.map(s => s.id).filter(Boolean));
     }
   };
 
@@ -465,13 +474,14 @@ const ServiceManagement = () => {
     return sortConfig.direction === 'asc' ? <FaSortUp /> : <FaSortDown />;
   };
 
-  // Filtering
+  // ✅ Filtering with safety
   const filteredServices = useMemo(() => {
-    let filtered = [...services];
-    if (activeTab === 'pending') filtered = filtered.filter(s => s.status === 'pending');
-    if (activeTab === 'approved') filtered = filtered.filter(s => s.status === 'approved');
-    if (activeTab === 'rejected') filtered = filtered.filter(s => s.status === 'rejected');
-    if (activeTab === 'featured') filtered = filtered.filter(s => s.featured);
+    const list = Array.isArray(services) ? services : [];
+    let filtered = [...list];
+    if (activeTab === 'pending') filtered = filtered.filter(s => s?.status === 'pending');
+    if (activeTab === 'approved') filtered = filtered.filter(s => s?.status === 'approved');
+    if (activeTab === 'rejected') filtered = filtered.filter(s => s?.status === 'rejected');
+    if (activeTab === 'featured') filtered = filtered.filter(s => s?.featured);
     return filtered;
   }, [services, activeTab]);
 
@@ -511,27 +521,6 @@ const ServiceManagement = () => {
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
-        {/* Toast */}
-        <ToastContainer position="top-end" className="p-3">
-          <Toast 
-            show={toastMessage.show} 
-            onClose={() => setToastMessage({ show: false, message: '', type: '' })} 
-            delay={3000} 
-            autohide 
-            bg={toastMessage.type}
-            style={{ borderRadius: '12px' }}
-          >
-            <Toast.Header closeButton={false}>
-              <strong className="me-auto">
-                {toastMessage.type === 'success' ? 'Success' : 
-                 toastMessage.type === 'danger' ? 'Error' : 
-                 toastMessage.type === 'warning' ? 'Warning' : 'Info'}
-              </strong>
-            </Toast.Header>
-            <Toast.Body>{toastMessage.message}</Toast.Body>
-          </Toast>
-        </ToastContainer>
-
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -900,7 +889,7 @@ const ServiceManagement = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentItems.map(service => (
+                      {currentItems.map(service => service && (
                         <tr key={service.id} className={selectedServices.includes(service.id) ? 'table-active' : ''}>
                           <td style={{ padding: '16px' }}>
                             <Form.Check 
@@ -911,7 +900,6 @@ const ServiceManagement = () => {
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-3">
-                              {/* ✅ FIXED: Correct image src with proper function call */}
                               <img 
                                 src={service.images?.[0] || getServiceImage(service.title, service.id, 50, 50)} 
                                 alt={service.title} 
@@ -1128,7 +1116,7 @@ const ServiceManagement = () => {
         </Card>
       </Container>
 
-      {/* Modals - same as before */}
+      {/* Modals */}
       {/* View/Edit/Add Modal */}
       <Modal show={showServiceModal} onHide={() => setShowServiceModal(false)} size="xl" centered>
         <Modal.Header closeButton className="border-0 pb-0">

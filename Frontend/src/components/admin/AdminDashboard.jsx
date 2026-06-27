@@ -54,7 +54,6 @@ const styles = {
     padding: '24px',
   },
 
-  // Welcome Card
   welcomeCard: {
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     borderRadius: '24px',
@@ -141,7 +140,6 @@ const styles = {
     gap: '8px',
   },
 
-  // Stats Grid
   statsGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -220,7 +218,6 @@ const styles = {
     transition: 'width 0.6s ease',
   }),
 
-  // Quick Actions
   quickActions: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -246,7 +243,6 @@ const styles = {
     },
   }),
 
-  // Main Grid
   mainGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 380px',
@@ -263,7 +259,6 @@ const styles = {
     gap: '24px',
   },
 
-  // Cards
   card: {
     background: 'white',
     borderRadius: '16px',
@@ -302,7 +297,6 @@ const styles = {
     fontWeight: '500',
   },
 
-  // Chart
   chartContainer: {
     width: '100%',
     height: '300px',
@@ -328,7 +322,6 @@ const styles = {
     color: '#a0aec0',
   },
 
-  // Activity Timeline
   activityTimeline: {
     position: 'relative',
     paddingLeft: '30px',
@@ -373,7 +366,6 @@ const styles = {
     background: '#e2e8f0',
   },
 
-  // Table
   table: {
     width: '100%',
     borderCollapse: 'collapse',
@@ -397,7 +389,6 @@ const styles = {
     borderBottom: 'none',
   },
 
-  // Badge
   badge: (bg, color) => ({
     display: 'inline-flex',
     alignItems: 'center',
@@ -410,7 +401,6 @@ const styles = {
     color: color,
   }),
 
-  // Health Items
   healthItem: {
     padding: '10px 12px',
     borderRadius: '10px',
@@ -421,12 +411,10 @@ const styles = {
     background: '#f8fafc',
   },
 
-  // Distribution
   distributionItem: {
     marginBottom: '16px',
   },
 
-  // Popular Service
   popularServiceItem: {
     padding: '12px 0',
     borderBottom: '1px solid #f0f4f8',
@@ -438,7 +426,6 @@ const styles = {
     paddingBottom: 0,
   },
 
-  // Achievement
   achievementCard: {
     textAlign: 'center',
     padding: '16px',
@@ -452,7 +439,6 @@ const styles = {
     transform: 'scale(1.05)',
   },
 
-  // Empty State
   emptyState: {
     textAlign: 'center',
     padding: '30px 20px',
@@ -468,7 +454,6 @@ const styles = {
     margin: 0,
   },
 
-  // Responsive
   '@media (max-width: 1024px)': {
     mainGrid: {
       gridTemplateColumns: '1fr',
@@ -545,7 +530,7 @@ const AdminDashboard = () => {
     api: { status: 'healthy', requests: 450, errors: 2 },
   });
 
-  // Format currency
+  // Format helpers
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -561,7 +546,10 @@ const AdminDashboard = () => {
     return formatNaira(amount);
   };
 
-  const formatNumber = (num) => num?.toLocaleString() || 0;
+  const formatNumber = (num) => {
+    if (num === undefined || num === null) return '0';
+    return num.toLocaleString();
+  };
 
   const getStatusBadge = (status) => {
     const map = {
@@ -573,10 +561,10 @@ const AdminDashboard = () => {
     return <span style={styles.badge(item.bg, item.color)}>{item.label}</span>;
   };
 
-  // API Calls
+  // ✅ FIXED API Calls - Using correct adminAPI methods
   const fetchStats = useCallback(async () => {
     try {
-      const res = await adminAPI.getDashboardStats();
+      const res = await adminAPI.getStats();
       setStats(res.data);
     } catch (err) {
       console.error('Failed to fetch admin stats:', err);
@@ -694,7 +682,6 @@ const AdminDashboard = () => {
     toast.info(`${label} Revenue: ${formatNaira(value)}`);
   };
 
-  // Get activity icon
   const getActivityIcon = (type) => {
     const icons = {
       user: FaUserPlus,
@@ -755,9 +742,7 @@ const AdminDashboard = () => {
 
   return (
     <div style={styles.container}>
-      {/* ============================================================
-          WELCOME CARD
-          ============================================================ */}
+      {/* Welcome Card */}
       <div style={styles.welcomeCard}>
         <div style={styles.welcomeCardBg}></div>
         <div style={styles.welcomeCardBg2}></div>
@@ -802,9 +787,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          STATS CARDS
-          ============================================================ */}
+      {/* Stats Cards */}
       <div style={styles.statsGrid}>
         {statItems.map((item, idx) => {
           const Icon = item.icon;
@@ -844,9 +827,7 @@ const AdminDashboard = () => {
         })}
       </div>
 
-      {/* ============================================================
-          QUICK ACTIONS
-          ============================================================ */}
+      {/* Quick Actions */}
       <div style={{ marginBottom: '24px' }}>
         <div style={styles.card}>
           <div style={{ ...styles.cardBody, padding: '16px 24px' }}>
@@ -871,9 +852,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          MAIN GRID
-          ============================================================ */}
+      {/* Main Grid */}
       <div style={styles.mainGrid}>
         {/* LEFT COLUMN */}
         <div style={styles.leftColumn}>
@@ -897,10 +876,9 @@ const AdminDashboard = () => {
             </div>
             <div style={styles.cardBody}>
               <div style={styles.chartContainer}>
-                {/* Simple bar chart representation */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: '12px', paddingTop: '20px' }}>
                   {chartData.labels?.map((label, idx) => {
-                    const value = chartData.data[idx] || 0;
+                    const value = chartData.data?.[idx] || 0;
                     const max = chartData.maxValue || 1;
                     const height = (value / max) * 250;
                     return (
@@ -1014,35 +992,43 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {topProviders.slice(0, 5).map((provider, idx) => (
-                      <tr key={provider.id}>
-                        <td style={{ ...styles.td, ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <img
-                              src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name}&background=667eea&color=fff&size=30`}
-                              alt={provider.name}
-                              style={{ width: 30, height: 30, borderRadius: '50%' }}
-                            />
-                            <span style={{ fontWeight: '500' }}>{provider.name}</span>
-                          </div>
-                        </td>
-                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                          {provider.services}
-                        </td>
-                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                          {provider.bookings}
-                        </td>
-                        <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                          <span style={{ color: '#f59e0b' }}>
-                            <FaStar size={12} style={{ marginRight: '4px' }} />
-                            {provider.rating}
-                          </span>
-                        </td>
-                        <td style={{ ...styles.td, textAlign: 'right', fontWeight: '600', color: '#667eea', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                          {formatNaira(provider.revenue)}
+                    {topProviders.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ ...styles.td, textAlign: 'center', padding: '30px' }}>
+                          <p style={{ color: '#a0aec0' }}>No providers yet</p>
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      topProviders.slice(0, 5).map((provider, idx) => (
+                        <tr key={provider.id}>
+                          <td style={{ ...styles.td, ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <img
+                                src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name}&background=667eea&color=fff&size=30`}
+                                alt={provider.name}
+                                style={{ width: 30, height: 30, borderRadius: '50%' }}
+                              />
+                              <span style={{ fontWeight: '500' }}>{provider.name}</span>
+                            </div>
+                          </td>
+                          <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                            {provider.services || 0}
+                          </td>
+                          <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                            {provider.bookings || 0}
+                          </td>
+                          <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                            <span style={{ color: '#f59e0b' }}>
+                              <FaStar size={12} style={{ marginRight: '4px' }} />
+                              {provider.rating || '0.0'}
+                            </span>
+                          </td>
+                          <td style={{ ...styles.td, textAlign: 'right', fontWeight: '600', color: '#667eea', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
+                            {formatNaira(provider.revenue || 0)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1163,10 +1149,10 @@ const AdminDashboard = () => {
                       <div style={{ textAlign: 'right' }}>
                         <span style={styles.badge('#fef3c7', '#b45309')}>
                           <FaStar size={10} style={{ marginRight: '4px' }} />
-                          {service.rating}
+                          {service.rating || '0.0'}
                         </span>
                         <div style={{ fontSize: '12px', color: '#667eea', fontWeight: '600', marginTop: '4px' }}>
-                          {service.bookings} bookings
+                          {service.bookings || 0} bookings
                         </div>
                       </div>
                     </div>
@@ -1210,9 +1196,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          GLOBAL STYLES
-          ============================================================ */}
+      {/* Global Styles */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }

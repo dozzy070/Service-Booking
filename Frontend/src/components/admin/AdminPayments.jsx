@@ -1,5 +1,5 @@
-// src/pages/admin/Payment.jsx
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// src/pages/admin/AdminPayments.jsx
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Row,
@@ -15,12 +15,8 @@ import {
   Pagination,
   ProgressBar,
   Nav,
-  Toast,
-  ToastContainer,
   Spinner,
-  Alert,
-  Tabs,
-  Tab
+  Alert
 } from 'react-bootstrap';
 import {
   FaMoneyBillWave,
@@ -33,7 +29,6 @@ import {
   FaClock,
   FaUndo,
   FaDownload,
-  FaPrint,
   FaFilter,
   FaSearch,
   FaSort,
@@ -41,9 +36,8 @@ import {
   FaSortDown,
   FaEllipsisV,
   FaEye,
-  FaRedo,
   FaArrowUp,
-  FaArrowRight,
+  FaArrowDown,
   FaCcVisa,
   FaCcMastercard,
   FaPaypal,
@@ -61,27 +55,17 @@ import {
   FaExclamationTriangle,
   FaUserTie,
   FaUserCircle,
-  FaUsers,
-  FaShoppingCart,
-  FaChartBar,
-  FaMinus,
   FaPlus,
   FaCheck,
   FaTimes,
-  FaArrowLeft,
-  FaArrowRight as FaArrowRightIcon
+  FaChartBar
 } from 'react-icons/fa';
 
-import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { useAuth } from '../../context/AuthContext';
+import { format, subDays, subMonths } from 'date-fns';
 import { adminAPI } from '../../api/api';
 import toast from 'react-hot-toast';
-import { Line, Bar, Pie,  Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 
-const Payment = () => {
-  const { user } = useAuth();
+const AdminPayments = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
@@ -107,14 +91,11 @@ const Payment = () => {
     revenueGrowth: 0
   });
   const [revenueByMethod, setRevenueByMethod] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [filteredTransactions, setFilteredTransactions] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [filteredPayments, setFilteredPayments] = useState([]);
   const [payouts, setPayouts] = useState([]);
-  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
-  const [commissionRates, setCommissionRates] = useState([]);
-  const [disputes, setDisputes] = useState([]);
   const [monthlyTrend, setMonthlyTrend] = useState([]);
-  const [transactionStats, setTransactionStats] = useState({
+  const [paymentStats, setPaymentStats] = useState({
     completed: 0,
     pending: 0,
     failed: 0,
@@ -125,16 +106,15 @@ const Payment = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMethod, setFilterMethod] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'created_at', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [selectedTransaction, setSelectedTransaction] = useState(null);
-  const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundAmount, setRefundAmount] = useState('');
   const [refundReason, setRefundReason] = useState('');
-  const [selectedTransactions, setSelectedTransactions] = useState([]);
+  const [selectedPayments, setSelectedPayments] = useState([]);
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [processingAction, setProcessingAction] = useState(false);
 
@@ -156,41 +136,46 @@ const Payment = () => {
 
   const formatNumber = (num) => (num || 0).toLocaleString();
 
-  const showToast = (message, type = 'success') => {
-    toast[type](message);
-  };
-
-  // API Calls
+  // ✅ FIXED API Calls - Using correct adminAPI methods
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { startDate: dateRange.start, endDate: dateRange.end };
+      const params = { 
+        startDate: dateRange.start, 
+        endDate: dateRange.end 
+      };
       
-      const [overviewRes, revenueRes, transactionsRes, payoutsRes, trendsRes] = await Promise.all([
+      // ✅ Use correct API methods
+      const [overviewRes, revenueRes, paymentsRes, payoutsRes, trendsRes] = await Promise.all([
         adminAPI.getPaymentOverview(params),
         adminAPI.getRevenueByMethod(params),
-        adminAPI.getTransactions(params),
-        adminAPI.getPayouts(params),
+        adminAPI.getPayments(params),      // ✅ Changed from getTransactions
+        adminAPI.getPayouts(params),       // ✅ Changed from getPayouts (correct)
         adminAPI.getPaymentTrends(params)
       ]);
 
-      setOverview(overviewRes.data);
-      setRevenueByMethod(revenueRes.data);
-      setTransactions(transactionsRes.data);
-      setPayouts(payoutsRes.data);
-      setMonthlyTrend(trendsRes.data);
+      setOverview(overviewRes.data || {});
+      setRevenueByMethod(Array.isArray(revenueRes.data) ? revenueRes.data : []);
+      
+      // ✅ Safely extract payments data
+      const paymentsData = Array.isArray(paymentsRes.data) ? paymentsRes.data :
+                           Array.isArray(paymentsRes.data?.payments) ? paymentsRes.data.payments : [];
+      setPayments(paymentsData);
+      
+      setPayouts(Array.isArray(payoutsRes.data) ? payoutsRes.data : []);
+      setMonthlyTrend(Array.isArray(trendsRes.data) ? trendsRes.data : []);
 
-      // Calculate transaction stats
+      // Calculate payment stats
       const stats = {
-        completed: transactionsRes.data.filter(t => t.status === 'completed').length,
-        pending: transactionsRes.data.filter(t => t.status === 'pending' || t.status === 'processing').length,
-        failed: transactionsRes.data.filter(t => t.status === 'failed').length,
-        refunded: transactionsRes.data.filter(t => t.status === 'refunded').length
+        completed: paymentsData.filter(p => p?.status === 'paid' || p?.status === 'completed').length,
+        pending: paymentsData.filter(p => p?.status === 'pending' || p?.status === 'processing').length,
+        failed: paymentsData.filter(p => p?.status === 'failed').length,
+        refunded: paymentsData.filter(p => p?.status === 'refunded').length
       };
-      setTransactionStats(stats);
+      setPaymentStats(stats);
     } catch (error) {
       console.error('Error fetching payment data:', error);
-      showToast('Failed to load payment data', 'danger');
+      toast.error('Failed to load payment data');
     } finally {
       setLoading(false);
     }
@@ -200,55 +185,52 @@ const Payment = () => {
     setRefreshing(true);
     await fetchAllData();
     setRefreshing(false);
-    showToast('Data refreshed', 'info');
+    toast.success('Data refreshed');
   };
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Auto-refresh every 60 seconds
+  // Filter payments
   useEffect(() => {
-    const interval = setInterval(fetchAllData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchAllData]);
-
-  // Filter transactions
-  useEffect(() => {
-    let filtered = [...transactions];
+    const list = Array.isArray(payments) ? payments : [];
+    let filtered = [...list];
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(tx =>
-        tx.id?.toLowerCase().includes(term) ||
-        tx.customer?.toLowerCase().includes(term) ||
-        tx.provider?.toLowerCase().includes(term) ||
-        tx.service?.toLowerCase().includes(term)
+      filtered = filtered.filter(p =>
+        p?.id?.toLowerCase().includes(term) ||
+        p?.customer_name?.toLowerCase().includes(term) ||
+        p?.provider_name?.toLowerCase().includes(term) ||
+        p?.service_title?.toLowerCase().includes(term)
       );
     }
 
-    if (filterStatus !== 'all') filtered = filtered.filter(tx => tx.status === filterStatus);
-    if (filterMethod !== 'all') filtered = filtered.filter(tx => tx.method === filterMethod);
-    if (filterType !== 'all') filtered = filtered.filter(tx => tx.type === filterType);
+    if (filterStatus !== 'all') filtered = filtered.filter(p => p?.status === filterStatus);
+    if (filterMethod !== 'all') filtered = filtered.filter(p => p?.payment_method === filterMethod);
 
-    filtered.sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
-      if (sortConfig.key === 'amount' || sortConfig.key === 'fee' || sortConfig.key === 'net') {
-        aVal = parseFloat(aVal);
-        bVal = parseFloat(bVal);
-      }
-      if (sortConfig.key === 'date') {
-        aVal = new Date(aVal);
-        bVal = new Date(bVal);
-      }
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-    setFilteredTransactions(filtered);
+    // Sort
+    if (sortConfig.key) {
+      filtered.sort((a, b) => {
+        let aVal = a?.[sortConfig.key];
+        let bVal = b?.[sortConfig.key];
+        if (sortConfig.key === 'amount' || sortConfig.key === 'total_amount') {
+          aVal = parseFloat(aVal);
+          bVal = parseFloat(bVal);
+        }
+        if (sortConfig.key === 'created_at' || sortConfig.key === 'booking_date') {
+          aVal = new Date(aVal);
+          bVal = new Date(bVal);
+        }
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    setFilteredPayments(filtered);
     setCurrentPage(1);
-  }, [transactions, searchTerm, filterStatus, filterMethod, filterType, sortConfig]);
+  }, [payments, searchTerm, filterStatus, filterMethod, sortConfig]);
 
   const handleSort = (key) => {
     let direction = 'asc';
@@ -262,51 +244,51 @@ const Payment = () => {
   };
 
   const handleSelectAll = () => {
-    if (selectedTransactions.length === filteredTransactions.length) {
-      setSelectedTransactions([]);
+    if (selectedPayments.length === filteredPayments.length) {
+      setSelectedPayments([]);
     } else {
-      setSelectedTransactions(filteredTransactions.map(t => t.id));
+      setSelectedPayments(filteredPayments.map(p => p?.id).filter(Boolean));
     }
   };
 
-  const handleSelectTransaction = (transactionId) => {
-    setSelectedTransactions(prev =>
-      prev.includes(transactionId) ? prev.filter(id => id !== transactionId) : [...prev, transactionId]
+  const handleSelectPayment = (paymentId) => {
+    setSelectedPayments(prev =>
+      prev.includes(paymentId) ? prev.filter(id => id !== paymentId) : [...prev, paymentId]
     );
   };
 
   const handleBulkAction = async (action) => {
-    if (selectedTransactions.length === 0) return;
+    if (selectedPayments.length === 0) return;
     setProcessingAction(true);
     try {
-      await adminAPI.bulkTransactionAction({ transactionIds: selectedTransactions, action });
-      showToast(`${selectedTransactions.length} transactions ${action}ed`, 'success');
-      setSelectedTransactions([]);
+      await adminAPI.bulkPaymentAction({ paymentIds: selectedPayments, action });
+      toast.success(`${selectedPayments.length} payments ${action}ed`);
+      setSelectedPayments([]);
       setShowBulkActions(false);
       await fetchAllData();
     } catch (error) {
-      showToast('Bulk action failed', 'danger');
+      toast.error('Bulk action failed');
     } finally {
       setProcessingAction(false);
     }
   };
 
   const handleRefund = async () => {
-    if (!selectedTransaction) return;
+    if (!selectedPayment) return;
     setProcessingAction(true);
     try {
-      await adminAPI.refundTransaction(selectedTransaction.id, {
+      await adminAPI.refundPayment(selectedPayment.id, {
         amount: parseFloat(refundAmount),
         reason: refundReason
       });
-      showToast('Refund processed successfully', 'success');
+      toast.success('Refund processed successfully');
       setShowRefundModal(false);
-      setSelectedTransaction(null);
+      setSelectedPayment(null);
       setRefundAmount('');
       setRefundReason('');
       await fetchAllData();
     } catch (error) {
-      showToast('Refund failed', 'danger');
+      toast.error('Refund failed');
     } finally {
       setProcessingAction(false);
     }
@@ -334,20 +316,19 @@ const Payment = () => {
     setSearchTerm('');
     setFilterStatus('all');
     setFilterMethod('all');
-    setFilterType('all');
     setDateRange({
       start: subDays(new Date(), 30).toISOString().split('T')[0],
       end: new Date().toISOString().split('T')[0]
     });
     setSelectedPeriod('30days');
     setCurrentPage(1);
-    showToast('Filters reset', 'info');
+    toast.success('Filters reset');
   };
 
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const response = await adminAPI.exportTransactions({
+      const response = await adminAPI.exportPayments({
         format: exportFormat,
         startDate: dateRange.start,
         endDate: dateRange.end,
@@ -363,14 +344,14 @@ const Payment = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `transactions_${format(new Date(), 'yyyy-MM-dd')}.${exportFormat === 'pdf' ? 'pdf' : exportFormat === 'excel' ? 'xls' : 'csv'}`;
+      a.download = `payments_${format(new Date(), 'yyyy-MM-dd')}.${exportFormat === 'pdf' ? 'pdf' : exportFormat === 'excel' ? 'xls' : 'csv'}`;
       a.click();
       window.URL.revokeObjectURL(url);
       
-      showToast(`Exported ${filteredTransactions.length} transactions`, 'success');
+      toast.success(`Exported ${filteredPayments.length} payments`);
       setShowExportModal(false);
     } catch (error) {
-      showToast('Export failed', 'danger');
+      toast.error('Export failed');
     } finally {
       setIsExporting(false);
     }
@@ -378,18 +359,24 @@ const Payment = () => {
 
   const getStatusBadge = (status) => {
     const badges = {
+      paid: { bg: 'success', icon: <FaCheckCircle />, label: 'Paid' },
       completed: { bg: 'success', icon: <FaCheckCircle />, label: 'Completed' },
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
+      processing: { bg: 'info', icon: <FaSpinner />, label: 'Processing' },
       failed: { bg: 'danger', icon: <FaTimesCircle />, label: 'Failed' },
-      refunded: { bg: 'info', icon: <FaUndo />, label: 'Refunded' },
-      processing: { bg: 'info', icon: <FaSpinner />, label: 'Processing' }
+      refunded: { bg: 'info', icon: <FaUndo />, label: 'Refunded' }
     };
     const b = badges[status] || badges.pending;
-    return <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">{b.icon}<span className="ms-1">{b.label}</span></Badge>;
+    return (
+      <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+        {b.icon}
+        <span className="ms-1">{b.label}</span>
+      </Badge>
+    );
   };
 
   const getPaymentIcon = (method) => {
-    switch(method) {
+    switch(method?.toLowerCase()) {
       case 'card': return <FaCcVisa className="text-primary" />;
       case 'paypal': return <FaPaypal className="text-primary" />;
       case 'bank': return <FaUniversity className="text-success" />;
@@ -401,11 +388,8 @@ const Payment = () => {
   // Pagination
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentTransactions = filteredTransactions.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
-
-  // Chart colors
-  const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+  const currentPayments = filteredPayments.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
 
   if (loading) {
     return (
@@ -421,11 +405,6 @@ const Payment = () => {
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
-        {/* Toast Container */}
-        <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 9999 }}>
-          {/* Toast messages handled by react-hot-toast */}
-        </div>
-
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -570,7 +549,7 @@ const Payment = () => {
                     <p className="text-muted mb-1">Conversion Rate</p>
                     <h2 className="fw-bold mb-0">{overview.conversionRate}%</h2>
                     <small className="text-success d-flex align-items-center gap-1 mt-1">
-                      <FaTrendingUp size={12} /> +5.2% vs last month
+                      <FaArrowUp size={12} /> +5.2% vs last month
                     </small>
                   </div>
                   <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
@@ -582,7 +561,7 @@ const Payment = () => {
           </Col>
         </Row>
 
-        {/* Transaction Stats */}
+        {/* Payment Stats */}
         <Row className="g-4 mb-4">
           <Col md={3}>
             <Card className="border-0 shadow-sm" style={{ borderRadius: '12px' }}>
@@ -592,7 +571,7 @@ const Payment = () => {
                 </div>
                 <div>
                   <small className="text-muted d-block">Completed</small>
-                  <span className="fw-bold">{transactionStats.completed}</span>
+                  <span className="fw-bold">{paymentStats.completed}</span>
                 </div>
               </Card.Body>
             </Card>
@@ -605,7 +584,7 @@ const Payment = () => {
                 </div>
                 <div>
                   <small className="text-muted d-block">Pending</small>
-                  <span className="fw-bold">{transactionStats.pending}</span>
+                  <span className="fw-bold">{paymentStats.pending}</span>
                 </div>
               </Card.Body>
             </Card>
@@ -618,7 +597,7 @@ const Payment = () => {
                 </div>
                 <div>
                   <small className="text-muted d-block">Failed</small>
-                  <span className="fw-bold">{transactionStats.failed}</span>
+                  <span className="fw-bold">{paymentStats.failed}</span>
                 </div>
               </Card.Body>
             </Card>
@@ -631,7 +610,7 @@ const Payment = () => {
                 </div>
                 <div>
                   <small className="text-muted d-block">Refunded</small>
-                  <span className="fw-bold">{transactionStats.refunded}</span>
+                  <span className="fw-bold">{paymentStats.refunded}</span>
                 </div>
               </Card.Body>
             </Card>
@@ -657,21 +636,6 @@ const Payment = () => {
                   <FaWallet className="me-2" /> Payouts
                 </Nav.Link>
               </Nav.Item>
-              <Nav.Item>
-                <Nav.Link active={activeTab === 'subscriptions'} onClick={() => setActiveTab('subscriptions')}>
-                  <FaCalendarAlt className="me-2" /> Subscriptions
-                </Nav.Link>
-              </Nav.Item>
-              <Nav.Item>
-                <Nav.Link active={activeTab === 'commissions'} onClick={() => setActiveTab('commissions')}>
-                  <FaPercentage className="me-2" /> Commissions
-                </Nav.Link>
-              </Nav.Item>
-              <Nav.Item>
-                <Nav.Link active={activeTab === 'disputes'} onClick={() => setActiveTab('disputes')}>
-                  <FaBalanceScale className="me-2" /> Disputes
-                </Nav.Link>
-              </Nav.Item>
             </Nav>
           </Card.Body>
         </Card>
@@ -685,16 +649,39 @@ const Payment = () => {
                   <h6 className="fw-bold mb-0">Revenue Trend</h6>
                 </Card.Header>
                 <Card.Body>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={monthlyTrend}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis tickFormatter={(v) => formatCompactNaira(v)} />
-                      <Tooltip formatter={(v) => formatNaira(v)} />
-                      <Legend />
-                      <Area type="monotone" dataKey="revenue" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  <div style={{ height: '300px', position: 'relative' }}>
+                    {monthlyTrend.length === 0 ? (
+                      <div className="text-center py-5">
+                        <FaChartLine size={48} className="text-muted opacity-25" />
+                        <p className="text-muted mt-2">No data available</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: '8px', paddingTop: '20px' }}>
+                        {monthlyTrend.map((item, idx) => {
+                          const maxValue = Math.max(...monthlyTrend.map(d => d?.revenue || 0), 1);
+                          const height = ((item?.revenue || 0) / maxValue) * 250;
+                          return (
+                            <div key={idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <div 
+                                style={{
+                                  width: '100%',
+                                  height: `${Math.max(height, 5)}px`,
+                                  background: '#3b82f6',
+                                  borderRadius: '6px 6px 0 0',
+                                  transition: 'all 0.3s ease',
+                                  opacity: height > 5 ? 1 : 0.3,
+                                  minHeight: '5px'
+                                }}
+                              />
+                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '8px', textAlign: 'center' }}>
+                                {item?.month || ''}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </Card.Body>
               </Card>
             </Col>
@@ -704,20 +691,27 @@ const Payment = () => {
                   <h6 className="fw-bold mb-0">Revenue by Method</h6>
                 </Card.Header>
                 <Card.Body>
-                  {revenueByMethod.map((item, idx) => (
-                    <div key={idx} className="mb-3">
-                      <div className="d-flex justify-content-between mb-1">
-                        <span>{item.method}</span>
-                        <span className="fw-bold">{formatNaira(item.amount)}</span>
-                      </div>
-                      <ProgressBar 
-                        now={item.percentage} 
-                        variant={['primary', 'success', 'warning', 'info', 'danger'][idx % 5]} 
-                        style={{ height: '6px', borderRadius: '3px' }} 
-                      />
-                      <small className="text-muted">{item.percentage}% • {item.count} transactions</small>
+                  {revenueByMethod.length === 0 ? (
+                    <div className="text-center py-4">
+                      <FaCreditCard size={32} className="text-muted opacity-25" />
+                      <p className="text-muted mt-2 small">No data available</p>
                     </div>
-                  ))}
+                  ) : (
+                    revenueByMethod.map((item, idx) => (
+                      <div key={idx} className="mb-3">
+                        <div className="d-flex justify-content-between mb-1">
+                          <span>{item?.method || 'Unknown'}</span>
+                          <span className="fw-bold">{formatNaira(item?.amount || 0)}</span>
+                        </div>
+                        <ProgressBar 
+                          now={item?.percentage || 0} 
+                          variant={['primary', 'success', 'warning', 'info', 'danger'][idx % 5]} 
+                          style={{ height: '6px', borderRadius: '3px' }} 
+                        />
+                        <small className="text-muted">{item?.percentage || 0}% • {item?.count || 0} transactions</small>
+                      </div>
+                    ))
+                  )}
                 </Card.Body>
               </Card>
             </Col>
@@ -727,14 +721,13 @@ const Payment = () => {
         {/* TRANSACTIONS TAB */}
         {activeTab === 'transactions' && (
           <>
-            {/* Filters */}
             <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
               <Card.Body className="p-4">
                 <div className="d-flex flex-wrap gap-3 align-items-center">
                   <InputGroup style={{ maxWidth: '300px' }}>
                     <InputGroup.Text><FaSearch size={14} /></InputGroup.Text>
                     <Form.Control 
-                      placeholder="Search transactions..." 
+                      placeholder="Search payments..." 
                       value={searchTerm} 
                       onChange={(e) => setSearchTerm(e.target.value)} 
                     />
@@ -745,8 +738,9 @@ const Payment = () => {
                     onChange={(e) => setFilterStatus(e.target.value)}
                   >
                     <option value="all">All Status</option>
-                    <option value="completed">Completed</option>
+                    <option value="paid">Paid</option>
                     <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
                     <option value="failed">Failed</option>
                     <option value="refunded">Refunded</option>
                   </Form.Select>
@@ -773,10 +767,10 @@ const Payment = () => {
                     Reset
                   </Button>
                 </div>
-                {selectedTransactions.length > 0 && (
+                {selectedPayments.length > 0 && (
                   <div className="d-flex gap-2 mt-3 pt-3 border-top">
                     <Button size="sm" variant="success" onClick={() => handleBulkAction('export')}>
-                      <FaDownload className="me-2" /> Export ({selectedTransactions.length})
+                      <FaDownload className="me-2" /> Export ({selectedPayments.length})
                     </Button>
                     <Button size="sm" variant="warning" onClick={() => setShowBulkActions(true)}>
                       <FaUndo className="me-2" /> Bulk Actions
@@ -786,7 +780,7 @@ const Payment = () => {
               </Card.Body>
             </Card>
 
-            {/* Transactions Table */}
+            {/* Payments Table */}
             <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
               <Card.Body className="p-0">
                 <div className="table-responsive">
@@ -796,15 +790,15 @@ const Payment = () => {
                         <th style={{ padding: '16px', width: '40px' }}>
                           <Form.Check 
                             type="checkbox" 
-                            checked={selectedTransactions.length === filteredTransactions.length && filteredTransactions.length > 0} 
+                            checked={selectedPayments.length === filteredPayments.length && filteredPayments.length > 0} 
                             onChange={handleSelectAll} 
                           />
                         </th>
                         <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('id')}>
                           ID {getSortIcon('id')}
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('date')}>
-                          Date {getSortIcon('date')}
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('created_at')}>
+                          Date {getSortIcon('created_at')}
                         </th>
                         <th style={{ padding: '16px' }}>Customer</th>
                         <th style={{ padding: '16px' }}>Provider</th>
@@ -820,46 +814,46 @@ const Payment = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentTransactions.map(tx => (
-                        <tr key={tx.id} className={selectedTransactions.includes(tx.id) ? 'table-active' : ''}>
+                      {currentPayments.map(payment => payment && (
+                        <tr key={payment.id} className={selectedPayments.includes(payment.id) ? 'table-active' : ''}>
                           <td style={{ padding: '16px' }}>
                             <Form.Check 
                               type="checkbox" 
-                              checked={selectedTransactions.includes(tx.id)} 
-                              onChange={() => handleSelectTransaction(tx.id)} 
+                              checked={selectedPayments.includes(payment.id)} 
+                              onChange={() => handleSelectPayment(payment.id)} 
                             />
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <span className="text-primary fw-medium">#{tx.id.slice(-8)}</span>
+                            <span className="text-primary fw-medium">#{payment.id?.slice(-8) || 'N/A'}</span>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <div>{format(new Date(tx.date), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{format(new Date(tx.date), 'hh:mm a')}</small>
+                            <div>{payment.created_at ? format(new Date(payment.created_at), 'MMM dd, yyyy') : 'N/A'}</div>
+                            <small className="text-muted">{payment.created_at ? format(new Date(payment.created_at), 'hh:mm a') : ''}</small>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-2">
                               <FaUserCircle className="text-muted" />
-                              <span>{tx.customer}</span>
+                              <span>{payment.customer_name || 'Unknown'}</span>
                             </div>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-2">
                               <FaUserTie className="text-muted" />
-                              <span>{tx.provider}</span>
+                              <span>{payment.provider_name || 'Unknown'}</span>
                             </div>
                           </td>
-                          <td style={{ padding: '16px' }}>{tx.service}</td>
+                          <td style={{ padding: '16px' }}>{payment.service_title || 'Unknown'}</td>
                           <td style={{ padding: '16px' }}>
-                            <div className="fw-bold text-primary">{formatNaira(tx.amount)}</div>
-                            <small className="text-muted">Fee: {formatNaira(tx.fee)}</small>
+                            <div className="fw-bold text-primary">{formatNaira(payment.amount || 0)}</div>
+                            <small className="text-muted">Fee: {formatNaira(payment.fee || 0)}</small>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-1">
-                              {getPaymentIcon(tx.method)}
-                              <span className="small">{tx.method}</span>
+                              {getPaymentIcon(payment.payment_method)}
+                              <span className="small">{payment.payment_method || 'N/A'}</span>
                             </div>
                           </td>
-                          <td style={{ padding: '16px' }}>{getStatusBadge(tx.status)}</td>
+                          <td style={{ padding: '16px' }}>{getStatusBadge(payment.status)}</td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex gap-1">
                               <Button 
@@ -868,22 +862,22 @@ const Payment = () => {
                                 className="rounded-circle p-1" 
                                 style={{ width: '32px', height: '32px' }}
                                 onClick={() => { 
-                                  setSelectedTransaction(tx); 
-                                  setShowTransactionModal(true); 
+                                  setSelectedPayment(payment); 
+                                  setShowPaymentModal(true); 
                                 }}
                               >
                                 <FaEye size={14} />
                               </Button>
-                              {tx.status === 'completed' && (
+                              {(payment.status === 'paid' || payment.status === 'completed') && (
                                 <Button 
                                   size="sm" 
                                   variant="outline-warning" 
                                   className="rounded-circle p-1" 
                                   style={{ width: '32px', height: '32px' }}
                                   onClick={() => { 
-                                    setSelectedTransaction(tx); 
+                                    setSelectedPayment(payment); 
                                     setShowRefundModal(true); 
-                                    setRefundAmount(tx.amount); 
+                                    setRefundAmount(payment.amount); 
                                   }}
                                 >
                                   <FaUndo size={14} />
@@ -896,17 +890,17 @@ const Payment = () => {
                     </tbody>
                   </Table>
                 </div>
-                {filteredTransactions.length === 0 && (
+                {filteredPayments.length === 0 && (
                   <div className="text-center py-5">
                     <FaMoneyBillWave size={48} className="text-muted mb-3 opacity-50" />
-                    <h6 className="text-muted">No transactions found</h6>
+                    <h6 className="text-muted">No payments found</h6>
                     <Button variant="link" onClick={resetFilters} className="mt-2">Reset Filters</Button>
                   </div>
                 )}
-                {filteredTransactions.length > 0 && (
+                {filteredPayments.length > 0 && (
                   <div className="d-flex justify-content-between align-items-center p-4 border-top">
                     <div className="text-muted small">
-                      Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredTransactions.length)} of {filteredTransactions.length} transactions
+                      Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredPayments.length)} of {filteredPayments.length} payments
                     </div>
                     <Pagination>
                       <Pagination.Prev onClick={() => setCurrentPage(p => Math.max(p-1, 1))} disabled={currentPage === 1} />
@@ -943,111 +937,96 @@ const Payment = () => {
               </div>
             </Card.Header>
             <Card.Body>
-              <div className="table-responsive">
-                <Table hover>
-                  <thead style={{ background: '#f8fafc' }}>
-                    <tr>
-                      <th style={{ padding: '12px' }}>Provider</th>
-                      <th style={{ padding: '12px' }}>Amount</th>
-                      <th style={{ padding: '12px' }}>Method</th>
-                      <th style={{ padding: '12px' }}>Date</th>
-                      <th style={{ padding: '12px' }}>Status</th>
-                      <th style={{ padding: '12px' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payouts.map((payout, idx) => (
-                      <tr key={idx}>
-                        <td>{payout.provider}</td>
-                        <td className="fw-bold text-primary">{formatNaira(payout.amount)}</td>
-                        <td>{payout.method}</td>
-                        <td>{format(new Date(payout.date), 'MMM dd, yyyy')}</td>
-                        <td>{getStatusBadge(payout.status)}</td>
-                        <td>
-                          <Button size="sm" variant="success" className="me-1">
-                            <FaCheck size={12} /> Process
-                          </Button>
-                          <Button size="sm" variant="danger">
-                            <FaTimes size={12} /> Cancel
-                          </Button>
-                        </td>
+              {payouts.length === 0 ? (
+                <div className="text-center py-5">
+                  <FaWallet size={48} className="text-muted mb-3 opacity-50" />
+                  <h6 className="text-muted">No pending payouts</h6>
+                  <p className="text-muted small">All payouts have been processed</p>
+                </div>
+              ) : (
+                <div className="table-responsive">
+                  <Table hover>
+                    <thead style={{ background: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '12px' }}>Provider</th>
+                        <th style={{ padding: '12px' }}>Amount</th>
+                        <th style={{ padding: '12px' }}>Method</th>
+                        <th style={{ padding: '12px' }}>Date</th>
+                        <th style={{ padding: '12px' }}>Status</th>
+                        <th style={{ padding: '12px' }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-            </Card.Body>
-          </Card>
-        )}
-
-        {/* SUBSCRIPTIONS TAB */}
-        {activeTab === 'subscriptions' && (
-          <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-            <Card.Body className="text-center py-5">
-              <FaCalendarAlt size={48} className="text-muted mb-3 opacity-50" />
-              <h6 className="text-muted">Subscription Plans</h6>
-              <p className="text-muted small">Manage subscription plans and recurring payments</p>
-            </Card.Body>
-          </Card>
-        )}
-
-        {/* COMMISSIONS TAB */}
-        {activeTab === 'commissions' && (
-          <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-            <Card.Body className="text-center py-5">
-              <FaPercentage size={48} className="text-muted mb-3 opacity-50" />
-              <h6 className="text-muted">Commission Rates</h6>
-              <p className="text-muted small">Configure commission rates for different service categories</p>
-            </Card.Body>
-          </Card>
-        )}
-
-        {/* DISPUTES TAB */}
-        {activeTab === 'disputes' && (
-          <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-            <Card.Body className="text-center py-5">
-              <FaBalanceScale size={48} className="text-muted mb-3 opacity-50" />
-              <h6 className="text-muted">Disputes & Chargebacks</h6>
-              <p className="text-muted small">Manage payment disputes and chargebacks</p>
+                    </thead>
+                    <tbody>
+                      {payouts.map((payout, idx) => (
+                        <tr key={idx}>
+                          <td>{payout.provider || 'Unknown'}</td>
+                          <td className="fw-bold text-primary">{formatNaira(payout.amount || 0)}</td>
+                          <td>{payout.method || 'N/A'}</td>
+                          <td>{payout.date ? format(new Date(payout.date), 'MMM dd, yyyy') : 'N/A'}</td>
+                          <td>{getStatusBadge(payout.status)}</td>
+                          <td>
+                            <Button size="sm" variant="success" className="me-1">
+                              <FaCheck size={12} /> Process
+                            </Button>
+                            <Button size="sm" variant="danger">
+                              <FaTimes size={12} /> Cancel
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              )}
             </Card.Body>
           </Card>
         )}
       </Container>
 
-      {/* Transaction Details Modal */}
-      <Modal show={showTransactionModal} onHide={() => setShowTransactionModal(false)} size="lg" centered>
+      {/* Payment Details Modal */}
+      <Modal show={showPaymentModal} onHide={() => setShowPaymentModal(false)} size="lg" centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">Transaction Details</Modal.Title>
+          <Modal.Title className="fw-bold">Payment Details</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          {selectedTransaction && (
+          {selectedPayment && (
             <div>
               <div className="text-center mb-4">
-                <div className={`rounded-circle d-inline-flex p-3 mb-3 ${selectedTransaction.status === 'completed' ? 'bg-success bg-opacity-10' : 'bg-warning bg-opacity-10'}`}>
-                  {selectedTransaction.status === 'completed' ? (
+                <div className={`rounded-circle d-inline-flex p-3 mb-3 ${selectedPayment.status === 'paid' || selectedPayment.status === 'completed' ? 'bg-success bg-opacity-10' : 'bg-warning bg-opacity-10'}`}>
+                  {selectedPayment.status === 'paid' || selectedPayment.status === 'completed' ? (
                     <FaCheckCircle size={32} className="text-success" />
                   ) : (
                     <FaClock size={32} className="text-warning" />
                   )}
                 </div>
-                <h5 className="mb-1">Transaction #{selectedTransaction.id}</h5>
-                <p className="text-muted">{format(new Date(selectedTransaction.date), 'MMMM dd, yyyy hh:mm a')}</p>
+                <h5 className="mb-1">Payment #{selectedPayment.id}</h5>
+                <p className="text-muted">{selectedPayment.created_at ? format(new Date(selectedPayment.created_at), 'MMMM dd, yyyy hh:mm a') : 'N/A'}</p>
               </div>
 
               <Row className="g-3">
                 <Col md={6}>
-                  <div className="info-section">
+                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                     <h6 className="fw-bold mb-3">Customer Details</h6>
-                    <div className="info-item"><FaUserCircle className="text-muted" /> <span>{selectedTransaction.customer}</span></div>
-                    <div className="info-item"><FaInfoCircle className="text-muted" /> <span>{selectedTransaction.customer_email}</span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
+                      <FaUserCircle className="text-muted" /> <span>{selectedPayment.customer_name || 'Unknown'}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0' }}>
+                      <FaInfoCircle className="text-muted" /> <span>{selectedPayment.customer_email || 'N/A'}</span>
+                    </div>
                   </div>
                 </Col>
                 <Col md={6}>
-                  <div className="info-section">
+                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                     <h6 className="fw-bold mb-3">Payment Details</h6>
-                    <div className="info-item"><FaMoneyBillWave className="text-muted" /> <span className="fw-bold text-primary">{formatNaira(selectedTransaction.amount)}</span></div>
-                    <div className="info-item"><FaCreditCard className="text-muted" /> <span>{selectedTransaction.method}</span></div>
-                    <div className="info-item"><FaCheckCircle className="text-muted" /> <span>{getStatusBadge(selectedTransaction.status)}</span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
+                      <FaMoneyBillWave className="text-muted" /> <span className="fw-bold text-primary">{formatNaira(selectedPayment.amount || 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
+                      <FaCreditCard className="text-muted" /> <span>{selectedPayment.payment_method || 'N/A'}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0' }}>
+                      <FaCheckCircle className="text-muted" /> <span>{getStatusBadge(selectedPayment.status)}</span>
+                    </div>
                   </div>
                 </Col>
               </Row>
@@ -1055,10 +1034,10 @@ const Payment = () => {
           )}
         </Modal.Body>
         <Modal.Footer className="border-0 pt-0">
-          <Button variant="secondary" onClick={() => setShowTransactionModal(false)}>Close</Button>
-          {selectedTransaction?.status === 'completed' && (
+          <Button variant="secondary" onClick={() => setShowPaymentModal(false)}>Close</Button>
+          {(selectedPayment?.status === 'paid' || selectedPayment?.status === 'completed') && (
             <Button variant="warning" onClick={() => {
-              setShowTransactionModal(false);
+              setShowPaymentModal(false);
               setShowRefundModal(true);
             }}>
               <FaUndo className="me-2" /> Process Refund
@@ -1077,7 +1056,7 @@ const Payment = () => {
         <Modal.Body className="pt-4">
           <Alert variant="info" className="mb-4" style={{ borderRadius: '12px' }}>
             <FaInfoCircle className="me-2" />
-            Refund amount cannot exceed the original transaction amount.
+            Refund amount cannot exceed the original payment amount.
           </Alert>
           <Form>
             <Form.Group className="mb-3">
@@ -1119,11 +1098,11 @@ const Payment = () => {
       <Modal show={showExportModal} onHide={() => setShowExportModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
           <Modal.Title className="fw-bold">
-            <FaDownload className="me-2" /> Export Transactions
+            <FaDownload className="me-2" /> Export Payments
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          <p className="mb-4">Exporting <strong>{filteredTransactions.length}</strong> transactions as <strong>{exportFormat.toUpperCase()}</strong></p>
+          <p className="mb-4">Exporting <strong>{filteredPayments.length}</strong> payments as <strong>{exportFormat.toUpperCase()}</strong></p>
           {isExporting && (
             <div className="text-center py-3">
               <Spinner animation="border" variant="primary" />
@@ -1145,7 +1124,7 @@ const Payment = () => {
           <Modal.Title className="fw-bold">Bulk Actions</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          <p className="mb-4">Selected transactions: <strong className="text-primary">{selectedTransactions.length}</strong></p>
+          <p className="mb-4">Selected payments: <strong className="text-primary">{selectedPayments.length}</strong></p>
           <div className="d-grid gap-2">
             <Button variant="success" onClick={() => handleBulkAction('export')}>
               <FaDownload className="me-2" /> Export Selected
@@ -1169,19 +1148,6 @@ const Payment = () => {
           to { transform: rotate(360deg); }
         }
         .spin { animation: spin 1s linear infinite; }
-        .info-section {
-          background: #f8fafc;
-          padding: 16px;
-          border-radius: 12px;
-        }
-        .info-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 6px 0;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        .info-item:last-child { border-bottom: none; }
         .nav-tabs .nav-link {
           color: #4b5563;
           border: none;
@@ -1206,4 +1172,4 @@ const Payment = () => {
   );
 };
 
-export default Payment;
+export default AdminPayments;

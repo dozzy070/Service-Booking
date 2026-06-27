@@ -1,69 +1,108 @@
 // src/pages/admin/AdminBookings.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  Container, Row, Col, Card, Table, Button, Form, InputGroup,
-  Badge, Dropdown, Modal, Nav, Pagination, Toast, ToastContainer,
-  Spinner, Alert, ProgressBar
-} from 'react-bootstrap';
-
-import {
-  FaCalendarCheck, FaClock, FaUser, FaServicestack, FaMoneyBillWave,
-  FaStar, FaMapMarkerAlt, FaPhone, FaEnvelope, FaCheckCircle, FaTimesCircle,
-  FaExclamationTriangle, FaInfoCircle, FaSearch, FaSlidersH, FaSort, FaSortUp,
-  FaSortDown, FaEllipsisV, FaEye, FaEdit, FaBan, FaCheck, FaCalendarAlt,
-  FaDownload, FaPrint, FaRedo, FaFileCsv, FaFileExcel, FaFilePdf,
-  FaRocket, FaUndo, FaSync, FaPlus, FaMinus, FaArrowUp, FaArrowDown,
-  FaUserTie, FaShoppingCart, FaChartLine, FaWallet, FaCreditCard,
-  FaPhoneAlt, FaEnvelope as FaEnvelopeIcon, FaMapMarkerAlt as FaMapMarkerIcon,
-  FaGlobe, FaLink, FaShare, FaCopy, FaTrash, FaSave, FaTimes
-} from 'react-icons/fa';
-
-import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth, isToday, isTomorrow } from 'date-fns';
-import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Table,
+  Button,
+  Form,
+  InputGroup,
+  Badge,
+  Dropdown,
+  Modal,
+  Alert,
+  Pagination,
+  Nav,
+  Spinner,
+  Image,
+  OverlayTrigger,
+  Tooltip
+} from 'react-bootstrap';
+import {
+  FaSearch,
+  FaFilter,
+  FaEye,
+  FaEdit,
+  FaTrash,
+  FaCheckCircle,
+  FaTimesCircle,
+  FaClock,
+  FaCalendarAlt,
+  FaUser,
+  FaServicestack,
+  FaDollarSign,
+  FaMapMarkerAlt,
+  FaPhone,
+  FaEnvelope,
+  FaStar,
+  FaDownload,
+  FaPrint,
+  FaEllipsisV,
+  FaSort,
+  FaSortUp,
+  FaSortDown,
+  FaSync,
+  FaExclamationTriangle,
+  FaInfoCircle,
+  FaPlus,
+  FaUsers,
+  FaMoneyBillWave,
+  FaChartLine,
+  FaSlidersH,
+  FaBan,
+  FaCheck,
+  FaTimes
+} from 'react-icons/fa';
+import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 
 const AdminBookings = () => {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // UI State
   const [activeTab, setActiveTab] = useState('all');
-  const [dateRange, setDateRange] = useState({
-    start: subDays(new Date(), 30).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0]
-  });
-  const [selectedPeriod, setSelectedPeriod] = useState('30days');
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectedBooking, setSelectedBooking] = useState(null);
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [showDisputeModal, setShowDisputeModal] = useState(false);
-  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
-  const [modalMode, setModalMode] = useState('view');
-  const [selectedBookings, setSelectedBookings] = useState([]);
-  const [showBulkActions, setShowBulkActions] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [filterService, setFilterService] = useState('all');
   const [filterProvider, setFilterProvider] = useState('all');
-  const [sortConfig, setSortConfig] = useState({ key: 'serviceDate', direction: 'desc' });
+  const [filterCustomer, setFilterCustomer] = useState('all');
+  const [sortConfig, setSortConfig] = useState({ key: 'bookingDate', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [rescheduleData, setRescheduleData] = useState({ date: '', time: '', reason: '' });
-  const [cancellationData, setCancellationData] = useState({ reason: '', refund: true, refundAmount: 0 });
-  const [exportFormat, setExportFormat] = useState('csv');
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [processing, setProcessing] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Data state
+  // Data State
   const [bookings, setBookings] = useState([]);
-  const [servicesList, setServicesList] = useState([]);
-  const [providersList, setProvidersList] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [stats, setStats] = useState({
-    total: 0, pending: 0, confirmed: 0, inProgress: 0,
-    completed: 0, cancelled: 0, disputed: 0, totalRevenue: 0
+    total: 0,
+    pending: 0,
+    confirmed: 0,
+    inProgress: 0,
+    completed: 0,
+    cancelled: 0,
+    totalRevenue: 0,
+    averageValue: 0
   });
+
+  // Modal State
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    status: '',
+    notes: '',
+    totalAmount: ''
+  });
+  const [newStatus, setNewStatus] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [selectedBookings, setSelectedBookings] = useState([]);
 
   // Format currency to NGN
   const formatNaira = (amount) => {
@@ -81,186 +120,165 @@ const AdminBookings = () => {
     return formatNaira(amount);
   };
 
-  const showToast = (message, type = 'success') => {
-    toast[type](message);
-  };
-
-  // API Calls
+  // ✅ Fetch bookings with proper data extraction
   const fetchBookings = useCallback(async () => {
     try {
       const params = {
-        startDate: dateRange.start,
-        endDate: dateRange.end,
-        status: activeTab !== 'all' ? activeTab : undefined,
+        startDate: dateRange.start || undefined,
+        endDate: dateRange.end || undefined,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        providerId: filterProvider !== 'all' ? filterProvider : undefined,
+        customerId: filterCustomer !== 'all' ? filterCustomer : undefined,
         search: searchTerm || undefined,
-        serviceId: filterService !== 'all' ? filterService : undefined,
-        providerId: filterProvider !== 'all' ? filterProvider : undefined
+        sortBy: sortConfig.key,
+        sortOrder: sortConfig.direction
       };
-      const res = await adminAPI.getBookings(params);
-      setBookings(res.data);
-      
-      // Calculate stats
-      const total = res.data.length;
-      const pending = res.data.filter(b => b.status === 'pending').length;
-      const confirmed = res.data.filter(b => b.status === 'confirmed').length;
-      const inProgress = res.data.filter(b => b.status === 'in_progress').length;
-      const completed = res.data.filter(b => b.status === 'completed').length;
-      const cancelled = res.data.filter(b => b.status === 'cancelled').length;
-      const disputed = res.data.filter(b => b.status === 'disputed').length;
-      const totalRevenue = res.data.reduce((acc, b) => acc + (b.payment?.status === 'paid' ? (b.amount || 0) : 0), 0);
-      
-      setStats({ total, pending, confirmed, inProgress, completed, cancelled, disputed, totalRevenue });
-    } catch (err) {
-      console.error('Error fetching bookings:', err);
-      showToast('Failed to load bookings', 'danger');
+      const response = await adminAPI.getBookings(params);
+      // ✅ Extract bookings array safely
+      const bookingList = Array.isArray(response.data) ? response.data :
+                          Array.isArray(response.data?.bookings) ? response.data.bookings :
+                          Array.isArray(response.data?.data) ? response.data.data : [];
+      setBookings(bookingList);
+      calculateStats(bookingList);
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+      toast.error('Failed to load bookings');
+      setBookings([]);
     } finally {
       setLoading(false);
     }
-  }, [dateRange, activeTab, searchTerm, filterService, filterProvider]);
+  }, [dateRange, filterStatus, filterProvider, filterCustomer, searchTerm, sortConfig]);
 
-  const fetchServices = useCallback(async () => {
-    try {
-      const res = await adminAPI.getServices();
-      setServicesList(res.data);
-    } catch (err) {
-      console.error('Error fetching services:', err);
-    }
-  }, []);
-
+  // ✅ Fetch providers
   const fetchProviders = useCallback(async () => {
     try {
-      const res = await adminAPI.getProviders();
-      setProvidersList(res.data);
-    } catch (err) {
-      console.error('Error fetching providers:', err);
+      const response = await adminAPI.getProviders();
+      const providerList = Array.isArray(response.data) ? response.data :
+                           Array.isArray(response.data?.providers) ? response.data.providers : [];
+      setProviders(providerList);
+    } catch (error) {
+      console.error('Error fetching providers:', error);
+      setProviders([]);
     }
   }, []);
 
+  // ✅ Fetch customers
+  const fetchCustomers = useCallback(async () => {
+    try {
+      const response = await adminAPI.getUsers({ role: 'customer' });
+      const customerList = Array.isArray(response.data) ? response.data :
+                           Array.isArray(response.data?.users) ? response.data.users : [];
+      setCustomers(customerList);
+    } catch (error) {
+      console.error('Error fetching customers:', error);
+      setCustomers([]);
+    }
+  }, []);
+
+  // ✅ Calculate stats with safety checks
+  const calculateStats = (bookingList) => {
+    const list = Array.isArray(bookingList) ? bookingList : [];
+    const newStats = {
+      total: list.length,
+      pending: list.filter(b => b?.status === 'pending').length,
+      confirmed: list.filter(b => b?.status === 'confirmed' || b?.status === 'accepted').length,
+      inProgress: list.filter(b => b?.status === 'in_progress').length,
+      completed: list.filter(b => b?.status === 'completed').length,
+      cancelled: list.filter(b => b?.status === 'cancelled').length,
+      totalRevenue: list.reduce((sum, b) => sum + (b?.totalAmount || b?.total_amount || b?.amount || 0), 0),
+      averageValue: list.length > 0 ? list.reduce((sum, b) => sum + (b?.totalAmount || b?.total_amount || b?.amount || 0), 0) / list.length : 0
+    };
+    setStats(newStats);
+  };
+
+  // ✅ Fetch all data
   const fetchAllData = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchBookings(), fetchServices(), fetchProviders()]);
+    await Promise.all([fetchBookings(), fetchProviders(), fetchCustomers()]);
     setLoading(false);
-  }, [fetchBookings, fetchServices, fetchProviders]);
+  }, [fetchBookings, fetchProviders, fetchCustomers]);
 
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData();
     setRefreshing(false);
-    showToast('Data refreshed', 'info');
+    toast.success('Data refreshed');
   };
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Auto-refresh every 60 seconds
+  // Refetch when filters change
   useEffect(() => {
-    const interval = setInterval(fetchAllData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchAllData]);
+    fetchBookings();
+  }, [fetchBookings]);
 
-  // CRUD operations
-  const updateBookingStatus = async (bookingId, newStatus, additionalData = {}) => {
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, filterProvider, filterCustomer, dateRange, activeTab]);
+
+  // ✅ Booking actions with adminAPI
+  const handleStatusChange = async (bookingId, status) => {
     setProcessing(true);
     try {
-      await adminAPI.updateBooking(bookingId, { status: newStatus, ...additionalData });
-      await fetchAllData();
-      showToast(`Booking updated to ${newStatus}`, 'success');
-    } catch (err) {
-      console.error('Status update error:', err);
-      showToast(err.response?.data?.message || 'Update failed', 'danger');
+      await adminAPI.updateBookingStatus(bookingId, { status });
+      await fetchBookings();
+      toast.success(`Booking status updated to ${status}`);
+    } catch (error) {
+      toast.error('Failed to update booking status');
+    } finally {
+      setProcessing(false);
+      setShowStatusModal(false);
+    }
+  };
+
+  const handleDeleteBooking = async () => {
+    if (!selectedBooking) return;
+    setProcessing(true);
+    try {
+      await adminAPI.deleteBooking(selectedBooking.id);
+      await fetchBookings();
+      setShowDeleteModal(false);
+      setSelectedBooking(null);
+      toast.success('Booking deleted');
+    } catch (error) {
+      toast.error('Failed to delete booking');
     } finally {
       setProcessing(false);
     }
   };
 
-  const handleCancelBooking = async () => {
+  const handleUpdateBooking = async () => {
     if (!selectedBooking) return;
-    await updateBookingStatus(selectedBooking.id, 'cancelled', {
-      cancellationReason: cancellationData.reason,
-      refund: cancellationData.refund,
-      refundAmount: cancellationData.refundAmount
-    });
-    setShowCancelModal(false);
-    setCancellationData({ reason: '', refund: true, refundAmount: 0 });
+    setProcessing(true);
+    try {
+      await adminAPI.updateBooking(selectedBooking.id, editFormData);
+      await fetchBookings();
+      setShowEditModal(false);
+      setSelectedBooking(null);
+      toast.success('Booking updated');
+    } catch (error) {
+      toast.error('Failed to update booking');
+    } finally {
+      setProcessing(false);
+    }
   };
 
-  const handleCompleteBooking = async () => {
-    if (!selectedBooking) return;
-    await updateBookingStatus(selectedBooking.id, 'completed');
-    setShowCompleteModal(false);
-  };
-
-  const handleReschedule = async () => {
-    if (!selectedBooking || !rescheduleData.date || !rescheduleData.time) return;
-    await updateBookingStatus(selectedBooking.id, 'confirmed', {
-      serviceDate: rescheduleData.date,
-      serviceTime: rescheduleData.time,
-      rescheduleReason: rescheduleData.reason
-    });
-    setShowRescheduleModal(false);
-    setRescheduleData({ date: '', time: '', reason: '' });
-  };
-
-  const handleBulkStatusChange = async (newStatus) => {
+  const handleBulkStatusChange = async (status) => {
     if (selectedBookings.length === 0) return;
     setProcessing(true);
     try {
-      await adminAPI.bulkBookingAction({ ids: selectedBookings, action: newStatus });
-      await fetchAllData();
+      await adminAPI.bulkBookingAction({ bookingIds: selectedBookings, action: status });
+      await fetchBookings();
       setSelectedBookings([]);
-      setShowBulkActions(false);
-      showToast(`${selectedBookings.length} bookings updated to ${newStatus}`, 'success');
-    } catch (err) {
-      showToast('Bulk update failed', 'danger');
+      toast.success(`${selectedBookings.length} bookings updated to ${status}`);
+    } catch (error) {
+      toast.error('Bulk update failed');
     } finally {
       setProcessing(false);
     }
-  };
-
-  // Export
-  const handleExport = async () => {
-    setProcessing(true);
-    try {
-      const response = await adminAPI.exportBookings({
-        format: exportFormat,
-        startDate: dateRange.start,
-        endDate: dateRange.end,
-        status: activeTab !== 'all' ? activeTab : undefined
-      });
-      const blob = new Blob([response.data], {
-        type: exportFormat === 'csv' ? 'text/csv' :
-              exportFormat === 'excel' ? 'application/vnd.ms-excel' :
-              'application/pdf'
-      });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bookings_export_${format(new Date(), 'yyyy-MM-dd')}.${exportFormat === 'csv' ? 'csv' : exportFormat === 'excel' ? 'xls' : 'pdf'}`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      showToast('Bookings exported successfully', 'success');
-      setShowExportModal(false);
-    } catch (err) {
-      showToast('Export failed', 'danger');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const resetFilters = () => {
-    setSearchTerm('');
-    setFilterStatus('all');
-    setFilterService('all');
-    setFilterProvider('all');
-    setDateRange({
-      start: subDays(new Date(), 30).toISOString().split('T')[0],
-      end: new Date().toISOString().split('T')[0]
-    });
-    setSelectedPeriod('30days');
-    setActiveTab('all');
-    setCurrentPage(1);
-    showToast('Filters reset', 'info');
   };
 
   // Selection handlers
@@ -268,19 +286,20 @@ const AdminBookings = () => {
     if (selectedBookings.length === filteredBookings.length) {
       setSelectedBookings([]);
     } else {
-      setSelectedBookings(filteredBookings.map(b => b.id));
+      setSelectedBookings(filteredBookings.map(b => b.id).filter(Boolean));
     }
   };
 
-  const handleSelectBooking = (id) => {
+  const handleSelectBooking = (bookingId) => {
     setSelectedBookings(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+      prev.includes(bookingId) ? prev.filter(id => id !== bookingId) : [...prev, bookingId]
     );
   };
 
   // Sorting
   const handleSort = (key) => {
-    const direction = sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
   };
 
@@ -289,96 +308,41 @@ const AdminBookings = () => {
     return sortConfig.direction === 'asc' ? <FaSortUp /> : <FaSortDown />;
   };
 
-  // Filtering
+  // ✅ Filtering with safety
   const filteredBookings = useMemo(() => {
-    let filtered = [...bookings];
-    if (activeTab !== 'all') filtered = filtered.filter(b => b.status === activeTab);
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(b =>
-        b.id?.toLowerCase().includes(term) ||
-        b.customer?.name?.toLowerCase().includes(term) ||
-        b.provider?.name?.toLowerCase().includes(term) ||
-        b.service?.title?.toLowerCase().includes(term)
-      );
-    }
-    if (filterStatus !== 'all') filtered = filtered.filter(b => b.status === filterStatus);
-    if (filterService !== 'all') filtered = filtered.filter(b => b.service?.id === parseInt(filterService));
-    if (filterProvider !== 'all') filtered = filtered.filter(b => b.provider?.id === parseInt(filterProvider));
-
-    filtered.sort((a, b) => {
-      let aVal, bVal;
-      if (sortConfig.key === 'serviceDate') {
-        aVal = new Date(`${a.serviceDate} ${a.serviceTime || ''}`).getTime();
-        bVal = new Date(`${b.serviceDate} ${b.serviceTime || ''}`).getTime();
-      } else if (sortConfig.key === 'amount') {
-        aVal = a.amount || 0;
-        bVal = b.amount || 0;
-      } else {
-        aVal = a[sortConfig.key];
-        bVal = b[sortConfig.key];
-      }
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
+    const list = Array.isArray(bookings) ? bookings : [];
+    let filtered = [...list];
+    if (activeTab === 'pending') filtered = filtered.filter(b => b?.status === 'pending');
+    if (activeTab === 'confirmed') filtered = filtered.filter(b => b?.status === 'confirmed' || b?.status === 'accepted');
+    if (activeTab === 'inProgress') filtered = filtered.filter(b => b?.status === 'in_progress');
+    if (activeTab === 'completed') filtered = filtered.filter(b => b?.status === 'completed');
+    if (activeTab === 'cancelled') filtered = filtered.filter(b => b?.status === 'cancelled');
     return filtered;
-  }, [bookings, activeTab, searchTerm, filterStatus, filterService, filterProvider, sortConfig]);
+  }, [bookings, activeTab]);
 
   // Pagination
-  const totalPages = Math.ceil(filteredBookings.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentBookings = filteredBookings.slice(indexOfFirstItem, indexOfLastItem);
+  const currentItems = filteredBookings.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredBookings.length / itemsPerPage);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, searchTerm, filterStatus, filterService, filterProvider, dateRange]);
-
-  // Badge helpers
+  // Get status badge
   const getStatusBadge = (status) => {
     const badges = {
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
       confirmed: { bg: 'info', icon: <FaCheckCircle />, label: 'Confirmed' },
-      in_progress: { bg: 'primary', icon: <FaRocket />, label: 'In Progress' },
+      accepted: { bg: 'info', icon: <FaCheckCircle />, label: 'Accepted' },
+      in_progress: { bg: 'primary', icon: <FaClock />, label: 'In Progress' },
       completed: { bg: 'success', icon: <FaCheckCircle />, label: 'Completed' },
-      cancelled: { bg: 'danger', icon: <FaTimesCircle />, label: 'Cancelled' },
-      disputed: { bg: 'danger', icon: <FaExclamationTriangle />, label: 'Disputed' }
+      cancelled: { bg: 'danger', icon: <FaTimesCircle />, label: 'Cancelled' }
     };
-    const badge = badges[status] || badges.pending;
+    const b = badges[status] || badges.pending;
     return (
-      <Badge bg={badge.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
-        {badge.icon}
-        <span className="ms-1">{badge.label}</span>
+      <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+        {b.icon}
+        <span className="ms-1">{b.label}</span>
       </Badge>
     );
-  };
-
-  const getPaymentStatusBadge = (status) => {
-    const badges = {
-      paid: { bg: 'success', icon: <FaCheckCircle />, label: 'Paid' },
-      pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
-      refunded: { bg: 'info', icon: <FaUndo />, label: 'Refunded' },
-      failed: { bg: 'danger', icon: <FaTimesCircle />, label: 'Failed' },
-      held: { bg: 'danger', icon: <FaExclamationTriangle />, label: 'Held' }
-    };
-    const badge = badges[status] || badges.pending;
-    return (
-      <Badge bg={badge.bg} className="d-inline-flex align-items-center gap-1 px-2 py-1 rounded-pill" style={{ fontSize: '10px' }}>
-        {badge.icon}
-        <span>{badge.label}</span>
-      </Badge>
-    );
-  };
-
-  const getDateBadge = (date) => {
-    const bookingDate = new Date(date);
-    if (isToday(bookingDate)) {
-      return <Badge bg="success" className="rounded-pill">Today</Badge>;
-    } else if (isTomorrow(bookingDate)) {
-      return <Badge bg="info" className="rounded-pill">Tomorrow</Badge>;
-    }
-    return null;
   };
 
   if (loading) {
@@ -399,7 +363,7 @@ const AdminBookings = () => {
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
             <h2 className="mb-1 fw-bold">Booking Management</h2>
-            <p className="text-muted mb-0">Manage and monitor all bookings on the platform</p>
+            <p className="text-muted mb-0">Monitor and manage all bookings across the platform</p>
           </div>
           <div className="d-flex gap-2">
             <Button
@@ -411,103 +375,23 @@ const AdminBookings = () => {
               <FaSync className={refreshing ? 'spin' : ''} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
-            <Dropdown>
-              <Dropdown.Toggle variant="outline-primary" className="d-flex align-items-center gap-2">
-                <FaDownload /> Export
-              </Dropdown.Toggle>
-              <Dropdown.Menu>
-                <Dropdown.Item onClick={() => { setExportFormat('csv'); setShowExportModal(true); }}>
-                  <FaFileCsv className="me-2 text-success" /> CSV
-                </Dropdown.Item>
-                <Dropdown.Item onClick={() => { setExportFormat('excel'); setShowExportModal(true); }}>
-                  <FaFileExcel className="me-2 text-success" /> Excel
-                </Dropdown.Item>
-                <Dropdown.Item onClick={() => { setExportFormat('pdf'); setShowExportModal(true); }}>
-                  <FaFilePdf className="me-2 text-danger" /> PDF
-                </Dropdown.Item>
-              </Dropdown.Menu>
-            </Dropdown>
+            <Button variant="outline-primary" className="d-flex align-items-center gap-2">
+              <FaDownload /> Export
+            </Button>
           </div>
         </div>
-
-        {/* Date Range */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
-            <Row className="align-items-center g-3">
-              <Col lg={3}>
-                <Form.Label className="fw-semibold">Period</Form.Label>
-                <Form.Select
-                  value={selectedPeriod}
-                  onChange={(e) => {
-                    setSelectedPeriod(e.target.value);
-                    const today = new Date();
-                    let start = new Date();
-                    switch(e.target.value) {
-                      case '7days': start = subDays(today, 7); break;
-                      case '30days': start = subDays(today, 30); break;
-                      case '90days': start = subDays(today, 90); break;
-                      case '12months': start = subMonths(today, 12); break;
-                      case 'ytd': start = new Date(today.getFullYear(), 0, 1); break;
-                      default: start = subDays(today, 30);
-                    }
-                    setDateRange({
-                      start: start.toISOString().split('T')[0],
-                      end: today.toISOString().split('T')[0]
-                    });
-                  }}
-                >
-                  <option value="7days">Last 7 Days</option>
-                  <option value="30days">Last 30 Days</option>
-                  <option value="90days">Last 90 Days</option>
-                  <option value="12months">Last 12 Months</option>
-                  <option value="ytd">Year to Date</option>
-                  <option value="custom">Custom Range</option>
-                </Form.Select>
-              </Col>
-              {selectedPeriod === 'custom' && (
-                <>
-                  <Col lg={3}>
-                    <Form.Label className="fw-semibold">Start Date</Form.Label>
-                    <Form.Control
-                      type="date"
-                      value={dateRange.start}
-                      onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                    />
-                  </Col>
-                  <Col lg={3}>
-                    <Form.Label className="fw-semibold">End Date</Form.Label>
-                    <Form.Control
-                      type="date"
-                      value={dateRange.end}
-                      onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                    />
-                  </Col>
-                </>
-              )}
-              <Col lg={3} className="d-flex align-items-end">
-                <Button variant="primary" onClick={fetchAllData} className="w-100">
-                  <FaSearch className="me-2" /> Apply
-                </Button>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
 
         {/* Stats Cards */}
         <Row className="g-4 mb-4">
           <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('all')}
-            >
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
               <Card.Body className="p-4">
                 <div className="d-flex align-items-center gap-3">
                   <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
-                    <FaCalendarCheck size={24} color="#3b82f6" />
+                    <FaCalendarAlt size={24} color="#3b82f6" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Total</p>
+                    <p className="text-muted mb-0 small">Total Bookings</p>
                     <h3 className="fw-bold mb-0">{stats.total}</h3>
                   </div>
                 </div>
@@ -515,11 +399,7 @@ const AdminBookings = () => {
             </Card>
           </Col>
           <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('pending')}
-            >
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
               <Card.Body className="p-4">
                 <div className="d-flex align-items-center gap-3">
                   <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
@@ -534,49 +414,7 @@ const AdminBookings = () => {
             </Card>
           </Col>
           <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('confirmed')}
-            >
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <FaCheckCircle size={24} color="#10b981" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Confirmed</p>
-                    <h3 className="fw-bold mb-0">{stats.confirmed}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('in_progress')}
-            >
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
-                    <FaRocket size={24} color="#8b5cf6" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">In Progress</p>
-                    <h3 className="fw-bold mb-0">{stats.inProgress}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('completed')}
-            >
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
               <Card.Body className="p-4">
                 <div className="d-flex align-items-center gap-3">
                   <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
@@ -591,19 +429,45 @@ const AdminBookings = () => {
             </Card>
           </Col>
           <Col xl={2} lg={4} md={6}>
-            <Card
-              className="border-0 shadow-sm h-100"
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setActiveTab('disputed')}
-            >
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
               <Card.Body className="p-4">
                 <div className="d-flex align-items-center gap-3">
                   <div className="rounded-circle p-3" style={{ background: '#ef444420' }}>
-                    <FaExclamationTriangle size={24} color="#ef4444" />
+                    <FaTimesCircle size={24} color="#ef4444" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Disputed</p>
-                    <h3 className="fw-bold mb-0">{stats.disputed}</h3>
+                    <p className="text-muted mb-0 small">Cancelled</p>
+                    <h3 className="fw-bold mb-0">{stats.cancelled}</h3>
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col xl={2} lg={4} md={6}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
+              <Card.Body className="p-4">
+                <div className="d-flex align-items-center gap-3">
+                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
+                    <FaDollarSign size={24} color="#8b5cf6" />
+                  </div>
+                  <div>
+                    <p className="text-muted mb-0 small">Total Revenue</p>
+                    <h3 className="fw-bold mb-0">{formatCompactNaira(stats.totalRevenue)}</h3>
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col xl={2} lg={4} md={6}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
+              <Card.Body className="p-4">
+                <div className="d-flex align-items-center gap-3">
+                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
+                    <FaChartLine size={24} color="#10b981" />
+                  </div>
+                  <div>
+                    <p className="text-muted mb-0 small">Avg Value</p>
+                    <h3 className="fw-bold mb-0">{formatCompactNaira(stats.averageValue)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -616,73 +480,60 @@ const AdminBookings = () => {
           <Card.Body className="p-0">
             <Nav variant="tabs" className="px-3 pt-3" style={{ borderBottom: 'none' }}>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'all'}
+                <Nav.Link 
+                  active={activeTab === 'all'} 
                   onClick={() => setActiveTab('all')}
                   className="fw-semibold"
                 >
                   All Bookings
-                  <Badge bg="secondary" pill className="ms-2">{stats.total}</Badge>
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'pending'}
+                <Nav.Link 
+                  active={activeTab === 'pending'} 
                   onClick={() => setActiveTab('pending')}
                   className="fw-semibold"
                 >
-                  Pending
-                  {stats.pending > 0 && <Badge bg="warning" pill className="ms-2">{stats.pending}</Badge>}
+                  <FaClock className="me-2 text-warning" /> Pending
+                  {stats.pending > 0 && (
+                    <Badge bg="warning" pill className="ms-2">{stats.pending}</Badge>
+                  )}
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'confirmed'}
+                <Nav.Link 
+                  active={activeTab === 'confirmed'} 
                   onClick={() => setActiveTab('confirmed')}
                   className="fw-semibold"
                 >
-                  Confirmed
-                  <Badge bg="info" pill className="ms-2">{stats.confirmed}</Badge>
+                  <FaCheckCircle className="me-2 text-info" /> Confirmed
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'in_progress'}
-                  onClick={() => setActiveTab('in_progress')}
+                <Nav.Link 
+                  active={activeTab === 'inProgress'} 
+                  onClick={() => setActiveTab('inProgress')}
                   className="fw-semibold"
                 >
-                  In Progress
-                  <Badge bg="primary" pill className="ms-2">{stats.inProgress}</Badge>
+                  <FaClock className="me-2 text-primary" /> In Progress
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'completed'}
+                <Nav.Link 
+                  active={activeTab === 'completed'} 
                   onClick={() => setActiveTab('completed')}
                   className="fw-semibold"
                 >
-                  Completed
-                  <Badge bg="success" pill className="ms-2">{stats.completed}</Badge>
+                  <FaCheckCircle className="me-2 text-success" /> Completed
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'cancelled'}
+                <Nav.Link 
+                  active={activeTab === 'cancelled'} 
                   onClick={() => setActiveTab('cancelled')}
                   className="fw-semibold"
                 >
-                  Cancelled
-                  <Badge bg="danger" pill className="ms-2">{stats.cancelled}</Badge>
-                </Nav.Link>
-              </Nav.Item>
-              <Nav.Item>
-                <Nav.Link
-                  active={activeTab === 'disputed'}
-                  onClick={() => setActiveTab('disputed')}
-                  className="fw-semibold"
-                >
-                  Disputed
-                  <Badge bg="danger" pill className="ms-2">{stats.disputed}</Badge>
+                  <FaTimesCircle className="me-2 text-danger" /> Cancelled
                 </Nav.Link>
               </Nav.Item>
             </Nav>
@@ -692,79 +543,93 @@ const AdminBookings = () => {
         {/* Filters */}
         <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
           <Card.Body className="p-4">
-            <div className="d-flex flex-wrap gap-3 align-items-center">
-              <InputGroup style={{ maxWidth: '300px' }}>
-                <InputGroup.Text><FaSearch size={14} /></InputGroup.Text>
-                <Form.Control
-                  placeholder="Search bookings..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </InputGroup>
-              <Form.Select
-                style={{ width: '150px' }}
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
+            <div className="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+              <div className="d-flex flex-wrap gap-3 flex-grow-1">
+                <InputGroup style={{ maxWidth: '300px' }}>
+                  <InputGroup.Text className="bg-white border-end-0">
+                    <FaSearch className="text-muted" />
+                  </InputGroup.Text>
+                  <Form.Control 
+                    placeholder="Search bookings..." 
+                    value={searchTerm} 
+                    onChange={(e) => setSearchTerm(e.target.value)} 
+                    className="border-start-0"
+                  />
+                </InputGroup>
+                <Form.Select 
+                  style={{ width: '150px' }} 
+                  value={filterStatus} 
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </Form.Select>
+                <Form.Select 
+                  style={{ width: '180px' }} 
+                  value={filterProvider} 
+                  onChange={(e) => setFilterProvider(e.target.value)}
+                >
+                  <option value="all">All Providers</option>
+                  {providers.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </Form.Select>
+                <Form.Select 
+                  style={{ width: '180px' }} 
+                  value={filterCustomer} 
+                  onChange={(e) => setFilterCustomer(e.target.value)}
+                >
+                  <option value="all">All Customers</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </Form.Select>
+                <Form.Select 
+                  style={{ width: '100px' }} 
+                  value={itemsPerPage} 
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                >
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </Form.Select>
+              </div>
+              <Button 
+                variant="outline-secondary" 
+                onClick={() => setShowFilters(!showFilters)}
+                className="d-flex align-items-center gap-2"
               >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="disputed">Disputed</option>
-              </Form.Select>
-              <Form.Select
-                style={{ width: '150px' }}
-                value={filterService}
-                onChange={(e) => setFilterService(e.target.value)}
-              >
-                <option value="all">All Services</option>
-                {servicesList.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </Form.Select>
-              <Form.Select
-                style={{ width: '150px' }}
-                value={filterProvider}
-                onChange={(e) => setFilterProvider(e.target.value)}
-              >
-                <option value="all">All Providers</option>
-                {providersList.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </Form.Select>
-              <Form.Select
-                style={{ width: '100px' }}
-                value={itemsPerPage}
-                onChange={(e) => setItemsPerPage(Number(e.target.value))}
-              >
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-              </Form.Select>
-              <Button variant="outline-secondary" onClick={resetFilters}>
-                Reset
+                <FaSlidersH /> {showFilters ? 'Hide Filters' : 'More Filters'}
               </Button>
             </div>
 
-            {selectedBookings.length > 0 && (
-              <div className="d-flex gap-2 mt-3 pt-3 border-top">
-                <Button
-                  size="sm"
-                  variant="success"
-                  onClick={() => setShowBulkActions(true)}
-                >
-                  Bulk Actions ({selectedBookings.length})
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => handleBulkStatusChange('cancelled')}
-                >
-                  Cancel Selected
-                </Button>
-              </div>
+            {showFilters && (
+              <Row className="mt-3 pt-3 border-top">
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label className="fw-semibold">Date Range</Form.Label>
+                    <div className="d-flex gap-2">
+                      <Form.Control 
+                        type="date" 
+                        placeholder="Start" 
+                        value={dateRange.start} 
+                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                      />
+                      <Form.Control 
+                        type="date" 
+                        placeholder="End" 
+                        value={dateRange.end} 
+                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                      />
+                    </div>
+                  </Form.Group>
+                </Col>
+              </Row>
             )}
           </Card.Body>
         </Card>
@@ -772,11 +637,11 @@ const AdminBookings = () => {
         {/* Bookings Table */}
         <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
           <Card.Body className="p-0">
-            {currentBookings.length === 0 ? (
+            {currentItems.length === 0 ? (
               <div className="text-center py-5">
-                <FaCalendarCheck size={48} className="text-muted mb-3 opacity-50" />
+                <FaCalendarAlt size={48} className="text-muted mb-3 opacity-50" />
                 <h6 className="text-muted">No bookings found</h6>
-                <Button variant="link" onClick={resetFilters} className="mt-2">Reset Filters</Button>
+                <p className="text-muted small">Try adjusting your search or filter criteria</p>
               </div>
             ) : (
               <>
@@ -785,231 +650,164 @@ const AdminBookings = () => {
                     <thead style={{ background: '#f8fafc' }}>
                       <tr>
                         <th style={{ padding: '16px', width: '40px' }}>
-                          <Form.Check
-                            type="checkbox"
-                            checked={selectedBookings.length === filteredBookings.length && filteredBookings.length > 0}
-                            onChange={handleSelectAll}
+                          <Form.Check 
+                            type="checkbox" 
+                            checked={selectedBookings.length === filteredBookings.length && filteredBookings.length > 0} 
+                            onChange={handleSelectAll} 
                           />
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('id')}>
-                          Booking ID {getSortIcon('id')}
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('bookingNumber')}>
+                          Booking ID {getSortIcon('bookingNumber')}
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('serviceDate')}>
-                          Date & Time {getSortIcon('serviceDate')}
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('customerName')}>
+                          Customer {getSortIcon('customerName')}
                         </th>
-                        <th style={{ padding: '16px' }}>Customer</th>
-                        <th style={{ padding: '16px' }}>Provider</th>
-                        <th style={{ padding: '16px' }}>Service</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('amount')}>
-                          Amount {getSortIcon('amount')}
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('providerName')}>
+                          Provider {getSortIcon('providerName')}
+                        </th>
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('serviceTitle')}>
+                          Service {getSortIcon('serviceTitle')}
+                        </th>
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('bookingDate')}>
+                          Date {getSortIcon('bookingDate')}
+                        </th>
+                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('totalAmount')}>
+                          Amount {getSortIcon('totalAmount')}
                         </th>
                         <th style={{ padding: '16px' }}>Status</th>
-                        <th style={{ padding: '16px' }}>Payment</th>
-                        <th style={{ padding: '16px', width: '160px' }}>Actions</th>
+                        <th style={{ padding: '16px', width: '150px' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {currentBookings.map(booking => (
+                      {currentItems.map(booking => booking && (
                         <tr key={booking.id} className={selectedBookings.includes(booking.id) ? 'table-active' : ''}>
                           <td style={{ padding: '16px' }}>
-                            <Form.Check
-                              type="checkbox"
-                              checked={selectedBookings.includes(booking.id)}
-                              onChange={() => handleSelectBooking(booking.id)}
+                            <Form.Check 
+                              type="checkbox" 
+                              checked={selectedBookings.includes(booking.id)} 
+                              onChange={() => handleSelectBooking(booking.id)} 
                             />
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <span className="text-primary fw-medium">#{booking.id.slice(-8)}</span>
-                            <small className="d-block text-muted">
-                              <FaClock size={10} className="me-1" />
-                              {format(new Date(booking.bookingDate), 'MMM dd')}
+                            <span className="fw-semibold">#{booking.bookingNumber || booking.id?.slice(-8) || 'N/A'}</span>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="d-flex align-items-center gap-2">
+                              <Image 
+                                src={booking.customerAvatar || `https://ui-avatars.com/api/?name=${booking.customerName || 'U'}&background=6366f1&color=fff&size=32`} 
+                                roundedCircle 
+                                width={32} 
+                                height={32} 
+                                style={{ objectFit: 'cover' }}
+                              />
+                              <div>
+                                <div className="fw-semibold">{booking.customerName || 'Unknown'}</div>
+                                <small className="text-muted">{booking.customerEmail || ''}</small>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="d-flex align-items-center gap-2">
+                              <Image 
+                                src={booking.providerAvatar || `https://ui-avatars.com/api/?name=${booking.providerName || 'U'}&background=10b981&color=fff&size=32`} 
+                                roundedCircle 
+                                width={32} 
+                                height={32} 
+                                style={{ objectFit: 'cover' }}
+                              />
+                              <div>
+                                <div className="fw-semibold">{booking.providerName || 'Unknown'}</div>
+                                <small className="text-muted">{booking.providerEmail || ''}</small>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div>
+                              <div className="fw-semibold">{booking.serviceTitle || 'Unknown Service'}</div>
+                              <small className="text-muted">{booking.serviceCategory || ''}</small>
+                            </div>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="fw-semibold">
+                              {booking.bookingDate ? format(new Date(booking.bookingDate), 'MMM dd, yyyy') : 'N/A'}
+                            </div>
+                            <small className="text-muted">
+                              {booking.bookingDate ? formatDistanceToNow(new Date(booking.bookingDate), { addSuffix: true }) : ''}
                             </small>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">{format(new Date(booking.serviceDate), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{booking.serviceTime}</small>
-                            {getDateBadge(booking.serviceDate)}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <img
-                                src={booking.customer?.avatar || `https://ui-avatars.com/api/?name=${booking.customer?.name}&background=3b82f6&color=fff&size=30`}
-                                alt=""
-                                className="rounded-circle"
-                                style={{ width: '30px', height: '30px' }}
-                              />
-                              <div>
-                                <div className="fw-semibold small">{booking.customer?.name}</div>
-                                <small className="text-muted">ID: {booking.customer?.id}</small>
-                              </div>
+                            <div className="fw-bold text-primary">
+                              {formatNaira(booking.totalAmount || booking.total_amount || booking.amount || 0)}
                             </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <img
-                                src={booking.provider?.avatar || `https://ui-avatars.com/api/?name=${booking.provider?.name}&background=10b981&color=fff&size=30`}
-                                alt=""
-                                className="rounded-circle"
-                                style={{ width: '30px', height: '30px' }}
-                              />
-                              <div>
-                                <div className="fw-semibold small">{booking.provider?.name}</div>
-                                <small className="text-warning">
-                                  <FaStar size={10} className="me-1" />
-                                  {booking.provider?.rating || 'New'}
-                                </small>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold small">{booking.service?.title}</div>
-                            <small className="text-muted">{booking.service?.category}</small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-bold text-primary">{formatNaira(booking.amount)}</div>
-                            <small>{booking.service?.duration} hrs</small>
                           </td>
                           <td style={{ padding: '16px' }}>{getStatusBadge(booking.status)}</td>
                           <td style={{ padding: '16px' }}>
-                            {getPaymentStatusBadge(booking.payment?.status)}
-                            <small className="d-block text-muted">{booking.payment?.method}</small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
                             <div className="d-flex gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline-primary"
-                                className="rounded-circle p-1"
-                                style={{ width: '32px', height: '32px' }}
-                                onClick={() => {
-                                  setSelectedBooking(booking);
-                                  setModalMode('view');
-                                  setShowBookingModal(true);
-                                }}
-                              >
-                                <FaEye size={14} />
-                              </Button>
-                              {booking.status === 'pending' && (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline-success"
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => updateBookingStatus(booking.id, 'confirmed')}
-                                  >
-                                    <FaCheck size={14} />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline-danger"
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setCancellationData({
-                                        reason: '',
-                                        refund: true,
-                                        refundAmount: booking.amount
-                                      });
-                                      setShowCancelModal(true);
-                                    }}
-                                  >
-                                    <FaBan size={14} />
-                                  </Button>
-                                </>
-                              )}
-                              {booking.status === 'confirmed' && (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline-warning"
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setShowRescheduleModal(true);
-                                    }}
-                                  >
-                                    <FaCalendarAlt size={14} />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline-success"
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setShowCompleteModal(true);
-                                    }}
-                                  >
-                                    <FaCheckCircle size={14} />
-                                  </Button>
-                                </>
-                              )}
-                              {booking.status === 'in_progress' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline-success"
+                              <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline-primary" 
                                   className="rounded-circle p-1"
                                   style={{ width: '32px', height: '32px' }}
-                                  onClick={() => {
-                                    setSelectedBooking(booking);
-                                    setShowCompleteModal(true);
+                                  onClick={() => { 
+                                    setSelectedBooking(booking); 
+                                    setShowDetailsModal(true); 
+                                  }}
+                                >
+                                  <FaEye size={14} />
+                                </Button>
+                              </OverlayTrigger>
+                              
+                              <OverlayTrigger placement="top" overlay={<Tooltip>Edit Booking</Tooltip>}>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline-info" 
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => { 
+                                    setSelectedBooking(booking); 
+                                    setEditFormData({
+                                      status: booking.status || '',
+                                      notes: booking.notes || '',
+                                      totalAmount: booking.totalAmount || booking.total_amount || booking.amount || ''
+                                    });
+                                    setShowEditModal(true); 
+                                  }}
+                                >
+                                  <FaEdit size={14} />
+                                </Button>
+                              </OverlayTrigger>
+
+                              <OverlayTrigger placement="top" overlay={<Tooltip>Change Status</Tooltip>}>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline-secondary" 
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => { 
+                                    setSelectedBooking(booking); 
+                                    setNewStatus(booking.status || '');
+                                    setShowStatusModal(true); 
                                   }}
                                 >
                                   <FaCheckCircle size={14} />
                                 </Button>
-                              )}
-                              {booking.status === 'disputed' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline-danger"
+                              </OverlayTrigger>
+
+                              <OverlayTrigger placement="top" overlay={<Tooltip>Delete</Tooltip>}>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline-danger" 
                                   className="rounded-circle p-1"
                                   style={{ width: '32px', height: '32px' }}
-                                  onClick={() => {
-                                    setSelectedBooking(booking);
-                                    setShowDisputeModal(true);
+                                  onClick={() => { 
+                                    setSelectedBooking(booking); 
+                                    setShowDeleteModal(true); 
                                   }}
                                 >
-                                  <FaExclamationTriangle size={14} />
+                                  <FaTrash size={14} />
                                 </Button>
-                              )}
-                              <Dropdown align="end">
-                                <Dropdown.Toggle
-                                  size="sm"
-                                  variant="outline-secondary"
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                >
-                                  <FaEllipsisV size={14} />
-                                </Dropdown.Toggle>
-                                <Dropdown.Menu>
-                                  <Dropdown.Item
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setModalMode('edit');
-                                      setShowBookingModal(true);
-                                    }}
-                                  >
-                                    <FaEdit className="me-2" /> Edit
-                                  </Dropdown.Item>
-                                  <Dropdown.Item
-                                    className="text-danger"
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setCancellationData({
-                                        reason: '',
-                                        refund: true,
-                                        refundAmount: booking.amount
-                                      });
-                                      setShowCancelModal(true);
-                                    }}
-                                  >
-                                    <FaBan className="me-2" /> Cancel
-                                  </Dropdown.Item>
-                                </Dropdown.Menu>
-                              </Dropdown>
+                              </OverlayTrigger>
                             </div>
                           </td>
                         </tr>
@@ -1025,9 +823,9 @@ const AdminBookings = () => {
                       Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredBookings.length)} of {filteredBookings.length} bookings
                     </div>
                     <Pagination>
-                      <Pagination.Prev
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
+                      <Pagination.Prev 
+                        onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} 
+                        disabled={currentPage === 1} 
                       />
                       {[...Array(Math.min(5, totalPages))].map((_, idx) => {
                         let pageNum;
@@ -1036,18 +834,18 @@ const AdminBookings = () => {
                         else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + idx;
                         else pageNum = currentPage - 2 + idx;
                         return (
-                          <Pagination.Item
-                            key={pageNum}
-                            active={pageNum === currentPage}
+                          <Pagination.Item 
+                            key={pageNum} 
+                            active={pageNum === currentPage} 
                             onClick={() => setCurrentPage(pageNum)}
                           >
                             {pageNum}
                           </Pagination.Item>
                         );
                       })}
-                      <Pagination.Next
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
+                      <Pagination.Next 
+                        onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} 
+                        disabled={currentPage === totalPages} 
                       />
                     </Pagination>
                   </div>
@@ -1058,307 +856,178 @@ const AdminBookings = () => {
         </Card>
       </Container>
 
-      {/* Modals */}
-      {/* Booking Details Modal */}
-      <Modal show={showBookingModal} onHide={() => setShowBookingModal(false)} size="lg" centered>
+      {/* Details Modal */}
+      <Modal show={showDetailsModal} onHide={() => setShowDetailsModal(false)} size="lg" centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
-            {modalMode === 'view' ? <FaEye className="me-2" /> : <FaEdit className="me-2" />}
-            {modalMode === 'view' ? 'Booking Details' : 'Edit Booking'}
-          </Modal.Title>
+          <Modal.Title className="fw-bold">Booking Details</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
           {selectedBooking && (
-            <div>
+            <>
+              <div className="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                  <h5 className="mb-1">#{selectedBooking.bookingNumber || selectedBooking.id?.slice(-8) || 'N/A'}</h5>
+                  <div>{getStatusBadge(selectedBooking.status)}</div>
+                </div>
+                <div className="text-end">
+                  <div className="fw-bold text-primary h4">{formatNaira(selectedBooking.totalAmount || selectedBooking.total_amount || selectedBooking.amount || 0)}</div>
+                  <small className="text-muted">
+                    {selectedBooking.bookingDate ? format(new Date(selectedBooking.bookingDate), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                  </small>
+                </div>
+              </div>
+
               <Row className="g-4">
                 <Col md={6}>
-                  <div className="info-section">
-                    <h6 className="fw-bold mb-3">Booking Information</h6>
-                    <div className="info-item">
-                      <FaInfoCircle className="text-muted" />
-                      <span><strong>ID:</strong> {selectedBooking.id}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaCalendarAlt className="text-muted" />
-                      <span><strong>Date:</strong> {format(new Date(selectedBooking.serviceDate), 'MMM dd, yyyy')}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaClock className="text-muted" />
-                      <span><strong>Time:</strong> {selectedBooking.serviceTime}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaMoneyBillWave className="text-muted" />
-                      <span><strong>Amount:</strong> {formatNaira(selectedBooking.amount)}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaCheckCircle className="text-muted" />
-                      <span><strong>Status:</strong> {getStatusBadge(selectedBooking.status)}</span>
-                    </div>
-                  </div>
+                  <Card className="border-0 bg-light">
+                    <Card.Body>
+                      <h6 className="fw-bold mb-3"><FaUser className="me-2" /> Customer</h6>
+                      <p className="mb-1"><strong>Name:</strong> {selectedBooking.customerName || 'N/A'}</p>
+                      <p className="mb-1"><strong>Email:</strong> {selectedBooking.customerEmail || 'N/A'}</p>
+                      <p className="mb-0"><strong>Phone:</strong> {selectedBooking.customerPhone || 'N/A'}</p>
+                    </Card.Body>
+                  </Card>
                 </Col>
                 <Col md={6}>
-                  <div className="info-section">
-                    <h6 className="fw-bold mb-3">Customer & Provider</h6>
-                    <div className="info-item">
-                      <FaUser className="text-muted" />
-                      <span><strong>Customer:</strong> {selectedBooking.customer?.name}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaPhoneAlt className="text-muted" />
-                      <span>{selectedBooking.customer?.phone}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaUserTie className="text-muted" />
-                      <span><strong>Provider:</strong> {selectedBooking.provider?.name}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaPhoneAlt className="text-muted" />
-                      <span>{selectedBooking.provider?.phone}</span>
-                    </div>
-                    <div className="info-item">
-                      <FaServicestack className="text-muted" />
-                      <span><strong>Service:</strong> {selectedBooking.service?.title}</span>
-                    </div>
-                  </div>
+                  <Card className="border-0 bg-light">
+                    <Card.Body>
+                      <h6 className="fw-bold mb-3"><FaServicestack className="me-2" /> Service</h6>
+                      <p className="mb-1"><strong>Name:</strong> {selectedBooking.serviceTitle || 'N/A'}</p>
+                      <p className="mb-1"><strong>Category:</strong> {selectedBooking.serviceCategory || 'N/A'}</p>
+                      <p className="mb-1"><strong>Provider:</strong> {selectedBooking.providerName || 'N/A'}</p>
+                      <p className="mb-0"><strong>Location:</strong> {selectedBooking.location || 'N/A'}</p>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={12}>
+                  <Card className="border-0 bg-light">
+                    <Card.Body>
+                      <h6 className="fw-bold mb-3"><FaInfoCircle className="me-2" /> Notes</h6>
+                      <p className="mb-0">{selectedBooking.notes || 'No notes provided'}</p>
+                    </Card.Body>
+                  </Card>
                 </Col>
               </Row>
-            </div>
+            </>
           )}
         </Modal.Body>
         <Modal.Footer className="border-0 pt-0">
-          <Button variant="secondary" onClick={() => setShowBookingModal(false)}>
+          <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>
             Close
+          </Button>
+          <Button variant="primary" onClick={() => { setShowDetailsModal(false); setShowEditModal(true); }}>
+            <FaEdit className="me-2" /> Edit
           </Button>
         </Modal.Footer>
       </Modal>
 
-      {/* Cancel Modal */}
-      <Modal show={showCancelModal} onHide={() => setShowCancelModal(false)} centered>
+      {/* Edit Modal */}
+      <Modal show={showEditModal} onHide={() => setShowEditModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-danger">
-            <FaBan className="me-2" /> Cancel Booking
-          </Modal.Title>
+          <Modal.Title className="fw-bold"><FaEdit className="me-2" /> Edit Booking</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          <Alert variant="danger" className="mb-3" style={{ borderRadius: '12px' }}>
-            Are you sure you want to cancel this booking?
-          </Alert>
           <Form>
             <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Reason</Form.Label>
-              <Form.Select
-                value={cancellationData.reason}
-                onChange={(e) => setCancellationData({ ...cancellationData, reason: e.target.value })}
+              <Form.Label className="fw-semibold">Status</Form.Label>
+              <Form.Select 
+                value={editFormData.status} 
+                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
               >
-                <option value="">Select reason...</option>
-                <option value="customer_request">Customer requested</option>
-                <option value="provider_unavailable">Provider unavailable</option>
-                <option value="payment_issue">Payment issue</option>
-                <option value="duplicate">Duplicate booking</option>
-                <option value="other">Other</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
               </Form.Select>
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Check
-                type="checkbox"
-                label="Process refund"
-                checked={cancellationData.refund}
-                onChange={(e) => setCancellationData({ ...cancellationData, refund: e.target.checked })}
+              <Form.Label className="fw-semibold">Total Amount</Form.Label>
+              <Form.Control 
+                type="number" 
+                value={editFormData.totalAmount} 
+                onChange={(e) => setEditFormData({ ...editFormData, totalAmount: e.target.value })}
+                min="0"
               />
             </Form.Group>
-            {cancellationData.refund && (
-              <Form.Group>
-                <Form.Label className="fw-semibold">Refund Amount</Form.Label>
-                <Form.Control
-                  type="number"
-                  value={cancellationData.refundAmount}
-                  onChange={(e) => setCancellationData({ ...cancellationData, refundAmount: parseFloat(e.target.value) })}
-                  min="0"
-                  step="100"
-                />
-              </Form.Group>
-            )}
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Notes</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={3} 
+                value={editFormData.notes} 
+                onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                placeholder="Add notes about this booking..."
+              />
+            </Form.Group>
           </Form>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowCancelModal(false)}>
-            Keep Booking
+        <Modal.Footer className="border-0 pt-0">
+          <Button variant="secondary" onClick={() => setShowEditModal(false)}>
+            Cancel
           </Button>
-          <Button variant="danger" onClick={handleCancelBooking} disabled={processing}>
-            {processing ? 'Processing...' : 'Cancel Booking'}
+          <Button variant="primary" onClick={handleUpdateBooking} disabled={processing}>
+            {processing ? 'Saving...' : 'Save Changes'}
           </Button>
         </Modal.Footer>
       </Modal>
 
-      {/* Complete Modal */}
-      <Modal show={showCompleteModal} onHide={() => setShowCompleteModal(false)} centered>
+      {/* Status Change Modal */}
+      <Modal show={showStatusModal} onHide={() => setShowStatusModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-success">
-            <FaCheckCircle className="me-2" /> Complete Booking
-          </Modal.Title>
+          <Modal.Title className="fw-bold"><FaCheckCircle className="me-2" /> Change Status</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          <Alert variant="success" className="mb-0" style={{ borderRadius: '12px' }}>
-            Mark this booking as completed?
+          <Form.Group>
+            <Form.Label className="fw-semibold">Select new status</Form.Label>
+            <Form.Select 
+              value={newStatus} 
+              onChange={(e) => setNewStatus(e.target.value)}
+            >
+              <option value="pending">Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </Form.Select>
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowStatusModal(false)}>
+            Cancel
+          </Button>
+          <Button 
+            variant="primary" 
+            onClick={() => {
+              if (selectedBooking) {
+                handleStatusChange(selectedBooking.id, newStatus);
+              }
+            }} 
+            disabled={processing}
+          >
+            {processing ? 'Updating...' : 'Update Status'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Delete Modal */}
+      <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold text-danger"><FaTrash className="me-2" /> Delete Booking</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
+            <FaExclamationTriangle className="me-2" />
+            Are you sure you want to delete booking #{selectedBooking?.bookingNumber || selectedBooking?.id?.slice(-8) || 'N/A'}?
+            <p className="mb-0 mt-2 small text-danger">This action cannot be undone.</p>
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowCompleteModal(false)}>
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
             Cancel
           </Button>
-          <Button variant="success" onClick={handleCompleteBooking} disabled={processing}>
-            {processing ? 'Processing...' : 'Complete'}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Reschedule Modal */}
-      <Modal show={showRescheduleModal} onHide={() => setShowRescheduleModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
-            <FaCalendarAlt className="me-2" /> Reschedule Booking
-          </Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="pt-4">
-          <Form>
-            <Row className="g-3">
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label className="fw-semibold">New Date</Form.Label>
-                  <Form.Control
-                    type="date"
-                    value={rescheduleData.date}
-                    onChange={(e) => setRescheduleData({ ...rescheduleData, date: e.target.value })}
-                    min={format(new Date(), 'yyyy-MM-dd')}
-                  />
-                </Form.Group>
-              </Col>
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label className="fw-semibold">New Time</Form.Label>
-                  <Form.Control
-                    type="time"
-                    value={rescheduleData.time}
-                    onChange={(e) => setRescheduleData({ ...rescheduleData, time: e.target.value })}
-                  />
-                </Form.Group>
-              </Col>
-            </Row>
-            <Form.Group className="mt-3">
-              <Form.Label className="fw-semibold">Reason</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={2}
-                value={rescheduleData.reason}
-                onChange={(e) => setRescheduleData({ ...rescheduleData, reason: e.target.value })}
-                placeholder="Reason for rescheduling..."
-              />
-            </Form.Group>
-          </Form>
-        </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowRescheduleModal(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleReschedule} disabled={processing || !rescheduleData.date || !rescheduleData.time}>
-            {processing ? 'Processing...' : 'Confirm Reschedule'}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Dispute Modal */}
-      <Modal show={showDisputeModal} onHide={() => setShowDisputeModal(false)} size="lg" centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-danger">
-            <FaExclamationTriangle className="me-2" /> Resolve Dispute
-          </Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="pt-4">
-          {selectedBooking?.dispute && (
-            <div>
-              <Alert variant="danger" className="mb-3" style={{ borderRadius: '12px' }}>
-                <strong>Customer Message:</strong> {selectedBooking.dispute.customerMessage}
-              </Alert>
-              <div className="info-section">
-                <h6 className="fw-bold mb-3">Dispute Details</h6>
-                <div className="info-item">
-                  <FaUser className="text-muted" />
-                  <span><strong>Reported by:</strong> {selectedBooking.dispute.reportedBy}</span>
-                </div>
-                <div className="info-item">
-                  <FaClock className="text-muted" />
-                  <span><strong>Reported:</strong> {formatDistanceToNow(new Date(selectedBooking.dispute.createdAt), { addSuffix: true })}</span>
-                </div>
-                <div className="info-item">
-                  <FaInfoCircle className="text-muted" />
-                  <span><strong>Status:</strong> {selectedBooking.dispute.status}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowDisputeModal(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="success"
-            onClick={() => {
-              updateBookingStatus(selectedBooking.id, 'completed');
-              setShowDisputeModal(false);
-            }}
-            disabled={processing}
-          >
-            {processing ? 'Processing...' : 'Resolve Dispute'}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Bulk Actions Modal */}
-      <Modal show={showBulkActions} onHide={() => setShowBulkActions(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">Bulk Actions</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="pt-4">
-          <p className="mb-4">Selected bookings: <strong className="text-primary">{selectedBookings.length}</strong></p>
-          <div className="d-grid gap-2">
-            <Button variant="success" onClick={() => handleBulkStatusChange('confirmed')}>
-              <FaCheckCircle className="me-2" /> Confirm All
-            </Button>
-            <Button variant="danger" onClick={() => handleBulkStatusChange('cancelled')}>
-              <FaBan className="me-2" /> Cancel All
-            </Button>
-          </div>
-        </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowBulkActions(false)}>
-            Cancel
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Export Modal */}
-      <Modal show={showExportModal} onHide={() => setShowExportModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
-            <FaDownload className="me-2" /> Export Bookings
-          </Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="pt-4">
-          <p className="mb-4">Exporting <strong>{filteredBookings.length}</strong> bookings as <strong>{exportFormat.toUpperCase()}</strong></p>
-          {processing && (
-            <div className="text-center py-3">
-              <Spinner animation="border" variant="primary" />
-              <p className="mt-2 text-muted small">Generating export...</p>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowExportModal(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleExport} disabled={processing}>
-            {processing ? 'Exporting...' : 'Export'}
+          <Button variant="danger" onClick={handleDeleteBooking} disabled={processing}>
+            {processing ? 'Deleting...' : 'Delete'}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -1368,20 +1037,9 @@ const AdminBookings = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .spin { animation: spin 1s linear infinite; }
-        .info-section {
-          background: #f8fafc;
-          padding: 16px;
-          border-radius: 12px;
+        .spin {
+          animation: spin 1s linear infinite;
         }
-        .info-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 6px 0;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        .info-item:last-child { border-bottom: none; }
         .nav-tabs .nav-link {
           color: #4b5563;
           border: none;
@@ -1394,13 +1052,24 @@ const AdminBookings = () => {
           border-bottom: 3px solid #6366f1;
           background: none;
         }
-        .nav-tabs .nav-link:hover { background: #f8fafc; }
+        .nav-tabs .nav-link:hover {
+          background: #f8fafc;
+        }
         .table > :not(caption) > * > * {
           padding: 16px 12px;
           vertical-align: middle;
         }
-        .table tbody tr:hover { background-color: #f8fafc; }
-        .table-active { background-color: #e7f1ff !important; }
+        .table tbody tr:hover {
+          background-color: #f8fafc;
+        }
+        .table-active {
+          background-color: #e7f1ff !important;
+        }
+        @media (max-width: 768px) {
+          .table-responsive {
+            font-size: 0.85rem;
+          }
+        }
       `}</style>
     </div>
   );
