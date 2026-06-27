@@ -1680,4 +1680,356 @@ router.put('/notifications/read-all', async (req, res) => {
   }
 });
 
+// Backend/routes/adminRoutes.js
+
+// Add these routes after your existing routes
+
+// =========================================================================
+// PAYOUTS MANAGEMENT
+// =========================================================================
+
+// GET /api/admin/payouts - Get all payouts with filters
+router.get('/payouts', async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status, startDate, endDate } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    let conditions = [];
+    let params = [];
+    let paramIndex = 1;
+    
+    // Always filter by payouts (not all payments)
+    conditions.push(`p.type = 'payout'`);
+    
+    if (status && status !== 'all') {
+      conditions.push(`p.status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    if (startDate) {
+      conditions.push(`p.created_at >= $${paramIndex}`);
+      params.push(startDate);
+      paramIndex++;
+    }
+    
+    if (endDate) {
+      conditions.push(`p.created_at <= $${paramIndex}`);
+      params.push(endDate);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
+    
+    // Get total count and stats
+    const countQuery = `
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE p.status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE p.status = 'processing') as processing,
+        COUNT(*) FILTER (WHERE p.status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE p.status = 'failed') as failed,
+        COALESCE(SUM(p.amount), 0) as total_amount,
+        COALESCE(SUM(CASE WHEN p.status = 'pending' THEN p.amount ELSE 0 END), 0) as pending_amount,
+        COALESCE(SUM(CASE WHEN p.status = 'processing' THEN p.amount ELSE 0 END), 0) as processing_amount,
+        COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END), 0) as completed_amount
+      FROM payouts p
+      WHERE ${whereClause}
+    `;
+    
+    const countResult = await pool.query(countQuery, params);
+    
+    // Get payouts with provider info
+    const query = `
+      SELECT 
+        p.id,
+        p.provider_id,
+        p.amount,
+        p.fee,
+        p.net_amount,
+        p.status,
+        p.method,
+        p.account_details,
+        p.transaction_id,
+        p.processed_at,
+        p.created_at,
+        p.notes,
+        u.name as provider_name,
+        u.email as provider_email,
+        u.phone as provider_phone
+      FROM payouts p
+      JOIN users u ON p.provider_id = u.id
+      WHERE ${whereClause}
+      ORDER BY p.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    // Format payout data
+    const payouts = result.rows.map(p => ({
+      id: p.id,
+      providerId: p.provider_id,
+      providerName: p.provider_name || 'Unknown',
+      providerEmail: p.provider_email,
+      providerPhone: p.provider_phone,
+      amount: parseFloat(p.amount || 0),
+      fee: parseFloat(p.fee || 0),
+      netAmount: parseFloat(p.net_amount || p.amount || 0),
+      status: p.status || 'pending',
+      method: p.method || 'bank_transfer',
+      accountDetails: p.account_details || {},
+      transactionId: p.transaction_id,
+      processedAt: p.processed_at,
+      createdAt: p.created_at,
+      notes: p.notes
+    }));
+    
+    const stats = countResult.rows[0];
+    
+    res.json({
+      payouts,
+      total: parseInt(stats.total || 0),
+      pending: parseInt(stats.pending || 0),
+      processing: parseInt(stats.processing || 0),
+      completed: parseInt(stats.completed || 0),
+      failed: parseInt(stats.failed || 0),
+      totalAmount: parseFloat(stats.total_amount || 0),
+      pendingAmount: parseFloat(stats.pending_amount || 0),
+      processingAmount: parseFloat(stats.processing_amount || 0),
+      completedAmount: parseFloat(stats.completed_amount || 0),
+      page: parseInt(page),
+      totalPages: Math.ceil((parseInt(stats.total) || 0) / parseInt(limit))
+    });
+    
+  } catch (error) {
+    console.error('Error fetching payouts:', error);
+    res.status(500).json({ message: 'Failed to fetch payouts' });
+  }
+});
+
+// GET /api/admin/payouts/:id - Get payout details
+router.get('/payouts/:id', async (req, res) => {
+  try {
+    const payoutId = req.params.id;
+    
+    const result = await pool.query(`
+      SELECT 
+        p.*,
+        u.name as provider_name,
+        u.email as provider_email,
+        u.phone as provider_phone,
+        u.address as provider_address
+      FROM payouts p
+      JOIN users u ON p.provider_id = u.id
+      WHERE p.id = $1
+    `, [payoutId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Payout not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching payout:', error);
+    res.status(500).json({ message: 'Failed to fetch payout' });
+  }
+});
+
+// POST /api/admin/payouts - Create a new payout
+router.post('/payouts', async (req, res) => {
+  try {
+    const { provider_id, amount, method, account_details, notes } = req.body;
+    
+    if (!provider_id || !amount) {
+      return res.status(400).json({ message: 'Provider ID and amount are required' });
+    }
+    
+    // Check if provider exists
+    const providerCheck = await pool.query(
+      'SELECT id FROM users WHERE id = $1 AND role = $2',
+      [provider_id, 'provider']
+    );
+    
+    if (providerCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Provider not found' });
+    }
+    
+    // Check if provider has sufficient balance
+    const balanceCheck = await pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) - 
+              COALESCE(SUM(CASE WHEN type = 'payout' AND status IN ('pending', 'processing') THEN amount ELSE 0 END), 0) 
+       FROM bookings b
+       WHERE provider_id = $1 AND status = 'completed'`,
+      [provider_id]
+    );
+    
+    const availableBalance = parseFloat(balanceCheck.rows[0].coalesce || 0);
+    
+    if (amount > availableBalance) {
+      return res.status(400).json({ 
+        message: 'Insufficient balance',
+        available: availableBalance,
+        requested: amount
+      });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO payouts (
+        provider_id, 
+        amount, 
+        fee, 
+        net_amount, 
+        status, 
+        method, 
+        account_details, 
+        notes, 
+        type,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 'payout', NOW())
+      RETURNING *
+    `, [
+      provider_id, 
+      amount, 
+      0, // fee - can be calculated based on business rules
+      amount, // net_amount
+      method || 'bank_transfer', 
+      account_details || null,
+      notes || null
+    ]);
+    
+    res.status(201).json({
+      message: 'Payout created successfully',
+      payout: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error('Error creating payout:', error);
+    res.status(500).json({ message: 'Failed to create payout' });
+  }
+});
+
+// PUT /api/admin/payouts/:id/status - Update payout status
+router.put('/payouts/:id/status', async (req, res) => {
+  try {
+    const payoutId = req.params.id;
+    const { status, transaction_id, notes } = req.body;
+    
+    const validStatuses = ['pending', 'processing', 'completed', 'failed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    
+    const result = await pool.query(`
+      UPDATE payouts 
+      SET status = $1,
+          transaction_id = COALESCE($2, transaction_id),
+          processed_at = CASE 
+            WHEN $1 IN ('completed', 'failed') THEN NOW() 
+            ELSE processed_at 
+          END,
+          notes = COALESCE($3, notes),
+          updated_at = NOW()
+      WHERE id = $4
+      RETURNING *
+    `, [status, transaction_id, notes, payoutId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Payout not found' });
+    }
+    
+    res.json({
+      message: `Payout ${status}`,
+      payout: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error('Error updating payout:', error);
+    res.status(500).json({ message: 'Failed to update payout' });
+  }
+});
+
+// POST /api/admin/payouts/bulk - Process bulk payouts
+router.post('/payouts/bulk', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { payout_ids, status, transaction_id } = req.body;
+    
+    if (!payout_ids || !Array.isArray(payout_ids) || payout_ids.length === 0) {
+      return res.status(400).json({ message: 'Payout IDs are required' });
+    }
+    
+    const validStatuses = ['pending', 'processing', 'completed', 'failed'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    
+    await client.query('BEGIN');
+    
+    const updatedPayouts = [];
+    for (const id of payout_ids) {
+      const result = await client.query(`
+        UPDATE payouts 
+        SET status = $1,
+            transaction_id = COALESCE($2, transaction_id),
+            processed_at = CASE 
+              WHEN $1 IN ('completed', 'failed') THEN NOW() 
+              ELSE processed_at 
+            END,
+            updated_at = NOW()
+        WHERE id = $3
+        RETURNING *
+      `, [status || 'processing', transaction_id || null, id]);
+      
+      if (result.rows.length > 0) {
+        updatedPayouts.push(result.rows[0]);
+      }
+    }
+    
+    await client.query('COMMIT');
+    
+    res.json({
+      message: `${updatedPayouts.length} payouts updated`,
+      payouts: updatedPayouts
+    });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error processing bulk payouts:', error);
+    res.status(500).json({ message: 'Failed to process bulk payouts' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/admin/payouts/provider/:providerId - Get provider payout summary
+router.get('/payouts/provider/:providerId', async (req, res) => {
+  try {
+    const providerId = req.params.providerId;
+    
+    const result = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
+        COALESCE(SUM(CASE WHEN status = 'processing' THEN amount ELSE 0 END), 0) as processing,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as completed,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN amount ELSE 0 END), 0) as failed,
+        COUNT(*) as total
+      FROM payouts
+      WHERE provider_id = $1 AND type = 'payout'
+    `, [providerId]);
+    
+    res.json({
+      providerId,
+      summary: result.rows[0] || { pending: 0, processing: 0, completed: 0, failed: 0, total: 0 }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching provider payout summary:', error);
+    res.status(500).json({ message: 'Failed to fetch provider payout summary' });
+  }
+});
+
 export default router;

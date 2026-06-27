@@ -70,8 +70,6 @@ api.interceptors.response.use(
   }
 );
 
-// src/api/api.js - Updated health check with better error handling
-
 // ==================== HEALTH CHECK ====================
 export const checkBackendHealth = async () => {
   try {
@@ -80,11 +78,10 @@ export const checkBackendHealth = async () => {
     
     console.log(`🔍 Checking backend health at: ${healthUrl}`);
     
-    // Use AbortController with a longer timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 15000); // 15 second timeout
+    }, 15000);
     
     const response = await fetch(healthUrl, {
       method: 'GET',
@@ -106,7 +103,6 @@ export const checkBackendHealth = async () => {
     console.warn('⚠️ Backend health check failed with status:', response.status);
     return false;
   } catch (error) {
-    // Don't log abort errors as errors - they're expected timeouts
     if (error.name === 'AbortError') {
       console.warn('⏰ Backend health check timed out (server may be waking up)');
       return false;
@@ -183,7 +179,7 @@ export const customerAPI = {
   markReviewHelpful: (id) => api.post(`/customer/reviews/${id}/helpful`),
   addReview: (serviceId, data) => api.post(`/services/${serviceId}/reviews`, data),
   
-  // ✅ NOTIFICATION PREFERENCES
+  // Notification Preferences
   getNotificationPreferences: () => api.get('/customer/notification-preferences'),
   updateNotificationPreferences: (data) => api.put('/customer/notification-preferences', data),
   
@@ -241,6 +237,7 @@ export const providerAPI = {
 
 // ==================== ADMIN API ====================
 export const adminAPI = {
+  // Dashboard
   getStats: () => api.get('/admin/dashboard/stats'),
   getRevenueChart: (view = 'monthly') => api.get(`/admin/dashboard/revenue-chart?view=${view}`),
   getActivities: () => api.get('/admin/dashboard/activities'),
@@ -248,6 +245,8 @@ export const adminAPI = {
   getPopularServices: () => api.get('/admin/dashboard/popular-services'),
   getPendingApprovals: () => api.get('/admin/dashboard/pending-approvals'),
   getSystemHealth: () => api.get('/admin/dashboard/system-health'),
+  
+  // Users
   getUsers: () => api.get('/admin/users'),
   getUserById: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
@@ -255,30 +254,103 @@ export const adminAPI = {
   verifyUser: (id) => api.put(`/admin/users/${id}/verify`),
   suspendUser: (id) => api.put(`/admin/users/${id}/suspend`),
   unsuspendUser: (id) => api.put(`/admin/users/${id}/unsuspend`),
+  
+  // Providers
   getProviders: () => api.get('/admin/providers'),
   getProviderDetails: (id) => api.get(`/admin/providers/${id}`),
+  
+  // Services
   getServices: () => api.get('/admin/services'),
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
   rejectService: (id, reason) => api.put(`/admin/services/${id}/reject`, { reason }),
   deleteService: (id) => api.delete(`/admin/services/${id}`),
   toggleFeatured: (id) => api.put(`/admin/services/${id}/featured`),
+  
+  // Bookings
   getBookings: () => api.get('/admin/bookings'),
   getBookingById: (id) => api.get(`/admin/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/admin/bookings/${id}/status`, { status }),
+  
+  // Categories
   getCategories: () => api.get('/admin/categories'),
   createCategory: (data) => api.post('/admin/categories', data),
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
-  getPayments: () => api.get('/admin/payments'),
+  
+  // =========================================================================
+  // PAYMENT MANAGEMENT - UPDATED WITH ALL METHODS
+  // =========================================================================
+
+  // Get all payments with filters
+  getPayments: (params) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.status) query.append('status', params.status);
+    if (params?.method) query.append('method', params.method);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+    if (params?.search) query.append('search', params.search);
+    
+    const queryString = query.toString();
+    return api.get(`/admin/payments${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // ✅ Get payouts/payout history
+  getPayouts: (params) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.status) query.append('status', params.status);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+    
+    const queryString = query.toString();
+    return api.get(`/admin/payouts${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Get payment overview / summary
   getPaymentOverview: () => api.get('/admin/payments/overview'),
+
+  // Get revenue by payment method
   getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
-  getPaymentTrends: () => api.get('/admin/payments/trends'),
+
+  // Get payment trends
+  getPaymentTrends: (params) => {
+    const query = new URLSearchParams();
+    if (params?.period) query.append('period', params.period);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+    
+    const queryString = query.toString();
+    return api.get(`/admin/payments/trends${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Process a refund
   refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
+
+  // Get payment details
+  getPaymentDetails: (id) => api.get(`/admin/payments/${id}`),
+
+  // Update payment status
+  updatePaymentStatus: (id, status) => api.put(`/admin/payments/${id}/status`, { status }),
+
+  // Get provider payout summary
+  getProviderPayoutSummary: (providerId) => api.get(`/admin/payouts/provider/${providerId}`),
+
+  // Process bulk payouts
+  processBulkPayouts: (data) => api.post('/admin/payouts/bulk', data),
+
+  // Reports & Analytics
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
+  
+  // Notifications
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
+  
+  // Activity Log
   getActivityLog: (params) => api.get('/admin/activities', { params }),
 };
 
