@@ -1,10 +1,10 @@
-// src/App.jsx
+// src/App.jsx - ✅ FIXED VERSION
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
 // Context
-import { AuthProvider, useAuth } from './context/AuthContext';
+import AuthProvider, { useAuth } from './context/AuthContext';
 import { SocketProvider, useSocket, socketService } from './context/SocketContext';
 
 // Layouts
@@ -15,7 +15,7 @@ import AdminLayout from './components/Layout/AdminLayout';
 import CustomerLayout from './components/Layout/CustomerLayout';
 import ProviderLayout from './components/Layout/ProviderLayout';
 
-// Public Pages - ✅ Make sure these files exist
+// Public Pages
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -30,7 +30,7 @@ import Profile from './pages/Profile';
 import Chat from './pages/Chat';
 import HelpCenter from './pages/HelpCenter';
 
-// Customer Pages - ✅ Make sure these files exist
+// Customer Pages
 import CustomerDashboard from './components/customer/CustomerDashboard';
 import Bookings from './components/customer/Bookings';
 import Notifications from './components/customer/Notifications';
@@ -40,7 +40,7 @@ import Wallet from './components/customer/Wallet';
 import BookingHistory from './components/customer/BookingHistory';
 import CustomerSettings from './components/customer/CustomerSettings';
 
-// Provider Pages - ✅ Make sure these files exist
+// Provider Pages
 import ProviderDashboard from './components/provider/ProviderDashboard';
 import CreateService from './components/provider/CreateService';
 import MyServices from './components/provider/MyServices';
@@ -80,9 +80,10 @@ import Unauthorized from './pages/Unauthorized';
 
 // ================= COMPONENTS =================
 
-// WebSocket Initialization Component
+// ✅ FIX: WebSocketInitializer with safe auth check
 const WebSocketInitializer = () => {
-  const { user, token } = useAuth();
+  const auth = useAuth();
+  const { user, token } = auth || {};
 
   useEffect(() => {
     if (token && user) {
@@ -101,16 +102,22 @@ const WebSocketInitializer = () => {
   return null;
 };
 
-// WebSocket Status Component
+// ✅ FIX: WebSocketStatus with safe auth check
 const WebSocketStatus = () => {
-  const { isConnected, onlineUsers, getConnectionStatus } = useSocket();
-  
   const location = useLocation();
   const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
   if (hiddenPaths.includes(location.pathname)) {
     return null;
   }
   
+  let socketContext;
+  try {
+    socketContext = useSocket();
+  } catch (e) {
+    return null; // Socket provider not ready yet
+  }
+  
+  const { isConnected, onlineUsers, getConnectionStatus } = socketContext || {};
   const status = getConnectionStatus?.();
   
   return (
@@ -149,7 +156,25 @@ initializeToken();
 
 // ================= APP CONTENT =================
 function AppContent() {
-  const { user, loading, token } = useAuth();
+  // ✅ FIX: Use useAuth safely with try-catch
+  let auth;
+  try {
+    auth = useAuth();
+  } catch (e) {
+    // Auth not ready yet - show loading
+    return (
+      <div className="d-flex justify-content-center align-items-center min-vh-100">
+        <div className="text-center">
+          <div className="spinner-border text-primary mb-3" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="text-muted">Loading your experience...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  const { user, loading } = auth || {};
   const location = useLocation();
   const pathname = location.pathname;
 
@@ -197,7 +222,7 @@ function AppContent() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/solutions" element={<Solutions />} />
           
-          {/* ========== PAYMENT ROUTES (Standalone) ========== */}
+          {/* ========== PAYMENT ROUTES ========== */}
           <Route path="/payment-success" element={
             <ProtectedRoute>
               <PaymentSuccess />
@@ -219,15 +244,12 @@ function AppContent() {
             </ProtectedRoute>
           } />
 
-          {/* ========== CUSTOMER ROUTES (Nested with Layout) ========== */}
-          <Route 
-            path="/customer" 
-            element={
-              <ProtectedRoute allowedRoles={['customer']}>
-                <CustomerLayout />
-              </ProtectedRoute>
-            }
-          >
+          {/* ========== CUSTOMER ROUTES ========== */}
+          <Route path="/customer" element={
+            <ProtectedRoute allowedRoles={['customer']}>
+              <CustomerLayout />
+            </ProtectedRoute>
+          }>
             <Route index element={<Navigate to="/customer/dashboard" replace />} />
             <Route path="dashboard" element={<CustomerDashboard />} />
             <Route path="bookings" element={<Bookings />} />
@@ -249,15 +271,12 @@ function AppContent() {
             <Route path="payment-cancel" element={<PaymentCancel />} />
           </Route>
 
-          {/* ========== PROVIDER ROUTES (Nested with Layout) ========== */}
-          <Route 
-            path="/provider" 
-            element={
-              <ProtectedRoute allowedRoles={['provider']}>
-                <ProviderLayout />
-              </ProtectedRoute>
-            }
-          >
+          {/* ========== PROVIDER ROUTES ========== */}
+          <Route path="/provider" element={
+            <ProtectedRoute allowedRoles={['provider']}>
+              <ProviderLayout />
+            </ProtectedRoute>
+          }>
             <Route index element={<Navigate to="/provider/dashboard" replace />} />
             <Route path="dashboard" element={<ProviderDashboard />} />
             <Route path="my-services" element={<MyServices />} />
@@ -279,112 +298,73 @@ function AppContent() {
             <Route path="payment-cancel" element={<PaymentCancel />} />
           </Route>
 
-          {/* ========== ADMIN ROUTES (Nested with Layout) ========== */}
-          <Route 
-            path="/admin" 
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminLayout />
-              </ProtectedRoute>
-            }
-          >
+          {/* ========== ADMIN ROUTES ========== */}
+          <Route path="/admin" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminLayout />
+            </ProtectedRoute>
+          }>
             <Route index element={<Navigate to="/admin/dashboard" replace />} />
-            <Route 
-              path="dashboard" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading admin dashboard...</div>}>
-                  <AdminDashboardLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="users" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading user management...</div>}>
-                  <UserManagementLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="users/:id" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading user details...</div>}>
-                  <UserManagementLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="services" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading service management...</div>}>
-                  <ServiceManagementLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="services/:id" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading service details...</div>}>
-                  <ServiceManagementLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="bookings" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading bookings...</div>}>
-                  <AdminBookingsLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="bookings/:id" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading booking details...</div>}>
-                  <AdminBookingsLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="categories" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading categories...</div>}>
-                  <AdminCategoriesLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="analytics" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading analytics...</div>}>
-                  <AnalyticsLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="payments" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading payment data...</div>}>
-                  <AdminPaymentsLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="reports" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading reports...</div>}>
-                  <AdminReportsLazy />
-                </React.Suspense>
-              } 
-            />
-            <Route 
-              path="settings" 
-              element={
-                <React.Suspense fallback={<div className="text-center p-5">Loading settings...</div>}>
-                  <SettingsLazy />
-                </React.Suspense>
-              } 
-            />
+            <Route path="dashboard" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminDashboardLazy />
+              </React.Suspense>
+            } />
+            <Route path="users" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <UserManagementLazy />
+              </React.Suspense>
+            } />
+            <Route path="users/:id" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <UserManagementLazy />
+              </React.Suspense>
+            } />
+            <Route path="services" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <ServiceManagementLazy />
+              </React.Suspense>
+            } />
+            <Route path="services/:id" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <ServiceManagementLazy />
+              </React.Suspense>
+            } />
+            <Route path="bookings" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminBookingsLazy />
+              </React.Suspense>
+            } />
+            <Route path="bookings/:id" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminBookingsLazy />
+              </React.Suspense>
+            } />
+            <Route path="categories" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminCategoriesLazy />
+              </React.Suspense>
+            } />
+            <Route path="analytics" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AnalyticsLazy />
+              </React.Suspense>
+            } />
+            <Route path="payments" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminPaymentsLazy />
+              </React.Suspense>
+            } />
+            <Route path="reports" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <AdminReportsLazy />
+              </React.Suspense>
+            } />
+            <Route path="settings" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
+                <SettingsLazy />
+              </React.Suspense>
+            } />
           </Route>
           
           {/* ========== REDIRECTS ========== */}

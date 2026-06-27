@@ -2,8 +2,8 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/api';
-import { socketService } from './SocketContext';
+import api from '../api/api.jsx'; // ✅ This is correct - default import
+import { socketService } from './SocketContext'; // ✅ Named import
 
 // Create the context
 const AuthContext = createContext(null);

@@ -16,6 +16,107 @@ const router = express.Router();
 router.use(protect);
 
 // =========================================================================
+// NOTIFICATION PREFERENCES
+// =========================================================================
+
+// GET /api/customer/notification-preferences - Get user's notification preferences
+router.get('/notification-preferences', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Check if preferences table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'notification_preferences'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        email_notifications: true,
+        push_notifications: true,
+        booking_updates: true,
+        promotions: true,
+        reminders: true
+      });
+    }
+    
+    const result = await pool.query(
+      `SELECT * FROM notification_preferences WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      // Create default preferences
+      await pool.query(
+        `INSERT INTO notification_preferences (user_id, email_notifications, push_notifications, booking_updates, promotions, reminders)
+         VALUES ($1, true, true, true, true, true)`,
+        [userId]
+      );
+      
+      return res.json({
+        email_notifications: true,
+        push_notifications: true,
+        booking_updates: true,
+        promotions: true,
+        reminders: true
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching notification preferences:', error);
+    res.json({
+      email_notifications: true,
+      push_notifications: true,
+      booking_updates: true,
+      promotions: true,
+      reminders: true
+    });
+  }
+});
+
+// PUT /api/customer/notification-preferences - Update notification preferences
+router.put('/notification-preferences', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { email_notifications, push_notifications, booking_updates, promotions, reminders } = req.body;
+    
+    // Check if preferences exist
+    const existing = await pool.query(
+      'SELECT id FROM notification_preferences WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (existing.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO notification_preferences (user_id, email_notifications, push_notifications, booking_updates, promotions, reminders)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [userId, email_notifications !== false, push_notifications !== false, booking_updates !== false, promotions !== false, reminders !== false]
+      );
+    } else {
+      await pool.query(
+        `UPDATE notification_preferences 
+         SET email_notifications = $1,
+             push_notifications = $2,
+             booking_updates = $3,
+             promotions = $4,
+             reminders = $5,
+             updated_at = NOW()
+         WHERE user_id = $6`,
+        [email_notifications !== false, push_notifications !== false, booking_updates !== false, promotions !== false, reminders !== false, userId]
+      );
+    }
+    
+    res.json({ message: 'Preferences updated successfully' });
+  } catch (error) {
+    console.error('Error updating notification preferences:', error);
+    res.status(500).json({ message: 'Failed to update preferences' });
+  }
+});
+
+// =========================================================================
 // PAYMENT METHODS
 // =========================================================================
 
@@ -112,7 +213,7 @@ router.get('/favorites/:serviceId/check', async (req, res) => {
 });
 
 // =========================================================================
-// DASHBOARD STATS - ✅ FIXED
+// DASHBOARD STATS
 // =========================================================================
 
 router.get('/dashboard/stats', async (req, res) => {
@@ -203,7 +304,7 @@ router.get('/dashboard/stats', async (req, res) => {
 });
 
 // =========================================================================
-// RECENT BOOKINGS - ✅ FIXED
+// RECENT BOOKINGS
 // =========================================================================
 
 router.get('/bookings/recent', async (req, res) => {
@@ -242,7 +343,7 @@ router.get('/bookings/recent', async (req, res) => {
 });
 
 // =========================================================================
-// BOOKING HISTORY - ✅ FIXED
+// BOOKING HISTORY
 // =========================================================================
 
 router.get('/bookings/history', async (req, res) => {
@@ -324,7 +425,7 @@ router.get('/bookings/history', async (req, res) => {
 });
 
 // =========================================================================
-// UPCOMING BOOKINGS - ✅ FIXED with your actual column names
+// UPCOMING BOOKINGS
 // =========================================================================
 
 router.get('/bookings/upcoming', async (req, res) => {
@@ -385,7 +486,7 @@ router.get('/bookings/upcoming', async (req, res) => {
 });
 
 // =========================================================================
-// BOOKING DETAILS - ✅ FIXED
+// BOOKING DETAILS
 // =========================================================================
 
 router.get('/bookings/:id', async (req, res) => {
@@ -428,7 +529,7 @@ router.get('/bookings/:id', async (req, res) => {
 });
 
 // =========================================================================
-// CANCEL BOOKING - ✅ FIXED
+// CANCEL BOOKING
 // =========================================================================
 
 router.put('/bookings/:id/cancel', async (req, res) => {
@@ -469,7 +570,7 @@ router.put('/bookings/:id/cancel', async (req, res) => {
 });
 
 // =========================================================================
-// RESCHEDULE BOOKING - ✅ FIXED
+// RESCHEDULE BOOKING
 // =========================================================================
 
 router.put('/bookings/:id/reschedule', async (req, res) => {
@@ -496,7 +597,6 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
       return res.status(400).json({ message: 'Booking cannot be rescheduled' });
     }
     
-    // Update both date and time if provided
     let updateQuery = `UPDATE bookings SET booking_date = $1, status = 'pending', updated_at = NOW()`;
     let params = [new_date];
     let paramIndex = 2;
@@ -526,7 +626,7 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
 });
 
 // =========================================================================
-// BOOKING STATS - ✅ FIXED
+// BOOKING STATS
 // =========================================================================
 
 router.get('/bookings/stats', async (req, res) => {
@@ -566,93 +666,84 @@ router.get('/bookings/stats', async (req, res) => {
 });
 
 // =========================================================================
-// REMINDERS - ✅ FIXED
+// REMINDERS
 // =========================================================================
 
-router.get('/reminders', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const limit = parseInt(req.query.limit) || 5;
-
-    const query = `
-      SELECT
-        b.id,
-        b.service_id,
-        b.provider_id,
-        b.booking_date,
-        b.booking_time,
-        b.status,
-        s.title as service_title,
-        u.name as provider_name,
-        u.avatar as provider_avatar
-      FROM bookings b
-      JOIN services s ON b.service_id = s.id
-      JOIN users u ON b.provider_id = u.id
-      WHERE b.customer_id = $1
-        AND b.status = 'confirmed'
-        AND b.booking_date >= CURRENT_DATE
-        AND b.booking_date <= CURRENT_DATE + INTERVAL '7 days'
-      ORDER BY b.booking_date ASC
-      LIMIT $2
-    `;
-
-    const result = await pool.query(query, [userId, limit]);
-    res.json(result.rows || []);
-  } catch (error) {
-    console.error('Error fetching reminders:', error);
-    res.json([]);
-  }
-});
-
-// =========================================================================
-// REVIEWS - ✅ FIXED
-// =========================================================================
-
+// GET /api/customer/reviews - Get customer's reviews with pagination (FIXED)
 router.get('/reviews', async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 10, rating } = req.query;
+    const { page = 1, limit = 10, rating, sort = 'newest', search, service_id } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     let conditions = ['r.reviewer_id = $1'];
     let params = [userId];
     let paramIndex = 2;
-    
+
     if (rating && rating !== 'all') {
       conditions.push(`r.rating = $${paramIndex}`);
       params.push(parseInt(rating));
       paramIndex++;
     }
-    
+
+    if (service_id) {
+      conditions.push(`r.service_id = $${paramIndex}`);
+      params.push(parseInt(service_id));
+      paramIndex++;
+    }
+
+    if (search) {
+      conditions.push(`(s.title ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
     const whereClause = conditions.join(' AND ');
-    
-    const countQuery = `
-      SELECT COUNT(*) as total 
-      FROM reviews r
-      JOIN services s ON r.service_id = s.id
-      WHERE ${whereClause}
-    `;
-    const countResult = await pool.query(countQuery, params);
-    const total = parseInt(countResult.rows[0].total || 0);
-    
-    const query = `
-      SELECT 
-        r.*,
-        s.title as service_title,
-        u.name as provider_name,
-        u.avatar as provider_avatar,
-        u.phone as provider_phone
+
+    // ✅ FIX: Use string concatenation, NOT template literals
+    const countQuery = 
+      `SELECT COUNT(*) as total 
       FROM reviews r
       JOIN services s ON r.service_id = s.id
       JOIN users u ON s.provider_id = u.id
-      WHERE ${whereClause}
-      ORDER BY r.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
+      WHERE ` + whereClause;
+    
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    let orderBy = 'r.created_at DESC';
+    switch (sort) {
+      case 'oldest': orderBy = 'r.created_at ASC'; break;
+      case 'highest': orderBy = 'r.rating DESC'; break;
+      case 'lowest': orderBy = 'r.rating ASC'; break;
+      case 'helpful': orderBy = 'r.helpful_count DESC'; break;
+      default: orderBy = 'r.created_at DESC';
+    }
+
+    // ✅ FIX: Use string concatenation, NOT template literals
+    const query = 
+      `SELECT 
+        r.*,
+        s.title as service_name,
+        s.id as service_id,
+        u.name as provider_name,
+        u.avatar as provider_avatar,
+        reviewer.name as reviewer_name,
+        reviewer.avatar as reviewer_avatar,
+        COALESCE(r.helpful_count, 0) as helpful_count,
+        CASE WHEN r.updated_at > r.created_at THEN true ELSE false END as is_edited
+      FROM reviews r
+      JOIN services s ON r.service_id = s.id
+      JOIN users u ON s.provider_id = u.id
+      JOIN users reviewer ON r.reviewer_id = reviewer.id
+      WHERE ` + whereClause + `
+      ORDER BY ` + orderBy + `
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    
     params.push(parseInt(limit), offset);
-    
+
     const result = await pool.query(query, params);
-    
+
     res.json({
       reviews: result.rows,
       total,
@@ -660,106 +751,210 @@ router.get('/reviews', async (req, res) => {
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (error) {
-    console.error('Error fetching reviews:', error);
+    console.error('❌ Error fetching customer reviews:', error);
     res.status(500).json({ message: 'Failed to fetch reviews' });
   }
 });
 
-router.post('/reviews', async (req, res) => {
+// GET /api/customer/reviews/stats - Get review statistics (ULTRA SIMPLE)
+router.get('/reviews/stats', async (req, res) => {
   try {
     const userId = req.user.id;
-    const { bookingId, serviceId, rating, comment, images } = req.body;
-    
-    if (!bookingId || !serviceId || !rating) {
-      return res.status(400).json({ message: 'Booking ID, Service ID, and rating are required' });
-    }
-    
-    if (rating < 1 || rating > 5) {
-      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
-    }
-    
-    const bookingCheck = await pool.query(
-      'SELECT id FROM bookings WHERE id = $1 AND customer_id = $2 AND status = $3',
-      [bookingId, userId, 'completed']
-    );
-    
-    if (bookingCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Completed booking not found' });
-    }
-    
-    const reviewCheck = await pool.query(
-      'SELECT id FROM reviews WHERE booking_id = $1 AND reviewer_id = $2',
-      [bookingId, userId]
-    );
-    
-    if (reviewCheck.rows.length > 0) {
-      return res.status(400).json({ message: 'Review already exists for this booking' });
-    }
-    
-    const booking = await pool.query(
-      'SELECT provider_id FROM bookings WHERE id = $1',
-      [bookingId]
-    );
-    const providerId = booking.rows[0]?.provider_id;
+    const { service_id } = req.query;
 
-    const result = await pool.query(
-      `INSERT INTO reviews (reviewer_id, service_id, booking_id, provider_id, rating, comment, images, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING *`,
-      [userId, serviceId, bookingId, providerId, rating, comment || '', images || []]
-    );
-    
-    await pool.query(`
-      UPDATE services 
-      SET avg_rating = (
-        SELECT COALESCE(AVG(rating), 0) FROM reviews WHERE service_id = $1
-      ),
-      review_count = (
-        SELECT COUNT(*) FROM reviews WHERE service_id = $1
-      )
-      WHERE id = $1
-    `, [serviceId]);
-    
-    res.status(201).json(result.rows[0]);
+    console.log('📊 [STATS] Starting for user:', userId);
+
+    // Build a simple query without complex conditions
+    let queryText = 'SELECT rating FROM reviews WHERE reviewer_id = $1';
+    let queryParams = [userId];
+
+    if (service_id) {
+      queryText += ' AND service_id = $2';
+      queryParams.push(parseInt(service_id));
+    }
+
+    console.log('📊 [STATS] Executing:', queryText);
+    console.log('📊 [STATS] Params:', queryParams);
+
+    const result = await pool.query(queryText, queryParams);
+    const ratings = result.rows.map(row => row.rating);
+
+    console.log('📊 [STATS] Found', ratings.length, 'reviews');
+
+    // Calculate stats
+    const total = ratings.length;
+    const average = total > 0 ? ratings.reduce((a, b) => a + b, 0) / total : 0;
+
+    // Calculate distribution
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    ratings.forEach(rating => {
+      if (rating >= 1 && rating <= 5) {
+        distribution[Math.round(rating)]++;
+      }
+    });
+
+    // Count reviews with images (if images column exists)
+    let withPhotos = 0;
+    try {
+      const photoQuery = 'SELECT COUNT(*) as count FROM reviews WHERE reviewer_id = $1 AND images IS NOT NULL' + (service_id ? ' AND service_id = $2' : '');
+      const photoResult = await pool.query(photoQuery, queryParams);
+      withPhotos = parseInt(photoResult.rows[0]?.count || 0);
+    } catch (photoError) {
+      console.warn('⚠️ [STATS] Could not count photos:', photoError.message);
+    }
+
+    // Count verified purchases (if booking_id column exists)
+    let verifiedPurchases = 0;
+    try {
+      const verifiedQuery = 'SELECT COUNT(*) as count FROM reviews WHERE reviewer_id = $1 AND booking_id IS NOT NULL' + (service_id ? ' AND service_id = $2' : '');
+      const verifiedResult = await pool.query(verifiedQuery, queryParams);
+      verifiedPurchases = parseInt(verifiedResult.rows[0]?.count || 0);
+    } catch (verifiedError) {
+      console.warn('⚠️ [STATS] Could not count verified purchases:', verifiedError.message);
+    }
+
+    const response = {
+      total_reviews: total,
+      average_rating: parseFloat(average.toFixed(1)),
+      rating_distribution: distribution,
+      verified_purchases: verifiedPurchases,
+      with_photos: withPhotos,
+      with_provider_response: 0
+    };
+
+    console.log('✅ [STATS] Response:', response);
+    res.json(response);
+
   } catch (error) {
-    console.error('Error adding review:', error);
-    res.status(500).json({ message: 'Failed to add review' });
+    console.error('❌ [STATS] Error:', error.message);
+    console.error('❌ [STATS] Stack:', error.stack);
+    
+    // Always return 200 with safe defaults
+    res.status(200).json({
+      total_reviews: 0,
+      average_rating: 0,
+      rating_distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      verified_purchases: 0,
+      with_photos: 0,
+      with_provider_response: 0
+    });
   }
 });
 
-router.get('/reviews/:id', async (req, res) => {
+router.post('/reviews/:id/report', async (req, res) => {
   try {
     const userId = req.user.id;
     const reviewId = req.params.id;
-    
-    const result = await pool.query(`
-      SELECT r.*, s.title as service_title, u.name as provider_name
-      FROM reviews r
-      JOIN services s ON r.service_id = s.id
-      JOIN users u ON s.provider_id = u.id
-      WHERE r.id = $1 AND r.reviewer_id = $2
-    `, [reviewId, userId]);
-    
-    if (result.rows.length === 0) {
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ message: 'Reason is required' });
+    }
+
+    const reviewCheck = await pool.query(
+      'SELECT id FROM reviews WHERE id = $1',
+      [reviewId]
+    );
+
+    if (reviewCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Review not found' });
     }
-    
-    res.json(result.rows[0]);
+
+    const existingReport = await pool.query(
+      'SELECT id FROM review_reports WHERE review_id = $1 AND reporter_id = $2',
+      [reviewId, userId]
+    );
+
+    if (existingReport.rows.length > 0) {
+      return res.status(400).json({ message: 'You have already reported this review' });
+    }
+
+    await pool.query(
+      `INSERT INTO review_reports (review_id, reporter_id, reason, status, created_at)
+       VALUES ($1, $2, $3, 'pending', NOW())`,
+      [reviewId, userId, reason]
+    );
+
+    res.json({ message: 'Review reported successfully' });
   } catch (error) {
-    console.error('Error fetching review details:', error);
-    res.status(500).json({ message: 'Failed to fetch review details' });
+    console.error('Error reporting review:', error);
+    res.status(500).json({ message: 'Failed to report review' });
   }
 });
 
+// POST /api/customer/reviews/:id/helpful - Mark review as helpful
+router.post('/reviews/:id/helpful', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const reviewId = req.params.id;
+
+    const reviewCheck = await pool.query(
+      'SELECT id FROM reviews WHERE id = $1',
+      [reviewId]
+    );
+
+    if (reviewCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    const existingHelpful = await pool.query(
+      'SELECT id FROM review_helpful WHERE review_id = $1 AND user_id = $2',
+      [reviewId, userId]
+    );
+
+    if (existingHelpful.rows.length > 0) {
+      await pool.query(
+        'DELETE FROM review_helpful WHERE review_id = $1 AND user_id = $2',
+        [reviewId, userId]
+      );
+      
+      await pool.query(
+        'UPDATE reviews SET helpful_count = helpful_count - 1 WHERE id = $1',
+        [reviewId]
+      );
+      
+      return res.json({ 
+        message: 'Removed helpful vote',
+        helpful: false
+      });
+    }
+
+    await pool.query(
+      'INSERT INTO review_helpful (review_id, user_id, created_at) VALUES ($1, $2, NOW())',
+      [reviewId, userId]
+    );
+
+    await pool.query(
+      'UPDATE reviews SET helpful_count = helpful_count + 1 WHERE id = $1',
+      [reviewId]
+    );
+
+    res.json({ 
+      message: 'Marked as helpful',
+      helpful: true
+    });
+  } catch (error) {
+    console.error('Error marking review helpful:', error);
+    res.status(500).json({ message: 'Failed to mark review helpful' });
+  }
+});
+
+// PUT /api/customer/reviews/:id - Update a review
 router.put('/reviews/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const reviewId = req.params.id;
     const { rating, comment, images } = req.body;
-    
-    if (rating && (rating < 1 || rating > 5)) {
-      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+
+    const check = await pool.query(
+      'SELECT * FROM reviews WHERE id = $1 AND reviewer_id = $2',
+      [reviewId, userId]
+    );
+
+    if (check.rows.length === 0) {
+      return res.status(404).json({ message: 'Review not found or not authorized' });
     }
-    
+
     const result = await pool.query(
       `UPDATE reviews 
        SET rating = COALESCE($1, rating),
@@ -770,11 +965,7 @@ router.put('/reviews/:id', async (req, res) => {
        RETURNING *`,
       [rating, comment, images, reviewId, userId]
     );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Review not found' });
-    }
-    
+
     const review = result.rows[0];
     await pool.query(`
       UPDATE services 
@@ -783,29 +974,39 @@ router.put('/reviews/:id', async (req, res) => {
       )
       WHERE id = $1
     `, [review.service_id]);
-    
-    res.json(result.rows[0]);
+
+    res.json({ 
+      message: 'Review updated successfully',
+      review: result.rows[0]
+    });
   } catch (error) {
     console.error('Error updating review:', error);
     res.status(500).json({ message: 'Failed to update review' });
   }
 });
 
+// DELETE /api/customer/reviews/:id - Delete a review
 router.delete('/reviews/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const reviewId = req.params.id;
-    
-    const result = await pool.query(
-      'DELETE FROM reviews WHERE id = $1 AND reviewer_id = $2 RETURNING *',
+
+    const check = await pool.query(
+      'SELECT service_id FROM reviews WHERE id = $1 AND reviewer_id = $2',
       [reviewId, userId]
     );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Review not found' });
+
+    if (check.rows.length === 0) {
+      return res.status(404).json({ message: 'Review not found or not authorized' });
     }
-    
-    const review = result.rows[0];
+
+    const serviceId = check.rows[0].service_id;
+
+    await pool.query(
+      'DELETE FROM reviews WHERE id = $1 AND reviewer_id = $2',
+      [reviewId, userId]
+    );
+
     await pool.query(`
       UPDATE services 
       SET avg_rating = (
@@ -815,8 +1016,8 @@ router.delete('/reviews/:id', async (req, res) => {
         SELECT COUNT(*) FROM reviews WHERE service_id = $1
       )
       WHERE id = $1
-    `, [review.service_id]);
-    
+    `, [serviceId]);
+
     res.json({ message: 'Review deleted successfully' });
   } catch (error) {
     console.error('Error deleting review:', error);
@@ -825,7 +1026,7 @@ router.delete('/reviews/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROFILE - ✅ FIXED
+// PROFILE
 // =========================================================================
 
 router.get('/profile', async (req, res) => {

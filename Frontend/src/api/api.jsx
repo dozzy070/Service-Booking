@@ -1,4 +1,4 @@
-// src/api/api.js
+// src/api/api.jsx
 import axios from 'axios';
 
 // ==================== DEBUG LOGGING ====================
@@ -11,7 +11,6 @@ console.log("🔍 Checking import.meta.env:", {
 
 // ==================== CONFIGURATION ====================
 const getAPIUrl = () => {
-  // ✅ Hardcoded for production - bypasses env issues
   return 'https://service-booking-3l1j.onrender.com/api';
 };
 
@@ -71,23 +70,51 @@ api.interceptors.response.use(
   }
 );
 
+// src/api/api.js - Updated health check with better error handling
+
 // ==================== HEALTH CHECK ====================
 export const checkBackendHealth = async () => {
   try {
     const baseUrl = API_BASE_URL.replace('/api', '');
-    const response = await fetch(`${baseUrl}/health`, {
+    const healthUrl = `${baseUrl}/health`;
+    
+    console.log(`🔍 Checking backend health at: ${healthUrl}`);
+    
+    // Use AbortController with a longer timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 15000); // 15 second timeout
+    
+    const response = await fetch(healthUrl, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(5000),
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
+    
     if (response.ok) {
       const data = await response.json();
       console.log('✅ Backend health check passed:', data);
       return true;
     }
-    console.log('❌ Backend health check failed:', response.status);
+    
+    console.warn('⚠️ Backend health check failed with status:', response.status);
     return false;
   } catch (error) {
+    // Don't log abort errors as errors - they're expected timeouts
+    if (error.name === 'AbortError') {
+      console.warn('⏰ Backend health check timed out (server may be waking up)');
+      return false;
+    }
+    if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+      console.warn('🌐 Backend health check failed - network error');
+      return false;
+    }
     console.error('❌ Backend health check error:', error.message);
     return false;
   }
@@ -118,8 +145,6 @@ export const customerAPI = {
   cancelBooking: (id) => api.put(`/bookings/${id}/cancel`),
   rescheduleBooking: (id, newDate) => api.put(`/bookings/${id}/reschedule`, { new_date: newDate }),
   getAvailableSlots: (serviceId, date) => api.get(`/bookings/available-slots?service_id=${serviceId}&date=${date}`),
-  
-  // ✅ FIXED: getUpcomingBookings - now properly defined
   getUpcomingBookings: async () => {
     try {
       const response = await api.get('/bookings/upcoming');
@@ -129,11 +154,38 @@ export const customerAPI = {
       throw error;
     }
   },
-  
   getBookingStats: () => api.get('/bookings/stats'),
   
   // Reviews
+  getReviews: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.append('page', params.page);
+    if (params.limit) query.append('limit', params.limit);
+    if (params.rating) query.append('rating', params.rating);
+    if (params.sort) query.append('sort', params.sort);
+    if (params.search) query.append('search', params.search);
+    if (params.service_id) query.append('service_id', params.service_id);
+    
+    const queryString = query.toString();
+    return api.get(`/customer/reviews${queryString ? `?${queryString}` : ''}`);
+  },
+  getReviewStats: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.service_id) query.append('service_id', params.service_id);
+    
+    const queryString = query.toString();
+    return api.get(`/customer/reviews/stats${queryString ? `?${queryString}` : ''}`);
+  },
+  getReviewById: (id) => api.get(`/customer/reviews/${id}`),
+  updateReview: (id, data) => api.put(`/customer/reviews/${id}`, data),
+  deleteReview: (id) => api.delete(`/customer/reviews/${id}`),
+  reportReview: (id, reason) => api.post(`/customer/reviews/${id}/report`, { reason }),
+  markReviewHelpful: (id) => api.post(`/customer/reviews/${id}/helpful`),
   addReview: (serviceId, data) => api.post(`/services/${serviceId}/reviews`, data),
+  
+  // ✅ NOTIFICATION PREFERENCES
+  getNotificationPreferences: () => api.get('/customer/notification-preferences'),
+  updateNotificationPreferences: (data) => api.put('/customer/notification-preferences', data),
   
   // Favorites
   getFavorites: () => api.get('/customer/favorites'),
@@ -157,32 +209,23 @@ export const customerAPI = {
 
 // ==================== PROVIDER API ====================
 export const providerAPI = {
-  // Dashboard
   getDashboardStats: () => api.get('/provider/dashboard/stats'),
   getRecentBookings: () => api.get('/provider/dashboard/recent-bookings'),
   getTodaySchedule: () => api.get('/provider/dashboard/today-schedule'),
   getStats: () => api.get('/provider/stats'),
-  
-  // Bookings
   getBookings: () => api.get('/provider/bookings'),
   getBookingById: (id) => api.get(`/provider/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/provider/bookings/${id}/status`, { status }),
   completeBooking: (id) => api.put(`/provider/bookings/${id}/complete`),
   startBooking: (id) => api.post(`/provider/bookings/${id}/start`),
   rescheduleBooking: (id, newDate) => api.put(`/provider/bookings/${id}/reschedule`, { new_date: newDate }),
-  
-  // Services
   getServices: () => api.get('/provider/services'),
   getServiceById: (id) => api.get(`/provider/services/${id}`),
   createService: (data) => api.post('/provider/services', data),
   updateService: (id, data) => api.put(`/provider/services/${id}`, data),
   deleteService: (id) => api.delete(`/provider/services/${id}`),
-  
-  // Reviews
   getReviews: () => api.get('/provider/reviews'),
   respondToReview: (id, response) => api.post(`/provider/reviews/${id}/respond`, { response }),
-  
-  // Wallet
   getWallet: () => api.get('/wallet'),
   getTransactions: () => api.get('/wallet/transactions'),
   withdrawFunds: (amount, methodId) => api.post('/wallet/withdraw', { amount, withdrawalMethodId: methodId }),
@@ -192,15 +235,12 @@ export const providerAPI = {
   getRedeemHistory: () => api.get('/wallet/redeem-history'),
   getPaymentMethods: () => api.get('/wallet/payment-methods'),
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
-  
-  // Profile
   getProfile: () => api.get('/provider/profile'),
   updateProfile: (data) => api.put('/provider/profile', data),
 };
 
 // ==================== ADMIN API ====================
 export const adminAPI = {
-  // Dashboard
   getStats: () => api.get('/admin/dashboard/stats'),
   getRevenueChart: (view = 'monthly') => api.get(`/admin/dashboard/revenue-chart?view=${view}`),
   getActivities: () => api.get('/admin/dashboard/activities'),
@@ -208,8 +248,6 @@ export const adminAPI = {
   getPopularServices: () => api.get('/admin/dashboard/popular-services'),
   getPendingApprovals: () => api.get('/admin/dashboard/pending-approvals'),
   getSystemHealth: () => api.get('/admin/dashboard/system-health'),
-  
-  // User Management
   getUsers: () => api.get('/admin/users'),
   getUserById: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
@@ -217,46 +255,30 @@ export const adminAPI = {
   verifyUser: (id) => api.put(`/admin/users/${id}/verify`),
   suspendUser: (id) => api.put(`/admin/users/${id}/suspend`),
   unsuspendUser: (id) => api.put(`/admin/users/${id}/unsuspend`),
-  
-  // Provider Management
   getProviders: () => api.get('/admin/providers'),
   getProviderDetails: (id) => api.get(`/admin/providers/${id}`),
-  
-  // Service Management
   getServices: () => api.get('/admin/services'),
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
   rejectService: (id, reason) => api.put(`/admin/services/${id}/reject`, { reason }),
   deleteService: (id) => api.delete(`/admin/services/${id}`),
   toggleFeatured: (id) => api.put(`/admin/services/${id}/featured`),
-  
-  // Booking Management
   getBookings: () => api.get('/admin/bookings'),
   getBookingById: (id) => api.get(`/admin/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/admin/bookings/${id}/status`, { status }),
-  
-  // Category Management
   getCategories: () => api.get('/admin/categories'),
   createCategory: (data) => api.post('/admin/categories', data),
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
-  
-  // Payments
   getPayments: () => api.get('/admin/payments'),
   getPaymentOverview: () => api.get('/admin/payments/overview'),
   getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
   getPaymentTrends: () => api.get('/admin/payments/trends'),
   refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
-  
-  // Reports
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
-  
-  // Notifications
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
-  
-  // System
   getActivityLog: (params) => api.get('/admin/activities', { params }),
 };
 

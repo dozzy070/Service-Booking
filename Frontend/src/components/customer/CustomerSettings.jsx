@@ -90,15 +90,13 @@ const CustomerSettings = () => {
     confirmPassword: ''
   });
 
-  // Notification preferences
+  // ✅ LOCAL ONLY - Notification preferences (no API call)
   const [notifications, setNotifications] = useState({
     email_notifications: true,
     push_notifications: true,
-    sms_notifications: false,
-    booking_reminders: true,
-    payment_alerts: true,
-    promotional_emails: false,
-    review_requests: true
+    booking_updates: true,
+    promotions: true,
+    reminders: true
   });
 
   // Appearance preferences
@@ -133,6 +131,19 @@ const CustomerSettings = () => {
     is_default: false
   });
 
+  // ✅ Load notification preferences from localStorage on mount
+  useEffect(() => {
+    const savedPrefs = localStorage.getItem('notification_preferences');
+    if (savedPrefs) {
+      try {
+        const parsed = JSON.parse(savedPrefs);
+        setNotifications(prev => ({ ...prev, ...parsed }));
+      } catch (e) {
+        // Use defaults
+      }
+    }
+  }, []);
+
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -164,15 +175,7 @@ const CustomerSettings = () => {
     }
   }, []);
 
-  // Fetch notification preferences
-  const fetchNotificationPrefs = useCallback(async () => {
-    try {
-      const response = await customerAPI.getNotificationPreferences();
-      setNotifications(response.data);
-    } catch (error) {
-      console.error('Error fetching notification preferences:', error);
-    }
-  }, []);
+  // ✅ REMOVED: fetchNotificationPreferences - using localStorage instead
 
   // Fetch payment methods
   const fetchPaymentMethods = useCallback(async () => {
@@ -184,15 +187,20 @@ const CustomerSettings = () => {
     }
   }, []);
 
-  // Load all data
+  // ✅ Load all data - notification preferences from localStorage only
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.all([
-      fetchProfile(),
-      fetchNotificationPrefs(),
-      fetchPaymentMethods()
-    ]);
-    setLoading(false);
+    try {
+      await Promise.all([
+        fetchProfile(),
+        fetchPaymentMethods()
+        // ✅ REMOVED: fetchNotificationPreferences()
+      ]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -246,15 +254,16 @@ const CustomerSettings = () => {
     }
   };
 
-  // Update notification preferences
+  // ✅ LOCAL ONLY - Update notification preferences (no API call)
   const handleUpdateNotifications = async () => {
     setSaving(true);
     try {
-      await customerAPI.updateNotificationPreferences(notifications);
-      toast.success('Notification preferences updated');
+      // Save to localStorage for persistence
+      localStorage.setItem('notification_preferences', JSON.stringify(notifications));
+      toast.success('Notification preferences saved');
     } catch (error) {
-      console.error('Error updating notifications:', error);
-      toast.error('Failed to update notification preferences');
+      console.error('Error saving preferences:', error);
+      toast.error('Failed to save preferences');
     } finally {
       setSaving(false);
     }
@@ -659,10 +668,13 @@ const CustomerSettings = () => {
                   </div>
                 )}
 
-                {/* Notification Settings */}
+                {/* ✅ LOCAL ONLY - Notification Settings (no API call) */}
                 {activeTab === 'notifications' && (
                   <div>
                     <h5 className="fw-bold mb-4">Notification Preferences</h5>
+                    <p className="text-muted small mb-3">
+                      Preferences are saved locally in your browser.
+                    </p>
 
                     <div className="mb-4">
                       <h6 className="mb-3">Channels</h6>
@@ -682,14 +694,6 @@ const CustomerSettings = () => {
                           onChange={(e) => setNotifications({ ...notifications, push_notifications: e.target.checked })}
                         />
                       </Form.Group>
-                      <Form.Group className="mb-2">
-                        <Form.Check
-                          type="switch"
-                          label="SMS Notifications"
-                          checked={notifications.sms_notifications}
-                          onChange={(e) => setNotifications({ ...notifications, sms_notifications: e.target.checked })}
-                        />
-                      </Form.Group>
                     </div>
 
                     <div className="mb-4">
@@ -697,33 +701,25 @@ const CustomerSettings = () => {
                       <Form.Group className="mb-2">
                         <Form.Check
                           type="checkbox"
-                          label="Booking Reminders"
-                          checked={notifications.booking_reminders}
-                          onChange={(e) => setNotifications({ ...notifications, booking_reminders: e.target.checked })}
+                          label="Booking Updates"
+                          checked={notifications.booking_updates}
+                          onChange={(e) => setNotifications({ ...notifications, booking_updates: e.target.checked })}
                         />
                       </Form.Group>
                       <Form.Group className="mb-2">
                         <Form.Check
                           type="checkbox"
-                          label="Payment Alerts"
-                          checked={notifications.payment_alerts}
-                          onChange={(e) => setNotifications({ ...notifications, payment_alerts: e.target.checked })}
+                          label="Promotions & Offers"
+                          checked={notifications.promotions}
+                          onChange={(e) => setNotifications({ ...notifications, promotions: e.target.checked })}
                         />
                       </Form.Group>
                       <Form.Group className="mb-2">
                         <Form.Check
                           type="checkbox"
-                          label="Review Requests"
-                          checked={notifications.review_requests}
-                          onChange={(e) => setNotifications({ ...notifications, review_requests: e.target.checked })}
-                        />
-                      </Form.Group>
-                      <Form.Group>
-                        <Form.Check
-                          type="checkbox"
-                          label="Promotional Emails"
-                          checked={notifications.promotional_emails}
-                          onChange={(e) => setNotifications({ ...notifications, promotional_emails: e.target.checked })}
+                          label="Reminders"
+                          checked={notifications.reminders}
+                          onChange={(e) => setNotifications({ ...notifications, reminders: e.target.checked })}
                         />
                       </Form.Group>
                     </div>

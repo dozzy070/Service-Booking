@@ -44,7 +44,6 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-// No duplicate imports from react-icons/fa
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns';
@@ -71,17 +70,33 @@ const ProviderBookings = () => {
 
   const itemsPerPage = 10;
 
-  // Format currency to NGN
+  // ============================================================
+  // ✅ HELPER FUNCTIONS - FIXED
+  // ============================================================
+
   const formatNaira = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '₦0';
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount || 0);
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(num);
   };
 
-  // Fetch bookings
+  const formatCompactNaira = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '₦0';
+    if (num >= 1000000) return `₦${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `₦${(num / 1000).toFixed(0)}k`;
+    return formatNaira(num);
+  };
+
+  // ============================================================
+  // FETCH BOOKINGS
+  // ============================================================
+
   const fetchBookings = useCallback(async () => {
     try {
       const params = {
@@ -94,17 +109,19 @@ const ProviderBookings = () => {
       };
       
       const response = await providerAPI.getBookings(params);
-      setBookings(response.data.bookings || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+      const data = response.data || response;
+      setBookings(data.bookings || []);
+      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
     } catch (error) {
       console.error('Error fetching bookings:', error);
       toast.error('Failed to load bookings');
+      setBookings([]);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
   }, [currentPage, activeTab, searchTerm, sortBy, filterDate]);
 
-  // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
     await fetchBookings();
@@ -116,13 +133,15 @@ const ProviderBookings = () => {
     fetchBookings();
   }, [fetchBookings]);
 
-  // Auto-refresh every minute
   useEffect(() => {
     const interval = setInterval(fetchBookings, 60000);
     return () => clearInterval(interval);
   }, [fetchBookings]);
 
-  // Accept booking
+  // ============================================================
+  // BOOKING ACTIONS
+  // ============================================================
+
   const handleAcceptBooking = async () => {
     if (!selectedBooking) return;
     
@@ -141,7 +160,6 @@ const ProviderBookings = () => {
     }
   };
 
-  // Decline booking
   const handleDeclineBooking = async () => {
     if (!selectedBooking) return;
     
@@ -161,7 +179,6 @@ const ProviderBookings = () => {
     }
   };
 
-  // Complete booking
   const handleCompleteBooking = async (bookingId) => {
     if (!window.confirm('Mark this booking as completed?')) return;
     
@@ -175,7 +192,6 @@ const ProviderBookings = () => {
     }
   };
 
-  // Start booking
   const handleStartBooking = async (bookingId) => {
     try {
       await providerAPI.startBooking(bookingId);
@@ -187,7 +203,10 @@ const ProviderBookings = () => {
     }
   };
 
-  // Get status badge
+  // ============================================================
+  // RENDER HELPERS
+  // ============================================================
+
   const getStatusBadge = (status) => {
     const variants = {
       pending: { bg: 'warning', text: 'Pending', icon: <Clock size={12} />, className: 'bg-warning bg-opacity-10 text-warning' },
@@ -205,26 +224,32 @@ const ProviderBookings = () => {
     );
   };
 
-  // Get date badge
   const getDateBadge = (date) => {
+    if (!date) return null;
     const bookingDate = new Date(date);
     if (isToday(bookingDate)) {
-      return <Badge bg="success" className="rounded-pill">Today</Badge>;
+      return <Badge bg="success" className="rounded-pill ms-2">Today</Badge>;
     } else if (isTomorrow(bookingDate)) {
-      return <Badge bg="info" className="rounded-pill">Tomorrow</Badge>;
+      return <Badge bg="info" className="rounded-pill ms-2">Tomorrow</Badge>;
     }
     return null;
   };
 
-  // Calculate stats
+  // Calculate stats - safely handle empty bookings
   const stats = {
     total: bookings.length,
     pending: bookings.filter(b => b.status === 'pending').length,
     confirmed: bookings.filter(b => b.status === 'confirmed' || b.status === 'in_progress').length,
     completed: bookings.filter(b => b.status === 'completed').length,
     cancelled: bookings.filter(b => b.status === 'cancelled').length,
-    totalEarnings: bookings.filter(b => b.status === 'completed').reduce((sum, b) => sum + (b.amount || 0), 0)
+    totalEarnings: bookings
+      .filter(b => b.status === 'completed')
+      .reduce((sum, b) => sum + (b.amount || b.price || 0), 0)
   };
+
+  // ============================================================
+  // LOADING STATE
+  // ============================================================
 
   if (loading) {
     return (
@@ -236,6 +261,10 @@ const ProviderBookings = () => {
       </div>
     );
   }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
@@ -258,7 +287,7 @@ const ProviderBookings = () => {
             </Button>
             <Button
               variant="outline-secondary"
-              onClick={() => {/* Export logic */}}
+              onClick={() => toast.info('Export feature coming soon!')}
               className="d-flex align-items-center gap-2"
             >
               <Download size={18} />
@@ -267,7 +296,7 @@ const ProviderBookings = () => {
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - ✅ Using formatCompactNaira */}
         <Row className="mb-4 g-4">
           <Col xl={2} lg={4} md={4} sm={6}>
             <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
@@ -364,7 +393,7 @@ const ProviderBookings = () => {
         {/* Filters Bar */}
         <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
           <Card.Body className="p-4">
-            <div className="d-flex justify-content-between align-items-center mb-3">
+            <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
               <div className="d-flex gap-2 flex-wrap">
                 {['all', 'pending', 'confirmed', 'in_progress', 'completed', 'cancelled'].map((tab) => (
                   <Button
@@ -473,7 +502,7 @@ const ProviderBookings = () => {
                     {bookings.map((booking) => (
                       <tr key={booking.id}>
                         <td style={{ padding: '16px' }}>
-                          <span className="fw-bold text-primary">#{booking.id.slice(-8)}</span>
+                          <span className="fw-bold text-primary">#{booking.id?.slice(-8) || 'N/A'}</span>
                         </td>
                         <td style={{ padding: '16px' }}>
                           <div className="d-flex align-items-center gap-2">
@@ -481,22 +510,22 @@ const ProviderBookings = () => {
                               <User size={14} className="text-primary" />
                             </div>
                             <div>
-                              <div className="fw-medium">{booking.customer_name}</div>
-                              <small className="text-muted">{booking.customer_phone}</small>
+                              <div className="fw-medium">{booking.customer_name || 'Unknown'}</div>
+                              <small className="text-muted">{booking.customer_phone || ''}</small>
                             </div>
                           </div>
                         </td>
                         <td style={{ padding: '16px' }}>
-                          <div>{booking.service_name}</div>
-                          <small className="text-muted">{booking.duration}</small>
+                          <div>{booking.service_name || 'Unknown Service'}</div>
+                          <small className="text-muted">{booking.duration || ''}</small>
                         </td>
                         <td style={{ padding: '16px' }}>
-                          <div className="fw-medium">{format(new Date(booking.date), 'MMM dd, yyyy')}</div>
-                          <small className="text-muted">{booking.time}</small>
+                          <div className="fw-medium">{booking.date ? format(new Date(booking.date), 'MMM dd, yyyy') : 'N/A'}</div>
+                          <small className="text-muted">{booking.time || ''}</small>
                           {getDateBadge(booking.date)}
                         </td>
                         <td style={{ padding: '16px' }} className="fw-bold text-primary">
-                          {formatNaira(booking.amount)}
+                          {formatNaira(booking.amount || booking.price || 0)}
                         </td>
                         <td style={{ padding: '16px' }}>{getStatusBadge(booking.status)}</td>
                         <td style={{ padding: '16px' }}>
@@ -638,11 +667,11 @@ const ProviderBookings = () => {
                     <h6 className="fw-bold mb-3">Customer Information</h6>
                     <div className="info-item">
                       <User size={16} className="text-muted" />
-                      <span>{selectedBooking.customer_name}</span>
+                      <span>{selectedBooking.customer_name || 'Unknown'}</span>
                     </div>
                     <div className="info-item">
                       <Phone size={16} className="text-muted" />
-                      <span>{selectedBooking.customer_phone}</span>
+                      <span>{selectedBooking.customer_phone || 'Not provided'}</span>
                     </div>
                     <div className="info-item">
                       <MapPin size={16} className="text-muted" />
@@ -656,15 +685,15 @@ const ProviderBookings = () => {
                     <h6 className="fw-bold mb-3">Service Details</h6>
                     <div className="info-item">
                       <Briefcase size={16} className="text-muted" />
-                      <span>{selectedBooking.service_name}</span>
+                      <span>{selectedBooking.service_name || 'Unknown'}</span>
                     </div>
                     <div className="info-item">
                       <Clock size={16} className="text-muted" />
-                      <span>{selectedBooking.duration}</span>
+                      <span>{selectedBooking.duration || 'N/A'}</span>
                     </div>
                     <div className="info-item">
                       <DollarSign size={16} className="text-muted" />
-                      <span className="fw-bold text-primary">{formatNaira(selectedBooking.amount)}</span>
+                      <span className="fw-bold text-primary">{formatNaira(selectedBooking.amount || selectedBooking.price || 0)}</span>
                     </div>
                   </div>
                 </Col>
@@ -674,11 +703,11 @@ const ProviderBookings = () => {
                     <h6 className="fw-bold mb-3">Schedule</h6>
                     <div className="info-item">
                       <CalendarIcon size={16} className="text-muted" />
-                      <span>{format(new Date(selectedBooking.date), 'EEEE, MMMM dd, yyyy')}</span>
+                      <span>{selectedBooking.date ? format(new Date(selectedBooking.date), 'EEEE, MMMM dd, yyyy') : 'N/A'}</span>
                     </div>
                     <div className="info-item">
                       <Clock size={16} className="text-muted" />
-                      <span>{selectedBooking.time}</span>
+                      <span>{selectedBooking.time || 'N/A'}</span>
                     </div>
                   </div>
                 </Col>
@@ -746,9 +775,9 @@ const ProviderBookings = () => {
           <Alert variant="success" className="mb-0" style={{ borderRadius: '12px' }}>
             Are you sure you want to accept this booking?
             <div className="mt-2 small">
-              <strong>Customer:</strong> {selectedBooking?.customer_name}<br />
-              <strong>Service:</strong> {selectedBooking?.service_name}<br />
-              <strong>Date:</strong> {selectedBooking && format(new Date(selectedBooking.date), 'MMM dd, yyyy')}
+              <strong>Customer:</strong> {selectedBooking?.customer_name || 'Unknown'}<br />
+              <strong>Service:</strong> {selectedBooking?.service_name || 'Unknown'}<br />
+              <strong>Date:</strong> {selectedBooking?.date ? format(new Date(selectedBooking.date), 'MMM dd, yyyy') : 'N/A'}
             </div>
           </Alert>
         </Modal.Body>

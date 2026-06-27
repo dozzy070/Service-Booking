@@ -1,3 +1,4 @@
+// src/components/customer/Review.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
@@ -38,7 +39,10 @@ import {
   FaTimes,
   FaImage,
   FaChartBar,
-  FaAward
+  FaAward,
+  FaUser,
+  FaCheck,
+  FaTimesCircle
 } from 'react-icons/fa';
 import { getAvatarUrl, handleImageError } from '../../utils/imageUtils';
 import { customerAPI } from '../../api/api';
@@ -56,7 +60,8 @@ const Review = () => {
     total: 0,
     distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
     verified: 0,
-    withPhotos: 0
+    withPhotos: 0,
+    withResponse: 0
   });
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
@@ -71,6 +76,38 @@ const Review = () => {
 
   const itemsPerPage = 10;
 
+  // Get reviewer name from review data
+  const getReviewerName = (review) => {
+    if (review.is_anonymous) return 'Anonymous';
+    return review.reviewer_name || review.customer_name || 'Customer';
+  };
+
+  // Get reviewer avatar
+  const getReviewerAvatar = (review) => {
+    if (review.is_anonymous) return null;
+    return review.reviewer_avatar || review.customer_avatar || null;
+  };
+
+  // Check if review has images
+  const hasImages = (review) => {
+    return review.images && Array.isArray(review.images) && review.images.length > 0;
+  };
+
+  // Check if review has provider response
+  const hasProviderResponse = (review) => {
+    return review.admin_response || review.provider_response || review.responded_by;
+  };
+
+  // Get provider response
+  const getProviderResponse = (review) => {
+    return review.admin_response || review.provider_response || null;
+  };
+
+  // Get response date
+  const getResponseDate = (review) => {
+    return review.responded_at || review.response_date || null;
+  };
+
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -81,7 +118,47 @@ const Review = () => {
     }).format(amount || 0);
   };
 
-  // Fetch reviews
+  // ✅ NEW: Calculate stats from reviews data (bypasses broken /stats endpoint)
+  const calculateStatsFromReviews = useCallback((reviewsData) => {
+    if (!reviewsData || reviewsData.length === 0) {
+      setStats({
+        average: 0,
+        total: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        verified: 0,
+        withPhotos: 0,
+        withResponse: 0
+      });
+      return;
+    }
+
+    const total = reviewsData.length;
+    const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
+    const average = sum / total;
+
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviewsData.forEach(review => {
+      const rating = Math.round(review.rating || 0);
+      if (rating >= 1 && rating <= 5) {
+        distribution[rating]++;
+      }
+    });
+
+    const verified = reviewsData.filter(r => r.booking_id).length;
+    const withPhotos = reviewsData.filter(r => r.images && r.images.length > 0).length;
+    const withResponse = reviewsData.filter(r => r.admin_response || r.provider_response).length;
+
+    setStats({
+      average: parseFloat(average.toFixed(1)),
+      total: total,
+      distribution: distribution,
+      verified: verified,
+      withPhotos: withPhotos,
+      withResponse: withResponse
+    });
+  }, []);
+
+  // ✅ UPDATED: Fetch reviews AND calculate stats from them
   const fetchReviews = useCallback(async () => {
     try {
       const params = {
@@ -93,37 +170,34 @@ const Review = () => {
         service_id: serviceId || undefined
       };
       const response = await customerAPI.getReviews(params);
-      setReviews(response.data.reviews || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+      const data = response.data || response;
+      const reviewsData = data.reviews || [];
+      setReviews(reviewsData);
+      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
+      
+      // ✅ Calculate stats from the reviews we just fetched
+      calculateStatsFromReviews(reviewsData);
+      
+      // ✅ Mark loading as complete if this is the main data fetch
+      setLoading(false);
+      
     } catch (error) {
       console.error('Error fetching reviews:', error);
       toast.error('Failed to load reviews');
-    }
-  }, [currentPage, filter, sortBy, searchTerm, serviceId]);
-
-  // Fetch stats
-  const fetchStats = useCallback(async () => {
-    try {
-      const params = serviceId ? { service_id: serviceId } : {};
-      const response = await customerAPI.getReviewStats(params);
-      setStats({
-        average: response.data.average_rating || 0,
-        total: response.data.total_reviews || 0,
-        distribution: response.data.rating_distribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
-        verified: response.data.verified_purchases || 0,
-        withPhotos: response.data.with_photos || 0
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    } finally {
+      setReviews([]);
+      setTotalPages(1);
       setLoading(false);
     }
-  }, [serviceId]);
+  }, [currentPage, filter, sortBy, searchTerm, serviceId, calculateStatsFromReviews]);
 
-  // Load all data
+  // ✅ REMOVED: Old fetchStats that called the broken /stats endpoint
+  // The stats are now calculated from reviews data
+
+  // Load all data - now only fetches reviews
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.all([fetchReviews(), fetchStats()]);
+    await fetchReviews();
+    // Stats are calculated inside fetchReviews
     setLoading(false);
   };
 
@@ -166,6 +240,7 @@ const Review = () => {
       await fetchReviews();
     } catch (error) {
       console.error('Error marking helpful:', error);
+      toast.error('Failed to mark review as helpful');
     }
   };
 
@@ -194,6 +269,20 @@ const Review = () => {
     if (rating >= 4) return 'success';
     if (rating >= 3) return 'warning';
     return 'danger';
+  };
+
+  // Get status badge
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'approved':
+        return <Badge bg="success" className="rounded-pill">Approved</Badge>;
+      case 'pending':
+        return <Badge bg="warning" className="rounded-pill">Pending</Badge>;
+      case 'rejected':
+        return <Badge bg="danger" className="rounded-pill">Rejected</Badge>;
+      default:
+        return null;
+    }
   };
 
   if (loading) {
@@ -420,30 +509,41 @@ const Review = () => {
                     style={{ 
                       width: '56px', 
                       height: '56px', 
-                      background: `linear-gradient(135deg, ${getRatingColor(review.rating)} 0%, ${getRatingColor(review.rating)} 100%)`,
+                      background: review.is_anonymous 
+                        ? '#94a3b8' 
+                        : `linear-gradient(135deg, ${getRatingColor(review.rating)} 0%, ${getRatingColor(review.rating)} 100%)`,
                       fontSize: '20px',
                       fontWeight: 'bold',
                       color: 'white'
                     }}
                   >
-                    {review.customer_name?.charAt(0).toUpperCase() || 'C'}
+                    {review.is_anonymous ? (
+                      <FaUser size={24} />
+                    ) : (
+                      getReviewerName(review).charAt(0).toUpperCase()
+                    )}
                   </div>
 
                   <div className="flex-grow-1">
                     {/* Header */}
                     <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
                       <div>
-                        <h6 className="fw-bold mb-1">{review.customer_name}</h6>
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
+                          <h6 className="fw-bold mb-0">
+                            {getReviewerName(review)}
+                          </h6>
+                          {review.is_anonymous && (
+                            <Badge bg="secondary" className="rounded-pill">Anonymous</Badge>
+                          )}
+                          {review.status && getStatusBadge(review.status)}
+                        </div>
                         <div className="d-flex align-items-center gap-2 mb-2">
                           {renderStars(review.rating, 14)}
-                          {review.is_verified && (
+                          {review.is_recommended && (
                             <Badge bg="success" className="d-flex align-items-center gap-1 rounded-pill">
-                              <FaCheckCircle size={10} />
-                              Verified Purchase
+                              <FaCheck size={10} />
+                              Recommended
                             </Badge>
-                          )}
-                          {review.is_edited && (
-                            <Badge bg="secondary" className="rounded-pill">Edited</Badge>
                           )}
                         </div>
                         <div className="d-flex align-items-center gap-3 text-muted small mb-3">
@@ -467,11 +567,34 @@ const Review = () => {
                       </div>
                     </div>
 
+                    {/* Review Title */}
+                    {review.title && (
+                      <h6 className="mb-2 fw-semibold">{review.title}</h6>
+                    )}
+
                     {/* Review Content */}
                     <p className="mb-3" style={{ lineHeight: '1.6' }}>{review.comment}</p>
 
+                    {/* Pros & Cons */}
+                    {(review.pros || review.cons) && (
+                      <div className="mb-3">
+                        {review.pros && (
+                          <div className="mb-1">
+                            <small className="text-success fw-semibold">✓ Pros:</small>
+                            <small className="text-muted ms-1">{review.pros}</small>
+                          </div>
+                        )}
+                        {review.cons && (
+                          <div>
+                            <small className="text-danger fw-semibold">✗ Cons:</small>
+                            <small className="text-muted ms-1">{review.cons}</small>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Review Images */}
-                    {review.images && review.images.length > 0 && (
+                    {hasImages(review) && (
                       <div className="d-flex gap-2 mb-3 flex-wrap">
                         {review.images.map((img, idx) => (
                           <img
@@ -512,16 +635,18 @@ const Review = () => {
                     </div>
 
                     {/* Provider Response */}
-                    {review.provider_response && (
+                    {hasProviderResponse(review) && (
                       <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
                         <div className="d-flex align-items-center gap-2 mb-2">
                           <FaReply size={12} className="text-primary" />
                           <strong className="small">Provider Response:</strong>
                         </div>
-                        <p className="mb-1 small">{review.provider_response}</p>
-                        <small className="text-muted">
-                          {formatDistanceToNow(new Date(review.response_date), { addSuffix: true })}
-                        </small>
+                        <p className="mb-1 small">{getProviderResponse(review)}</p>
+                        {getResponseDate(review) && (
+                          <small className="text-muted">
+                            {formatDistanceToNow(new Date(getResponseDate(review)), { addSuffix: true })}
+                          </small>
+                        )}
                       </div>
                     )}
                   </div>

@@ -42,9 +42,10 @@ import {
   Download,
   BarChart2,
   Shield,
-  Gift
+  Gift,
+  TrendingUp,        // ✅ ADD THIS IMPORT
+  TrendingDown        // ✅ Also add this for potential downward trends
 } from 'lucide-react';
-// No duplicate imports from react-icons/fa
 
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';

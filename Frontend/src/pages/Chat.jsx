@@ -20,11 +20,11 @@ export default function Chat() {
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  // Fetch conversations
+  // ✅ FIX: Fetch conversations using /chat prefix
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const res = await api.get('/conversations');
+        const res = await api.get('/chat/conversations');
         setConversations(res.data);
         if (res.data.length > 0) setActiveConversation(res.data[0]);
       } catch (err) {
@@ -34,12 +34,12 @@ export default function Chat() {
     fetchConversations();
   }, []);
 
-  // Fetch available users for new chat
+  // ✅ FIX: Fetch available users using /chat prefix
   useEffect(() => {
     if (!showNewChatModal) return;
     const fetchUsers = async () => {
       try {
-        const res = await api.get('/users/available-for-chat');
+        const res = await api.get('/chat/users/available-for-chat');
         setAvailableUsers(res.data);
       } catch (err) {
         console.error(err);
@@ -48,13 +48,13 @@ export default function Chat() {
     fetchUsers();
   }, [showNewChatModal]);
 
-  // Fetch messages when conversation changes
+  // ✅ FIX: Fetch messages using /chat prefix
   useEffect(() => {
     if (!activeConversation) return;
     const fetchMessages = async () => {
       try {
-        const res = await api.get(`/conversations/${activeConversation.id}/messages`);
-        setMessages(res.data);
+        const res = await api.get(`/chat/conversations/${activeConversation.id}/messages`);
+        setMessages(res.data.messages || res.data);
         scrollToBottom();
       } catch (err) {
         console.error('Failed to fetch messages', err);
@@ -62,6 +62,11 @@ export default function Chat() {
     };
     fetchMessages();
     emit('join-conversation', activeConversation.id);
+    
+    // Cleanup
+    return () => {
+      emit('leave-conversation', activeConversation.id);
+    };
   }, [activeConversation, emit]);
 
   // Socket listeners
@@ -91,30 +96,42 @@ export default function Chat() {
     };
   }, [activeConversation, on, off, user?.id]);
 
+  // ✅ FIX: Create new conversation using /chat prefix
   const startNewConversation = async () => {
     if (!selectedRecipient) return;
     try {
-      const res = await api.post('/conversations', { otherPartyId: selectedRecipient.id });
-      const convRes = await api.get('/conversations');
+      const res = await api.post('/chat/conversations', { otherPartyId: selectedRecipient.id });
+      const convRes = await api.get('/chat/conversations');
       setConversations(convRes.data);
-      const newConv = convRes.data.find(c => c.id === res.data.conversationId);
+      const newConv = convRes.data.find(c => c.id === res.data.id);
       if (newConv) setActiveConversation(newConv);
       setShowNewChatModal(false);
       setSelectedRecipient(null);
     } catch (err) {
       console.error('Failed to create conversation', err);
+      alert('Failed to create conversation. Please try again.');
     }
   };
 
+  // ✅ FIX: Send message using /chat prefix
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeConversation) return;
-    emit('send-message', {
-      conversationId: activeConversation.id,
-      message: newMessage,
-      receiverId: activeConversation.other_party_id,
-    });
-    setNewMessage('');
+    
+    try {
+      await api.post(`/chat/conversations/${activeConversation.id}/messages`, {
+        message: newMessage,
+        receiverId: activeConversation.other_party_id || activeConversation.other_user?.id
+      });
+      setNewMessage('');
+      // Refresh messages
+      const res = await api.get(`/chat/conversations/${activeConversation.id}/messages`);
+      setMessages(res.data.messages || res.data);
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to send message', err);
+      alert('Failed to send message. Please try again.');
+    }
   };
 
   const handleTypingStart = () => {
@@ -130,10 +147,13 @@ export default function Chat() {
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   const formatMessageTime = (dateStr) => {
+    if (!dateStr) return '';
     const date = new Date(dateStr);
     const now = new Date();
     if (date.toDateString() === now.toDateString()) return format(date, 'h:mm a');
@@ -141,8 +161,45 @@ export default function Chat() {
     return format(date, 'MMM d');
   };
 
+  // Get other party info from conversation
+  const getOtherPartyName = (conv) => {
+    return conv.other_user?.name || conv.other_party_name || 'User';
+  };
+
+  const getOtherPartyRole = (conv) => {
+    return conv.other_user?.role || conv.other_party_role || 'user';
+  };
+
+  const getOtherPartyId = (conv) => {
+    return conv.other_user?.id || conv.other_party_id;
+  };
+
   return (
     <div className="chat-container">
+      {/* Mobile sidebar toggle */}
+      <button 
+        className="sidebar-toggle" 
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        style={{
+          display: 'none',
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 100,
+          background: '#6366f1',
+          color: 'white',
+          border: 'none',
+          borderRadius: '50%',
+          width: '56px',
+          height: '56px',
+          fontSize: '24px',
+          cursor: 'pointer',
+          boxShadow: '0 4px 12px rgba(99,102,241,0.4)'
+        }}
+      >
+        💬
+      </button>
+
       {/* Sidebar */}
       <div className={`chat-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
@@ -156,9 +213,9 @@ export default function Chat() {
               onClick={() => { setActiveConversation(conv); setSidebarOpen(false); }}
               className={`conversation-item ${activeConversation?.id === conv.id ? 'active' : ''}`}
             >
-              <div className="avatar">{conv.other_party_name?.charAt(0).toUpperCase()}</div>
+              <div className="avatar">{getOtherPartyName(conv).charAt(0).toUpperCase()}</div>
               <div className="conv-info">
-                <div className="conv-name">{conv.other_party_name}</div>
+                <div className="conv-name">{getOtherPartyName(conv)}</div>
                 <div className="conv-last-msg">{conv.last_message || 'No messages yet'}</div>
               </div>
               {conv.last_message_time && (
@@ -179,12 +236,12 @@ export default function Chat() {
         {activeConversation ? (
           <>
             <div className="chat-header">
-              <div className="avatar large">{activeConversation.other_party_name?.charAt(0).toUpperCase()}</div>
+              <div className="avatar large">{getOtherPartyName(activeConversation).charAt(0).toUpperCase()}</div>
               <div>
-                <div className="chat-header-name">{activeConversation.other_party_name}</div>
+                <div className="chat-header-name">{getOtherPartyName(activeConversation)}</div>
                 <div className="chat-header-role">
-                  {activeConversation.other_party_role === 'provider' ? 'Service Provider' : 
-                   activeConversation.other_party_role === 'admin' ? 'Admin' : 'Customer'}
+                  {getOtherPartyRole(activeConversation) === 'provider' ? 'Service Provider' : 
+                   getOtherPartyRole(activeConversation) === 'admin' ? 'Admin' : 'Customer'}
                 </div>
               </div>
             </div>
@@ -192,7 +249,7 @@ export default function Chat() {
               {messages.map(msg => {
                 const isOwn = msg.sender_id === user?.id;
                 return (
-                  <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+                  <div key={msg.id || msg._id} className={`message ${isOwn ? 'own' : 'other'}`}>
                     <div className="message-bubble">
                       <p>{msg.message}</p>
                       <div className="message-time">{formatMessageTime(msg.created_at)}</div>
@@ -233,19 +290,23 @@ export default function Chat() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>Start a new conversation</h3>
             <div className="users-list">
-              {availableUsers.map(u => (
-                <div
-                  key={u.id}
-                  onClick={() => setSelectedRecipient(u)}
-                  className={`user-item ${selectedRecipient?.id === u.id ? 'selected' : ''}`}
-                >
-                  <div className="avatar small">{u.name.charAt(0).toUpperCase()}</div>
-                  <div>
-                    <div>{u.name}</div>
-                    <div className="user-role">{u.role}</div>
+              {availableUsers.length === 0 ? (
+                <div className="empty-state">No users available to chat with</div>
+              ) : (
+                availableUsers.map(u => (
+                  <div
+                    key={u.id}
+                    onClick={() => setSelectedRecipient(u)}
+                    className={`user-item ${selectedRecipient?.id === u.id ? 'selected' : ''}`}
+                  >
+                    <div className="avatar small">{u.name?.charAt(0).toUpperCase() || 'U'}</div>
+                    <div>
+                      <div>{u.name || 'User'}</div>
+                      <div className="user-role">{u.role || 'user'}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
             <div className="modal-actions">
               <button onClick={() => setShowNewChatModal(false)}>Cancel</button>
@@ -505,6 +566,11 @@ export default function Chat() {
             transform: translateX(-100%);
           }
           .chat-sidebar.open { transform: translateX(0); }
+          .sidebar-toggle {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+          }
         }
       `}</style>
     </div>

@@ -580,23 +580,48 @@ const ProviderDashboard = () => {
   const [serviceToDelete, setServiceToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Format currency
+  // ============================================================
+  // ✅ FORMATTING HELPERS - FIXED
+  // ============================================================
+
+  const formatRating = (rating) => {
+    const num = Number(rating);
+    return isNaN(num) ? '0.0' : num.toFixed(1);
+  };
+
   const formatNaira = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '₦0';
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(amount || 0);
+    }).format(num);
   };
 
   const formatCompactNaira = (amount) => {
-    if (amount >= 1000000) return `₦${(amount / 1000000).toFixed(1)}M`;
-    if (amount >= 1000) return `₦${(amount / 1000).toFixed(0)}k`;
-    return formatNaira(amount);
+    const num = Number(amount);
+    if (isNaN(num)) return '₦0';
+    if (num >= 1000000) return `₦${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `₦${(num / 1000).toFixed(0)}k`;
+    return formatNaira(num);
   };
 
-  // Fetch data
+  const formatNumber = (value) => {
+    const num = Number(value);
+    return isNaN(num) ? '0' : num.toString();
+  };
+
+  const formatPercentage = (value) => {
+    const num = Number(value);
+    return isNaN(num) ? '0%' : `${Math.round(num)}%`;
+  };
+
+  // ============================================================
+  // FETCH DATA
+  // ============================================================
+
   const fetchDashboardData = useCallback(async () => {
     try {
       const [statsRes, bookingsRes, servicesRes, scheduleRes, notifsRes] = await Promise.all([
@@ -644,7 +669,10 @@ const ProviderDashboard = () => {
     else setGreeting('Good Evening');
   }, []);
 
-  // Handlers
+  // ============================================================
+  // HANDLERS
+  // ============================================================
+
   const handleStart = async (scheduleItem) => {
     try {
       await api.post(`/provider/bookings/${scheduleItem.bookingId}/start`);
@@ -705,7 +733,10 @@ const ProviderDashboard = () => {
     }
   };
 
-  // Get status badge
+  // ============================================================
+  // RENDER HELPERS
+  // ============================================================
+
   const getStatusBadge = (status) => {
     const map = {
       pending: { bg: '#fef3c7', color: '#b45309', label: 'Pending', icon: FaClock },
@@ -736,7 +767,10 @@ const ProviderDashboard = () => {
     }
   };
 
-  // Loading state
+  // ============================================================
+  // LOADING STATE
+  // ============================================================
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
@@ -747,6 +781,10 @@ const ProviderDashboard = () => {
       </div>
     );
   }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
     <div style={styles.container}>
@@ -763,17 +801,17 @@ const ProviderDashboard = () => {
                 {greeting}, {user?.name?.split(' ')[0] || 'Provider'}! 👋
               </h1>
               <p style={styles.welcomeSubtitle}>
-                Here's your business performance overview. You have <strong>{stats.pendingBookings}</strong> pending {stats.pendingBookings === 1 ? 'booking' : 'bookings'} to attend to.
+                Here's your business performance overview. You have <strong>{formatNumber(stats.pendingBookings)}</strong> pending {stats.pendingBookings === 1 ? 'booking' : 'bookings'} to attend to.
               </p>
               <div style={styles.welcomeStats}>
                 <span style={styles.welcomeStat}>
                   <FaDollarSign size={12} /> {formatCompactNaira(stats.weeklyEarnings)} this week
                 </span>
                 <span style={styles.welcomeStat}>
-                  <FaStar size={12} /> {stats.averageRating.toFixed(1)} ★ ({stats.totalReviews} reviews)
+                  <FaStar size={12} /> {formatRating(stats.averageRating)} ★ ({formatNumber(stats.totalReviews)} reviews)
                 </span>
                 <span style={styles.welcomeStat}>
-                  <FaUsers size={12} /> {stats.totalClients} clients
+                  <FaUsers size={12} /> {formatNumber(stats.totalClients)} clients
                 </span>
               </div>
             </div>
@@ -806,18 +844,55 @@ const ProviderDashboard = () => {
       </div>
 
       {/* ============================================================
-          STATS CARDS
+          STATS CARDS - ✅ FIXED with formatting helpers
           ============================================================ */}
       <div style={styles.statsGrid}>
         {[
-          { key: 'earnings', icon: FaDollarSign, label: "Today's Earnings", value: formatCompactNaira(stats.todayEarnings), color: '#10b981', bg: '#ecfdf5', trend: stats.earningsGrowth, detail: `Weekly: ${formatCompactNaira(stats.weeklyEarnings)}` },
-          { key: 'bookings', icon: FaCalendarCheck, label: 'Total Bookings', value: stats.totalBookings, color: '#6366f1', bg: '#eef2ff', trend: stats.bookingGrowth, detail: `${stats.completedBookings} completed • ${stats.pendingBookings} pending` },
-          { key: 'rating', icon: FaStar, label: 'Average Rating', value: stats.averageRating.toFixed(1), color: '#f59e0b', bg: '#fffbeb', trend: null, detail: `${stats.totalReviews} reviews` },
-          { key: 'services', icon: FaServicestack, label: 'Active Services', value: stats.activeServices, color: '#3b82f6', bg: '#eff6ff', trend: null, detail: `${stats.pendingApproval} pending approval` },
+          { 
+            key: 'earnings', 
+            icon: FaDollarSign, 
+            label: "Today's Earnings", 
+            value: formatCompactNaira(stats.todayEarnings), 
+            color: '#10b981', 
+            bg: '#ecfdf5', 
+            trend: stats.earningsGrowth, 
+            detail: `Weekly: ${formatCompactNaira(stats.weeklyEarnings)}` 
+          },
+          { 
+            key: 'bookings', 
+            icon: FaCalendarCheck, 
+            label: 'Total Bookings', 
+            value: formatNumber(stats.totalBookings), 
+            color: '#6366f1', 
+            bg: '#eef2ff', 
+            trend: stats.bookingGrowth, 
+            detail: `${formatNumber(stats.completedBookings)} completed • ${formatNumber(stats.pendingBookings)} pending` 
+          },
+          { 
+            key: 'rating', 
+            icon: FaStar, 
+            label: 'Average Rating', 
+            value: formatRating(stats.averageRating), 
+            color: '#f59e0b', 
+            bg: '#fffbeb', 
+            trend: null, 
+            detail: `${formatNumber(stats.totalReviews)} reviews` 
+          },
+          { 
+            key: 'services', 
+            icon: FaServicestack, 
+            label: 'Active Services', 
+            value: formatNumber(stats.activeServices), 
+            color: '#3b82f6', 
+            bg: '#eff6ff', 
+            trend: null, 
+            detail: `${formatNumber(stats.pendingApproval)} pending approval` 
+          },
         ].map((item, idx) => {
           const Icon = item.icon;
           const isHovered = hoveredStat === idx;
-          const isUp = item.trend !== null && item.trend >= 0;
+          const isUp = item.trend !== null && Number(item.trend) >= 0;
+          const trendValue = Number(item.trend);
           return (
             <div
               key={idx}
@@ -839,9 +914,9 @@ const ProviderDashboard = () => {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={styles.statValue}>{item.value}</div>
-                    {item.trend !== null && (
+                    {item.trend !== null && !isNaN(trendValue) && (
                       <div style={styles.statTrend(isUp)}>
-                        {isUp ? '↑' : '↓'} {Math.abs(item.trend)}%
+                        {isUp ? '↑' : '↓'} {Math.abs(trendValue)}%
                       </div>
                     )}
                   </div>
@@ -1049,32 +1124,37 @@ const ProviderDashboard = () => {
             <div style={styles.performanceMetric}>
               <div style={styles.performanceLabel}>
                 <span>Response Rate</span>
-                <span style={{ fontWeight: '600' }}>{stats.responseRate}%</span>
+                <span style={{ fontWeight: '600' }}>{formatPercentage(stats.responseRate)}</span>
               </div>
               <div style={styles.performanceProgress}>
-                <div style={styles.performanceFill(stats.responseRate)}></div>
+                <div style={styles.performanceFill(Number(stats.responseRate))}></div>
               </div>
             </div>
             <div style={styles.performanceMetric}>
               <div style={styles.performanceLabel}>
                 <span>Completion Rate</span>
-                <span style={{ fontWeight: '600' }}>{stats.completionRate}%</span>
+                <span style={{ fontWeight: '600' }}>{formatPercentage(stats.completionRate)}</span>
               </div>
               <div style={styles.performanceProgress}>
-                <div style={styles.performanceFill(stats.completionRate)}></div>
+                <div style={styles.performanceFill(Number(stats.completionRate))}></div>
               </div>
             </div>
             <div style={styles.performanceMetric}>
               <div style={styles.performanceLabel}>
                 <span>Customer Satisfaction</span>
-                <span style={{ fontWeight: '600' }}>{((stats.averageRating / 5) * 100).toFixed(0)}%</span>
+                <span style={{ fontWeight: '600' }}>
+                  {(() => {
+                    const rating = Number(stats.averageRating);
+                    return isNaN(rating) ? '0%' : `${Math.round((rating / 5) * 100)}%`;
+                  })()}
+                </span>
               </div>
               <div style={styles.performanceProgress}>
-                <div style={styles.performanceFill((stats.averageRating / 5) * 100)}></div>
+                <div style={styles.performanceFill((Number(stats.averageRating) / 5) * 100)}></div>
               </div>
             </div>
             <div style={{ marginTop: '8px', fontSize: '14px', opacity: 0.9 }}>
-              ⚡ Avg. Response Time: <strong>{stats.responseTime}</strong>
+              ⚡ Avg. Response Time: <strong>{stats.responseTime || '< 1 hour'}</strong>
             </div>
           </div>
 

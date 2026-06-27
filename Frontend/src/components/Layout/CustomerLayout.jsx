@@ -25,6 +25,11 @@ const CustomerLayout = () => {
   const [savedServicesCount, setSavedServicesCount] = useState(0);
   const [walletBalance, setWalletBalance] = useState(0);
 
+  // Add debug logging
+  console.log('🔍 CustomerLayout - User:', user);
+  console.log('🔍 CustomerLayout - isConnected:', isConnected);
+  console.log('🔍 CustomerLayout - unreadMessages:', unreadMessages);
+
   const layoutStyles = `
     .customer-layout {
       display: flex;
@@ -84,10 +89,6 @@ const CustomerLayout = () => {
     }
   `;
 
-  // ============================================================
-  // FETCH FUNCTIONS
-  // ============================================================
-
   const fetchNotifications = useCallback(async () => {
     setLoadingNotifications(true);
     try {
@@ -106,18 +107,15 @@ const CustomerLayout = () => {
     }
   }, []);
 
-  // ✅ FIXED: fetchUpcomingBookings with proper error handling
   const fetchUpcomingBookings = useCallback(async () => {
     try {
       const response = await customerAPI.getUpcomingBookings();
-      // Handle different response formats
       const bookings = Array.isArray(response.data) 
         ? response.data 
         : response.data?.bookings || [];
       setUpcomingBookingsCount(bookings.length || 0);
     } catch (error) {
       console.error('Error fetching upcoming bookings:', error);
-      // Set to 0 instead of failing
       setUpcomingBookingsCount(0);
     }
   }, []);
@@ -145,10 +143,6 @@ const CustomerLayout = () => {
     }
   }, []);
 
-  // ============================================================
-  // NOTIFICATION HANDLERS
-  // ============================================================
-
   const markAsRead = async (notificationId) => {
     try {
       await notificationAPI.markAsRead(notificationId);
@@ -171,10 +165,6 @@ const CustomerLayout = () => {
     }
   };
 
-  // ============================================================
-  // SIDEBAR HANDLERS
-  // ============================================================
-
   const toggleSidebar = () => {
     if (window.innerWidth < 992) {
       setMobileOpen(!mobileOpen);
@@ -189,25 +179,17 @@ const CustomerLayout = () => {
     }
   };
 
-  // ============================================================
-  // EFFECTS
-  // ============================================================
-
-  // Theme effect
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('customer_theme', theme);
   }, [theme]);
 
-  // Data fetching effect with interval
   useEffect(() => {
-    // Initial fetch
     fetchNotifications();
     fetchUpcomingBookings();
     fetchSavedServices();
     fetchWalletBalance();
 
-    // Poll every 30 seconds
     const interval = setInterval(() => {
       fetchNotifications();
       fetchUpcomingBookings();
@@ -218,9 +200,16 @@ const CustomerLayout = () => {
     return () => clearInterval(interval);
   }, [fetchNotifications, fetchUpcomingBookings, fetchSavedServices, fetchWalletBalance]);
 
-  // ============================================================
-  // RENDER
-  // ============================================================
+  // Log state to debug
+  console.log('📊 CustomerLayout State:', {
+    upcomingBookingsCount,
+    savedServicesCount,
+    walletBalance,
+    unreadMessages,
+    collapsed,
+    mobileOpen,
+    theme
+  });
 
   return (
     <>

@@ -6,12 +6,18 @@ import ProviderTopbar from './ProviderTopbar';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { providerAPI, notificationAPI } from '../../api/api';
+import WebSocketStatus from '../common/WebSocketStatus'; // Add this import
 
 const ProviderLayout = () => {
   const { user } = useAuth();
+  // ✅ Always call useSocket at the top level, before any conditional logic
   const { isConnected, unreadMessages } = useSocket();
 
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    // Load collapsed state from localStorage
+    const saved = localStorage.getItem('provider_sidebar_collapsed');
+    return saved === 'true';
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('provider_theme');
@@ -58,6 +64,29 @@ const ProviderLayout = () => {
       }
     }
 
+    .sidebar-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .websocket-status-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -100,10 +129,13 @@ const ProviderLayout = () => {
     }
   }, []);
 
+  // ✅ FIX: providerAPI.getBookings doesn't accept params like this
+  // Use the correct endpoint or handle differently
   const fetchPendingBookings = useCallback(async () => {
     try {
-      const response = await providerAPI.getBookings({ status: 'pending', limit: 1 });
-      setPendingBookingsCount(response.data?.total || 0);
+      // Use the correct API endpoint for pending bookings
+      const response = await providerAPI.getDashboardStats();
+      setPendingBookingsCount(response.data?.pendingBookings || 0);
     } catch (error) {
       console.error('Error fetching pending bookings:', error);
       setPendingBookingsCount(0);
@@ -113,7 +145,7 @@ const ProviderLayout = () => {
   const fetchWalletBalance = useCallback(async () => {
     try {
       const response = await providerAPI.getWallet();
-      setWalletBalance(response.data?.available_balance || 0);
+      setWalletBalance(response.data?.available_balance || response.data?.balance || 0);
     } catch (error) {
       console.error('Error fetching wallet balance:', error);
       setWalletBalance(0);
@@ -147,6 +179,7 @@ const ProviderLayout = () => {
       setMobileOpen(!mobileOpen);
     } else {
       setCollapsed(!collapsed);
+      localStorage.setItem('provider_sidebar_collapsed', String(!collapsed));
     }
   };
 
@@ -156,16 +189,19 @@ const ProviderLayout = () => {
     }
   };
 
+  // Save theme to localStorage
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('provider_theme', theme);
   }, [theme]);
 
+  // Initial data fetch
   useEffect(() => {
     fetchNotifications();
     fetchPendingBookings();
     fetchWalletBalance();
 
+    // Refresh data every 30 seconds
     const interval = setInterval(() => {
       fetchNotifications();
       fetchPendingBookings();
@@ -208,6 +244,11 @@ const ProviderLayout = () => {
             <Outlet />
           </div>
         </main>
+
+        {/* ✅ WebSocketStatus - Always rendered, not conditionally */}
+        <div className="websocket-status-container">
+          <WebSocketStatus />
+        </div>
 
         {mobileOpen && <div className="sidebar-overlay" onClick={closeMobileSidebar} />}
       </div>
