@@ -44,7 +44,14 @@ import {
   FaTools,
   FaBuilding,
   FaCheckDouble,
-  FaQrcode
+  FaQrcode,
+  FaRocket,
+  FaAward,
+  FaClock,
+  FaThumbsUp,
+  FaHeart,
+  FaQuoteLeft,
+  FaQuoteRight
 } from 'react-icons/fa';
 
 import { getServiceImage, getInitialsImage } from '../utils/imageUtils';
@@ -55,7 +62,7 @@ const formatCurrency = (amount) => {
   return `₦${amount}`;
 };
 
-// ----- Mock Adverts (4 ads) -----
+// Mock Adverts (4 ads)
 const mockAdverts = [
   {
     id: 'ad1',
@@ -102,7 +109,7 @@ const mockAdverts = [
   }
 ];
 
-// Helper: merge ads into services list (ensure ads always appear, even if no services)
+// Helper: merge ads into services list
 const getMergedList = (services) => {
   const result = [];
   const ads = [...mockAdverts];
@@ -120,7 +127,7 @@ const getMergedList = (services) => {
   return result;
 };
 
-// Advert Card component (handles different button behaviours)
+// Advert Card component
 const AdCard = ({ advert, onDownloadClick, onReferralClick, onPartnershipClick }) => {
   const handleClick = (e) => {
     if (advert.isDownload) {
@@ -198,94 +205,80 @@ const Home = () => {
     const contentMap = {
       plumbing: {
         title: '🚰 Professional Plumbing Services',
-        description: `Our licensed plumbers provide comprehensive solutions for residential and commercial properties. From leaky faucets to complete pipe installations, we handle every job with precision and care. We use only high‑quality materials and modern diagnostic tools to ensure lasting results.`,
+        description: `Our licensed plumbers provide comprehensive solutions for residential and commercial properties. From leaky faucets to complete pipe installations, we handle every job with precision and care.`,
         reasons: [
           '24/7 emergency response – we never leave you with a burst pipe',
           'Transparent upfront pricing with no hidden fees',
-          'Licensed, insured, and background‑checked technicians',
-          'Warranty on all repairs and installations',
-          'Eco‑friendly solutions to save water and reduce bills'
+          'Licensed, insured, and background‑checked technicians'
         ],
-        maintenance: `Regular plumbing maintenance prevents costly emergencies. We offer annual inspection plans that include drain cleaning, pressure checks, and leak detection. Keeping your system in top shape extends its life and improves efficiency.`,
-        building: `For new builds or major renovations, we provide full‑service plumbing design and installation. Our team works closely with architects and contractors to deliver code‑compliant, high‑performance systems that stand the test of time.`
+        maintenance: `Regular plumbing maintenance prevents costly emergencies. We offer annual inspection plans that include drain cleaning, pressure checks, and leak detection.`,
+        building: `For new builds or major renovations, we provide full‑service plumbing design and installation.`
       },
       electrical: {
         title: '⚡ Expert Electrical Services',
-        description: `Safety and reliability are paramount in electrical work. Our electricians are certified and experienced in everything from rewiring old homes to installing smart home systems. We follow strict safety protocols and use premium components.`,
+        description: `Safety and reliability are paramount in electrical work. Our electricians are certified and experienced in everything from rewiring old homes to installing smart home systems.`,
         reasons: [
           'Fully licensed and insured with years of experience',
           'Same‑day service for most electrical issues',
-          'Up‑front pricing with detailed quotes',
-          'Energy‑efficient solutions that lower your bills',
-          'Emergency service available 24/7'
+          'Up‑front pricing with detailed quotes'
         ],
-        maintenance: `Routine electrical inspections catch problems before they cause fires or outages. Our maintenance plans include panel checks, circuit testing, and surge protection upgrades. A well‑maintained system is a safe system.`,
-        building: `From new construction to commercial build‑outs, we design and install electrical systems that are scalable, code‑compliant, and future‑ready. We work on schedule and within budget.`
+        maintenance: `Routine electrical inspections catch problems before they cause fires or outages. Our maintenance plans include panel checks, circuit testing, and surge protection upgrades.`,
+        building: `From new construction to commercial build‑outs, we design and install electrical systems that are scalable, code‑compliant, and future‑ready.`
       },
       hvac: {
         title: '❄️ HVAC Installation & Repair',
-        description: `Keep your property comfortable year‑round with our professional heating, ventilation, and air conditioning services. We install, maintain, and repair all major brands, ensuring energy efficiency and indoor air quality.`,
+        description: `Keep your property comfortable year‑round with our professional heating, ventilation, and air conditioning services. We install, maintain, and repair all major brands.`,
         reasons: [
           '24/7 emergency AC and heating repair',
           'Certified technicians with years of experience',
-          'Energy‑efficient system upgrades – save up to 30% on bills',
-          'Free consultation and accurate quotes',
-          'Maintenance plans to extend equipment life'
+          'Energy‑efficient system upgrades – save up to 30% on bills'
         ],
-        maintenance: `Regular filter changes, coil cleaning, and system checks prevent breakdowns and maintain efficiency. Our annual maintenance plans include two tune‑ups and priority service.`,
-        building: `For new construction or major renovations, we design and install complete HVAC systems tailored to the building’s size and usage. We work with architects to meet all codes and energy standards.`
+        maintenance: `Regular filter changes, coil cleaning, and system checks prevent breakdowns and maintain efficiency.`,
+        building: `For new construction or major renovations, we design and install complete HVAC systems tailored to the building’s size and usage.`
       },
       flooring: {
         title: '🪵 Professional Flooring Services',
-        description: `From hardwood to laminate, tile to luxury vinyl, our flooring experts provide flawless installation and restoration. We help you choose the best material for your space and budget, then handle every step with precision.`,
+        description: `From hardwood to laminate, tile to luxury vinyl, our flooring experts provide flawless installation and restoration.`,
         reasons: [
           'Free on‑site measurement and consultation',
           'Wide range of materials – wood, tile, carpet, vinyl, laminate',
-          'Professional subfloor preparation and moisture barriers',
-          'Clean, efficient installation with minimal disruption',
-          'Repair and refinishing services available'
+          'Professional subfloor preparation and moisture barriers'
         ],
-        maintenance: `We offer cleaning, sealing, and refinishing services to keep your floors beautiful. Regular maintenance extends the life of your investment by years.`,
-        building: `For commercial or residential developments, we provide large‑scale flooring installation with fast turnaround. Volume discounts and project management included.`
+        maintenance: `We offer cleaning, sealing, and refinishing services to keep your floors beautiful.`,
+        building: `For commercial or residential developments, we provide large‑scale flooring installation with fast turnaround.`
       },
       painting: {
         title: '🎨 Professional Painting Services',
-        description: `Interior or exterior, residential or commercial – our painters deliver flawless finishes. We prepare surfaces meticulously, use premium paints, and protect your furniture and floors. Color consultation is included.`,
+        description: `Interior or exterior, residential or commercial – our painters deliver flawless finishes. We prepare surfaces meticulously and use premium paints.`,
         reasons: [
           'Detailed surface preparation (sanding, patching, priming)',
           'High‑quality, low‑VOC paints for safe indoor air',
-          'Clean, tidy work area with drop cloths and tape',
-          'Punctual and reliable crews',
-          'Satisfaction guaranteed with free touch‑ups'
+          'Clean, tidy work area with drop cloths and tape'
         ],
-        maintenance: `Periodic repainting protects walls from moisture and wear. Our maintenance plans include annual inspections and touch‑ups to keep your property looking fresh.`,
-        building: `For new construction, we provide complete painting packages aligned with your design specifications. We work efficiently to stay on schedule without compromising quality.`
+        maintenance: `Periodic repainting protects walls from moisture and wear. Our maintenance plans include annual inspections and touch‑ups.`,
+        building: `For new construction, we provide complete painting packages aligned with your design specifications.`
       },
       moving: {
         title: '🚚 Professional Moving Services',
-        description: `Moving can be stressful – we make it easy. Our experienced movers handle everything from packing to unloading, including heavy furniture, fragile items, and specialty pieces. We have all the equipment and trucks.`,
+        description: `Moving can be stressful – we make it easy. Our experienced movers handle everything from packing to unloading, including heavy furniture and fragile items.`,
         reasons: [
           'Free on‑site estimate with no obligation',
           'Fully licensed and insured for your peace of mind',
-          'Packing materials provided, or we can pack for you',
-          'No hidden fees – hourly or flat rates available',
-          'Trained, courteous staff who treat your belongings with care'
+          'Packing materials provided, or we can pack for you'
         ],
-        maintenance: `Not applicable for moving, but we offer storage solutions and unpacking services to help you settle in faster.`,
-        building: `We coordinate with contractors and property managers for large‑scale moves (office buildings, apartment complexes). Our logistics team ensures minimal downtime.`
+        maintenance: `We offer storage solutions and unpacking services to help you settle in faster.`,
+        building: `We coordinate with contractors and property managers for large‑scale moves.`
       },
       gardening: {
         title: '🌿 Professional Gardening & Landscaping',
-        description: `From lawn care to full garden design, our horticulturists and landscapers bring beauty to your outdoor spaces. We offer planting, pruning, weeding, mulching, and hardscaping (patios, walkways). All work is done with sustainability in mind.`,
+        description: `From lawn care to full garden design, our horticulturists and landscapers bring beauty to your outdoor spaces.`,
         reasons: [
           'Personalized garden plans based on your climate and soil',
           'Use of organic fertilizers and pest control',
-          'Regular maintenance schedules to keep gardens pristine',
-          'Water‑efficient irrigation systems',
-          'Year‑round care, including winter protection'
+          'Regular maintenance schedules to keep gardens pristine'
         ],
-        maintenance: `Weekly or bi‑weekly lawn mowing, hedge trimming, weeding, and leaf removal keep your property looking its best. We also offer seasonal clean‑ups and mulching.`,
-        building: `For new developments, we provide complete landscaping design and installation, including grading, sodding, planting, and irrigation. We work with architects to enhance curb appeal.`
+        maintenance: `Weekly or bi‑weekly lawn mowing, hedge trimming, weeding, and leaf removal keep your property looking its best.`,
+        building: `For new developments, we provide complete landscaping design and installation.`
       }
     };
     return contentMap[slug] || {
@@ -302,7 +295,7 @@ const Home = () => {
     setShowModal(true);
   };
 
-  // Social sharing for referral modal
+  // Social sharing functions
   const shareOnFacebook = () => {
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.origin)}`, '_blank');
   };
@@ -551,17 +544,18 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Stats Section */}
-      <section className="py-5 bg-white">
-        <Container>
+      {/* ========== STATS SECTION ========== */}
+      <section className="stats-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="g-4">
             {stats.map((stat, index) => (
               <Col md={3} key={index}>
-                <Card className="border-0 text-center bg-light border-0">
+                <Card className="border-0 text-center stat-card">
                   <Card.Body>
-                    <div className="text-primary mb-3" style={{ fontSize: '2.5rem' }}>{stat.icon}</div>
-                    <h2 className="fw-bold mb-2">{stat.value}</h2>
-                    <p className="text-muted mb-0">{stat.label}</p>
+                    <div className="stat-icon mb-3">{stat.icon}</div>
+                    <h2 className="fw-bold mb-2 stat-value">{stat.value}</h2>
+                    <p className="stat-label mb-0">{stat.label}</p>
                   </Card.Body>
                 </Card>
               </Col>
@@ -570,14 +564,16 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Categories Section */}
-      <section className="py-5 bg-light">
-        <Container>
+      {/* ========== CATEGORIES SECTION - FIXED VISIBILITY ========== */}
+      <section className="categories-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <div className="categories-bg-overlay"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5 text-center">
             <Col>
-              <Badge bg="primary" className="mb-3 px-3 py-2">Categories</Badge>
-              <h2 className="display-6 fw-bold mb-3">Browse by Category</h2>
-              <p className="text-muted lead">Find the perfect service for your needs</p>
+              <Badge className="section-badge mb-3 px-4 py-2">Categories</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">Browse by Category</h2>
+              <p className="text-muted lead section-subtitle">Find the perfect service for your needs</p>
             </Col>
           </Row>
           <Row className="g-4">
@@ -590,17 +586,18 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Featured Services with mock adverts */}
-      <section className="py-5 bg-white">
-        <Container>
+      {/* ========== FEATURED SERVICES ========== */}
+      <section className="featured-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5">
             <Col md={8}>
-              <Badge bg="warning" text="dark" className="mb-3 px-3 py-2">Featured</Badge>
-              <h2 className="display-6 fw-bold mb-3">Popular Services</h2>
-              <p className="text-muted lead">Most booked services this week</p>
+              <Badge className="section-badge-featured mb-3 px-4 py-2">Featured</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">Popular Services</h2>
+              <p className="text-muted lead section-subtitle">Most booked services this week</p>
             </Col>
             <Col md={4} className="text-md-end align-self-center">
-              <Button as={Link} to="/services" variant="outline-primary" size="lg" className="rounded-pill">
+              <Button as={Link} to="/services" variant="outline-primary" size="lg" className="rounded-pill view-all-btn">
                 View All Services <FaArrowRight className="ms-2" />
               </Button>
             </Col>
@@ -624,14 +621,15 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Specialized Services Section */}
-      <section className="py-5 bg-light">
-        <Container>
+      {/* ========== SPECIALIZED SERVICES ========== */}
+      <section className="specialized-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5 text-center">
             <Col>
-              <Badge bg="success" className="mb-3 px-3 py-2">Specialized Services</Badge>
-              <h2 className="display-6 fw-bold mb-3">Expert Solutions for Every Need</h2>
-              <p className="text-muted lead">High‑quality work by certified professionals</p>
+              <Badge className="section-badge-success mb-3 px-4 py-2">Specialized Services</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">Expert Solutions for Every Need</h2>
+              <p className="text-muted lead section-subtitle">High‑quality work by certified professionals</p>
             </Col>
           </Row>
           <Row className="g-4">
@@ -662,14 +660,15 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* How It Works */}
-      <section className="py-5 bg-white">
-        <Container>
+      {/* ========== HOW IT WORKS ========== */}
+      <section className="how-it-works-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5 text-center">
             <Col>
-              <Badge bg="info" className="mb-3 px-3 py-2">Simple Process</Badge>
-              <h2 className="display-6 fw-bold mb-3">How It Works</h2>
-              <p className="text-muted lead">Get your service in four simple steps</p>
+              <Badge className="section-badge-info mb-3 px-4 py-2">Simple Process</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">How It Works</h2>
+              <p className="text-muted lead section-subtitle">Get your service in four simple steps</p>
             </Col>
           </Row>
           <Row className="g-4">
@@ -680,12 +679,12 @@ const Home = () => {
               { step: '04', title: 'Relax', description: 'Get the job done', icon: '😌' }
             ].map((item, index) => (
               <Col md={3} key={index}>
-                <Card className="border-0 text-center h-100">
+                <Card className="border-0 text-center h-100 step-card">
                   <Card.Body>
                     <div className="step-number mb-3">{item.step}</div>
                     <div className="step-icon mb-3">{item.icon}</div>
-                    <h5 className="mb-2">{item.title}</h5>
-                    <p className="text-muted mb-0">{item.description}</p>
+                    <h5 className="mb-2 step-title">{item.title}</h5>
+                    <p className="text-muted mb-0 step-description">{item.description}</p>
                   </Card.Body>
                 </Card>
               </Col>
@@ -694,42 +693,80 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Contact Section */}
-      <section className="py-5 bg-light" id="contact">
-        <Container>
+      {/* ========== TESTIMONIALS SECTION ========== */}
+      <section className="testimonials-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5 text-center">
             <Col>
-              <Badge bg="danger" className="mb-3 px-3 py-2">Get In Touch</Badge>
-              <h2 className="display-6 fw-bold mb-3">Contact Us</h2>
-              <p className="text-muted lead">We'd love to hear from you. Send us a message and we'll respond as soon as possible.</p>
+              <Badge className="section-badge-purple mb-3 px-4 py-2">Testimonials</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">What Our Clients Say</h2>
+              <p className="text-muted lead section-subtitle">Real stories from real customers</p>
+            </Col>
+          </Row>
+          <Row className="g-4">
+            {[
+              { name: 'John Doe', role: 'Homeowner', text: 'The plumbing service was exceptional. They arrived on time, fixed the issue quickly, and left everything spotless.', rating: 5 },
+              { name: 'Sarah Johnson', role: 'Property Manager', text: 'We use Smart Services for all our properties. Their electrical team is professional and reliable. Highly recommended!', rating: 5 },
+              { name: 'Michael Okafor', role: 'Business Owner', text: 'The painting service transformed our office space. Great attention to detail and excellent communication throughout.', rating: 4.5 }
+            ].map((testimonial, idx) => (
+              <Col md={4} key={idx}>
+                <Card className="border-0 shadow-sm testimonial-card h-100">
+                  <Card.Body className="text-center">
+                    <FaQuoteLeft className="testimonial-quote" />
+                    <p className="testimonial-text">{testimonial.text}</p>
+                    <div className="testimonial-stars">
+                      {[...Array(5)].map((_, i) => (
+                        <FaStar key={i} className={i < Math.floor(testimonial.rating) ? 'text-warning' : 'text-secondary'} />
+                      ))}
+                    </div>
+                    <h6 className="testimonial-name mt-3">{testimonial.name}</h6>
+                    <small className="testimonial-role">{testimonial.role}</small>
+                  </Card.Body>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </Container>
+      </section>
+
+      {/* ========== CONTACT SECTION - FIXED OVERLAP ========== */}
+      <section className="contact-section position-relative overflow-hidden py-5" id="contact">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
+          <Row className="mb-5 text-center">
+            <Col>
+              <Badge className="section-badge-danger mb-3 px-4 py-2">Get In Touch</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">Contact Us</h2>
+              <p className="text-muted lead section-subtitle">We'd love to hear from you. Send us a message and we'll respond as soon as possible.</p>
             </Col>
           </Row>
           <Row className="g-5">
             <Col lg={5}>
-              <Card className="border-0 shadow-sm h-100">
+              <Card className="border-0 shadow-sm h-100 contact-info-card">
                 <Card.Body className="p-4">
-                  <h4 className="mb-4">Contact Information</h4>
-                  <div className="mb-4 d-flex align-items-center">
-                    <div className="bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                      <FaMapMarkerAlt className="text-primary" size={24} />
+                  <h4 className="mb-4 contact-title">Contact Information</h4>
+                  <div className="mb-4 d-flex align-items-center contact-item">
+                    <div className="contact-icon-wrapper">
+                      <FaMapMarkerAlt className="contact-icon" size={24} />
                     </div>
                     <div>
                       <h6 className="mb-1">Address</h6>
                       <p className="text-muted mb-0">123 Tech Street, Silicon Valley, CA 94025</p>
                     </div>
                   </div>
-                  <div className="mb-4 d-flex align-items-center">
-                    <div className="bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                      <FaPhone className="text-primary" size={24} />
+                  <div className="mb-4 d-flex align-items-center contact-item">
+                    <div className="contact-icon-wrapper">
+                      <FaPhone className="contact-icon" size={24} />
                     </div>
                     <div>
                       <h6 className="mb-1">Phone</h6>
                       <p className="text-muted mb-0">+1 (555) 123-4567</p>
                     </div>
                   </div>
-                  <div className="mb-4 d-flex align-items-center">
-                    <div className="bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                      <FaEnvelope className="text-primary" size={24} />
+                  <div className="mb-4 d-flex align-items-center contact-item">
+                    <div className="contact-icon-wrapper">
+                      <FaEnvelope className="contact-icon" size={24} />
                     </div>
                     <div>
                       <h6 className="mb-1">Email</h6>
@@ -740,9 +777,9 @@ const Home = () => {
               </Card>
             </Col>
             <Col lg={7}>
-              <Card className="border-0 shadow-sm">
+              <Card className="border-0 shadow-sm contact-form-card">
                 <Card.Body className="p-4">
-                  <h4 className="mb-4">Send us a Message</h4>
+                  <h4 className="mb-4 contact-title">Send us a Message</h4>
                   <Form>
                     <Row className="mb-3">
                       <Col md={6}>
@@ -762,7 +799,7 @@ const Home = () => {
                       <Form.Label>Message</Form.Label>
                       <Form.Control as="textarea" rows={5} placeholder="Your message" />
                     </Form.Group>
-                    <Button variant="primary" type="submit" className="px-4">
+                    <Button variant="primary" type="submit" className="px-4 submit-btn">
                       Send Message <FaArrowRight className="ms-2" />
                     </Button>
                   </Form>
@@ -773,19 +810,20 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* FAQ Section */}
-      <section className="py-5 bg-white">
-        <Container>
+      {/* ========== FAQ SECTION ========== */}
+      <section className="faq-section position-relative overflow-hidden py-5">
+        <div className="section-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="mb-5 text-center">
             <Col>
-              <Badge bg="info" className="mb-3 px-3 py-2">FAQ</Badge>
-              <h2 className="display-6 fw-bold mb-3">Frequently Asked Questions</h2>
-              <p className="text-muted lead">Find answers to common questions about our services</p>
+              <Badge className="section-badge-info mb-3 px-4 py-2">FAQ</Badge>
+              <h2 className="display-6 fw-bold section-title mb-3">Frequently Asked Questions</h2>
+              <p className="text-muted lead section-subtitle">Find answers to common questions about our services</p>
             </Col>
           </Row>
           <Row className="justify-content-center">
             <Col lg={8}>
-              <Accordion defaultActiveKey="0">
+              <Accordion defaultActiveKey="0" className="faq-accordion">
                 <Accordion.Item eventKey="0">
                   <Accordion.Header>What technology solutions do you offer?</Accordion.Header>
                   <Accordion.Body>
@@ -828,17 +866,18 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-5" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-        <Container>
+      {/* ========== CTA SECTION ========== */}
+      <section className="cta-section position-relative overflow-hidden py-5">
+        <div className="cta-pattern"></div>
+        <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="align-items-center text-white">
             <Col lg={8} className="mb-4 mb-lg-0">
-              <h2 className="display-6 fw-bold mb-3">Ready to transform your business?</h2>
-              <p className="lead mb-0 opacity-90">Join thousands of enterprises using our premium technology solutions.</p>
+              <h2 className="display-6 fw-bold cta-title mb-3">Ready to transform your business?</h2>
+              <p className="lead mb-0 cta-subtitle">Join thousands of enterprises using our premium technology solutions.</p>
             </Col>
             <Col lg={4} className="text-lg-end">
-              <Button as={Link} to="/register" variant="light" size="lg" className="px-5 fw-bold me-2">Sign Up</Button>
-              <Button as={Link} to="/login" variant="outline-light" size="lg" className="px-5 fw-bold">Login</Button>
+              <Button as={Link} to="/register" variant="light" size="lg" className="px-5 fw-bold me-2 cta-btn-primary">Sign Up</Button>
+              <Button as={Link} to="/login" variant="outline-light" size="lg" className="px-5 fw-bold cta-btn-secondary">Login</Button>
             </Col>
           </Row>
         </Container>
@@ -923,7 +962,7 @@ const Home = () => {
         </Modal.Footer>
       </Modal>
 
-      {/* 3. Referral Modal (Social Share) */}
+      {/* 3. Referral Modal */}
       <Modal show={showReferralModal} onHide={() => setShowReferralModal(false)} centered className="professional-modal">
         <Modal.Header closeButton className="border-0">
           <Modal.Title className="fw-bold"><FaGift className="text-warning me-2" /> Refer a Friend, Earn ₦50</Modal.Title>
@@ -968,7 +1007,7 @@ const Home = () => {
           </div>
           <h5 className="text-primary mb-3">Join Our Elite Partner Network</h5>
           <p>
-            Smart Services invites established organizations – <strong>real estate developers, property management firms, financial institutions, general contractors, and large enterprises</strong> – to form a strategic alliance with us.
+            Smart Services invites established organizations to form a strategic alliance with us.
           </p>
           <Row className="g-3 mb-4">
             <Col md={6}>
@@ -994,13 +1033,13 @@ const Home = () => {
           </Row>
           <h5 className="mt-3">Who Should Partner?</h5>
           <ul>
-            <li><strong>Real Estate Firms / Developers</strong> – Keep properties well‑maintained, increase asset value</li>
+            <li><strong>Real Estate Firms / Developers</strong> – Keep properties well‑maintained</li>
             <li><strong>Financial Institutions</strong> – Offer maintenance as a value‑added benefit</li>
             <li><strong>Contractors</strong> – Expand your service catalogue</li>
             <li><strong>Large Enterprises</strong> – Single SLA for all facilities</li>
           </ul>
           <div className="bg-light p-3 rounded-3 mt-3">
-            <p className="mb-0 fst-italic">“Partnering with Smart Services streamlined our maintenance across 50+ properties. Unmatched responsiveness and quality.” – <strong>Regional Manager, Major Real Estate Trust</strong></p>
+            <p className="mb-0 fst-italic">“Partnering with Smart Services streamlined our maintenance across 50+ properties.”</p>
           </div>
         </Modal.Body>
         <Modal.Footer className="border-0">
@@ -1010,9 +1049,13 @@ const Home = () => {
       </Modal>
 
       <style jsx="true">{`
+        /* ============================================================
+           HERO SECTION
+           ============================================================ */
         .hero-section {
           background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
           position: relative;
+          min-height: 100vh;
         }
         .hero-gradient {
           position: absolute;
@@ -1021,35 +1064,8 @@ const Home = () => {
           right: 0;
           bottom: 0;
           background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-        }
-        .service-card, .trade-card {
-          transition: all 0.3s ease;
-          border-radius: 15px;
-          overflow: hidden;
-          box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-        }
-        .service-card:hover, .trade-card:hover {
-          transform: translateY(-10px);
-          box-shadow: 0 20px 40px rgba(0,0,0,0.12) !important;
-        }
-        .category-card {
-          transition: all 0.3s ease;
-          border-radius: 15px;
-          cursor: pointer;
-        }
-        .category-card:hover {
-          transform: scale(1.05);
-          box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
-        }
-        .step-number {
-          font-size: 3rem;
-          font-weight: bold;
-          color: rgba(102, 126, 234, 0.1);
-          line-height: 1;
-        }
-        .step-icon {
-          font-size: 2.5rem;
-          margin-top: -20px;
+          background-size: 60px 60px;
+          pointer-events: none;
         }
         .hero-image-container {
           animation: float 6s ease-in-out infinite;
@@ -1059,18 +1075,475 @@ const Home = () => {
           50% { transform: translateY(-20px); }
           100% { transform: translateY(0px); }
         }
-        @media (max-width: 768px) {
-          .display-3 { font-size: 2.5rem; }
-          .hero-section { min-height: auto; padding: 60px 0; }
-          .hero-image-container { margin-top: 2rem; }
+
+        /* ============================================================
+           ALL SECTIONS - CONSISTENT SPACING
+           ============================================================ */
+        section {
+          padding: 10px 0;
+          position: relative;
+          overflow: hidden;
         }
-        .professional-modal .modal-content {
+        .section-pattern {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+          background-size: 60px 60px;
+          pointer-events: none;
+          z-index: 1;
+        }
+        .cta-pattern {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+          background-size: 60px 60px;
+          pointer-events: none;
+          z-index: 1;
+        }
+
+        /* ============================================================
+           CATEGORIES SECTION - FIXED VISIBILITY
+           ============================================================ */
+        // .categories-section {
+        //   background: linear-gradient(135deg, #c4b8b8 0%, #1273d5 100%);
+        //   position: relative;
+        //   z-index: 2;
+        // }
+        // .categories-bg-overlay {
+        //   position: absolute;
+        //   top: 0;
+        //   left: 0;
+        //   right: 0;
+        //   bottom: 0;
+        //   background: rgba(255, 255, 255, 0.85);
+        //   z-index: 0;
+        // }
+        // .categories-section .container {
+        //   position: relative;
+        //   z-index: 2;
+        // }
+
+        /* ============================================================
+           STATS SECTION
+           ============================================================ */
+        .stats-section {
+          background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+          position: relative;
+        }
+        .stat-card {
+          background: white;
+          border-radius: 20px;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .stat-card:hover {
+          transform: translateY(-8px);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .stat-icon {
+          font-size: 2.5rem;
+          color: #6366f1;
+          background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+          width: 70px;
+          height: 70px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto;
+          transition: all 0.3s ease;
+        }
+        .stat-card:hover .stat-icon {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: white;
+          transform: scale(1.1);
+        }
+        .stat-value {
+          font-size: 2.5rem;
+          background: linear-gradient(135deg, #1a202c, #4a5568);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        .stat-label {
+          color: #718096;
+          font-weight: 500;
+        }
+
+        /* ============================================================
+           CATEGORIES SECTION
+           ============================================================ */
+        .section-badge {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+        .section-title {
+          color: #1a202c;
+        }
+        .section-subtitle {
+          color: #718096;
+        }
+        .category-card {
+          transition: all 0.4s ease;
+          border-radius: 20px;
+          cursor: pointer;
+          padding: 20px;
+          background: white;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .category-card:hover {
+          transform: translateY(-8px) scale(1.02);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+        }
+        .category-icon {
+          font-size: 2.8rem;
+          transition: all 0.3s ease;
+        }
+        .category-card:hover .category-icon {
+          transform: scale(1.2) rotate(-5deg);
+        }
+
+        /* ============================================================
+           FEATURED SERVICES
+           ============================================================ */
+        .featured-section {
+          background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+          position: relative;
+        }
+        .section-badge-featured {
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+        .view-all-btn {
+          border: 2px solid #6366f1;
+          color: #6366f1;
+          transition: all 0.3s ease;
+        }
+        .view-all-btn:hover {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: white;
+          border-color: transparent;
+          transform: translateX(5px);
+        }
+        .service-card, .trade-card {
+          transition: all 0.4s ease;
           border-radius: 20px;
           overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+          background: white;
+        }
+        .service-card:hover, .trade-card:hover {
+          transform: translateY(-10px);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+        }
+
+        /* ============================================================
+           SPECIALIZED SERVICES
+           ============================================================ */
+        .specialized-section {
+          background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+          position: relative;
+        }
+        .section-badge-success {
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+
+        /* ============================================================
+           HOW IT WORKS
+           ============================================================ */
+        .how-it-works-section {
+          background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+          position: relative;
+        }
+        .section-badge-info {
+          background: linear-gradient(135deg, #3b82f6, #2563eb);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+        .step-card {
+          background: white;
+          border-radius: 20px;
+          transition: all 0.4s ease;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .step-card:hover {
+          transform: translateY(-8px);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .step-number {
+          font-size: 3.5rem;
+          font-weight: 800;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          opacity: 0.2;
+          line-height: 1;
+        }
+        .step-icon {
+          font-size: 3rem;
+          margin-top: -10px;
+        }
+        .step-title {
+          color: #1a202c;
+          font-weight: 600;
+        }
+        .step-description {
+          color: #718096;
+        }
+
+        /* ============================================================
+           TESTIMONIALS SECTION
+           ============================================================ */
+        .testimonials-section {
+          background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+          position: relative;
+        }
+        .section-badge-purple {
+          background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+        .testimonial-card {
+          border-radius: 20px;
+          transition: all 0.4s ease;
+          background: white;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .testimonial-card:hover {
+          transform: translateY(-8px);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .testimonial-quote {
+          color: #8b5cf6;
+          font-size: 2rem;
+          opacity: 0.3;
+          margin-bottom: 12px;
+        }
+        .testimonial-text {
+          color: #4a5568;
+          font-size: 1rem;
+          line-height: 1.6;
+          font-style: italic;
+        }
+        .testimonial-stars {
+          margin: 12px 0;
+        }
+        .testimonial-name {
+          font-weight: 600;
+          color: #1a202c;
+          margin-bottom: 0;
+        }
+        .testimonial-role {
+          color: #718096;
+        }
+
+        /* ============================================================
+           CONTACT SECTION
+           ============================================================ */
+        .contact-section {
+          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+          position: relative;
+        }
+        .section-badge-danger {
+          background: linear-gradient(135deg, #ef4444, #dc2626);
+          color: white;
+          border-radius: 50px;
+          font-weight: 600;
+        }
+        .contact-info-card {
+          border-radius: 20px;
+          background: linear-gradient(135deg, #ffffff, #f8fafc);
+        }
+        .contact-form-card {
+          border-radius: 20px;
+        }
+        .contact-title {
+          color: #1a202c;
+          font-weight: 700;
+        }
+        .contact-item {
+          padding: 12px;
+          border-radius: 12px;
+          transition: all 0.3s ease;
+          background: white;
+        }
+        .contact-item:hover {
+          background: #f8fafc;
+          transform: translateX(5px);
+        }
+        .contact-icon-wrapper {
+          width: 48px;
+          height: 48px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          margin-right: 16px;
+        }
+        .contact-icon {
+          color: #6366f1;
+        }
+        .submit-btn {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
           border: none;
+          border-radius: 50px;
+          padding: 12px 32px;
+          font-weight: 600;
+          transition: all 0.3s ease;
+        }
+        .submit-btn:hover {
+          transform: translateX(5px);
+          box-shadow: 0 10px 30px rgba(99, 102, 241, 0.3);
+        }
+
+        /* ============================================================
+           FAQ SECTION
+           ============================================================ */
+        .faq-section {
+          background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+          position: relative;
+        }
+        .faq-accordion .accordion-item {
+          border: none;
+          margin-bottom: 12px;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .faq-accordion .accordion-header {
+          border: none;
+        }
+        .faq-accordion .accordion-button {
+          padding: 18px 24px;
+          font-weight: 600;
+          color: #1a202c;
+          background: white;
+          border: none;
+          border-radius: 16px;
+          box-shadow: none;
+        }
+        .faq-accordion .accordion-button:not(.collapsed) {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: white;
+          border-radius: 16px 16px 0 0;
+        }
+        .faq-accordion .accordion-button:focus {
+          box-shadow: none;
+          border-color: transparent;
+        }
+        .faq-accordion .accordion-body {
+          padding: 20px 24px;
+          background: #f8fafc;
+          color: #4a5568;
+        }
+
+        /* ============================================================
+           CTA SECTION
+           ============================================================ */
+        .cta-section {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          position: relative;
+          overflow: hidden;
+        }
+        .cta-title {
+          position: relative;
+          z-index: 2;
+        }
+        .cta-subtitle {
+          position: relative;
+          z-index: 2;
+          opacity: 0.9;
+        }
+        .cta-btn-primary {
+          border-radius: 50px;
+          padding: 12px 32px;
+          font-weight: 600;
+          transition: all 0.3s ease;
+          position: relative;
+          z-index: 2;
+        }
+        .cta-btn-primary:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .cta-btn-secondary {
+          border-radius: 50px;
+          padding: 12px 32px;
+          font-weight: 600;
+          border: 2px solid rgba(255,255,255,0.4);
+          transition: all 0.3s ease;
+          position: relative;
+          z-index: 2;
+        }
+        .cta-btn-secondary:hover {
+          background: white;
+          color: #6366f1;
+          border-color: white;
+          transform: translateY(-3px);
+        }
+
+        /* ============================================================
+           MODALS
+           ============================================================ */
+        .professional-modal .modal-content {
+          border-radius: 24px;
+          overflow: hidden;
+          border: none;
+          box-shadow: 0 30px 60px rgba(0,0,0,0.2);
         }
         .bg-gradient-primary {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        /* ============================================================
+           RESPONSIVE
+           ============================================================ */
+        @media (max-width: 768px) {
+          section {
+            padding: 60px 0;
+          }
+          .display-6 {
+            font-size: 1.8rem;
+          }
+          .stat-value {
+            font-size: 2rem;
+          }
+          .stat-icon {
+            width: 60px;
+            height: 60px;
+            font-size: 2rem;
+          }
+          .cta-title {
+            font-size: 1.8rem;
+          }
+          .cta-btn-primary, .cta-btn-secondary {
+            width: 100%;
+            margin-bottom: 10px;
+          }
+          .step-number {
+            font-size: 2.8rem;
+          }
+          .testimonial-text {
+            font-size: 0.9rem;
+          }
         }
       `}</style>
     </>

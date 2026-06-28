@@ -1514,4 +1514,41 @@ router.get('/knowledge-base', async (req, res) => {
   }
 });
 
+// Backend/routes/customerRoutes.js
+
+// GET /api/customer/reminders - Get customer reminders
+router.get('/reminders', async (req, res) => {
+  try {
+    const customerId = req.user.id;
+    
+    // Check if reminders table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'customer_reminders'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      // Return empty array if table doesn't exist
+      return res.json([]);
+    }
+    
+    const result = await pool.query(`
+      SELECT * FROM customer_reminders 
+      WHERE customer_id = $1 
+        AND is_read = false 
+        AND reminder_date >= NOW()
+      ORDER BY reminder_date ASC
+      LIMIT 10
+    `, [customerId]);
+    
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('Error fetching reminders:', error);
+    // Return empty array on error instead of 404
+    res.json([]);
+  }
+});
+
 export default router;
