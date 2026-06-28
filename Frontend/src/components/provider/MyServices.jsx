@@ -1,5 +1,5 @@
 // src/components/provider/MyServices.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -43,8 +43,8 @@ import {
   BarChart2,
   Shield,
   Gift,
-  TrendingUp,        // ✅ ADD THIS IMPORT
-  TrendingDown        // ✅ Also add this for potential downward trends
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -57,6 +57,7 @@ const MyServices = () => {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -69,6 +70,11 @@ const MyServices = () => {
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -90,8 +96,8 @@ const MyServices = () => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount || 0);
   };
 
@@ -101,38 +107,107 @@ const MyServices = () => {
     return formatNaira(amount);
   };
 
-  // Fetch services
-  const fetchServices = useCallback(async () => {
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Fetch services from real API
+  const fetchServices = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
         status: activeTab !== 'all' ? activeTab : undefined,
         search: searchTerm || undefined
       };
+
+      let response = null;
       
-      const response = await providerAPI.getServices(params);
-      setServices(response.data.services || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+      if (typeof providerAPI.getServices === 'function') {
+        response = await providerAPI.getServices(params);
+      } else if (typeof providerAPI.getProviderServices === 'function') {
+        response = await providerAPI.getProviderServices(params);
+      } else {
+        throw new Error('Services API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const servicesData = data.services || data.data || [];
+      
+      setServices(Array.isArray(servicesData) ? servicesData : []);
+      setTotalCount(data.total || servicesData.length || 0);
+      setTotalPages(Math.ceil((data.total || servicesData.length || 0) / itemsPerPage));
+      
     } catch (error) {
       console.error('Error fetching services:', error);
-      toast.error('Failed to load services');
+      setError(error.message || 'Failed to load services');
+      setServices([]);
+      setTotalCount(0);
+      setTotalPages(1);
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load services');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [currentPage, activeTab, searchTerm]);
 
   // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchServices();
-    setRefreshing(false);
+    await fetchServices(false);
     toast.success('Services updated');
   };
 
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchServices(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    fetchServices();
-  }, [fetchServices]);
+    fetchServices(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchServices(false);
+    }
+  }, [currentPage, activeTab, searchTerm]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -159,6 +234,7 @@ const MyServices = () => {
     });
   };
 
+  // Handle image upload with real API
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -168,17 +244,33 @@ const MyServices = () => {
     formDataImg.append('image', file);
 
     try {
-      const response = await providerAPI.uploadServiceImage(formDataImg);
-      setFormData({ ...formData, image_url: response.data.url });
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.uploadServiceImage === 'function') {
+        response = await providerAPI.uploadServiceImage(formDataImg);
+      } else if (typeof providerAPI.uploadImage === 'function') {
+        response = await providerAPI.uploadImage(formDataImg);
+      } else {
+        throw new Error('Image upload API methods not available');
+      }
+
+      const data = response?.data || {};
+      const imageUrl = data.url || data.image_url || data.imageUrl;
+      setFormData({ ...formData, image_url: imageUrl });
       toast.success('Image uploaded successfully');
     } catch (error) {
       console.error('Error uploading image:', error);
-      toast.error('Failed to upload image');
+      toast.error(error.message || 'Failed to upload image');
     } finally {
       setUploadingImage(false);
     }
   };
 
+  // Handle save service with real API
   const handleSaveService = async () => {
     if (!formData.name || !formData.category || !formData.price) {
       toast.error('Please fill in all required fields');
@@ -187,6 +279,10 @@ const MyServices = () => {
 
     setSaving(true);
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const serviceData = {
         name: formData.name,
         category: formData.category,
@@ -198,11 +294,29 @@ const MyServices = () => {
         is_featured: formData.is_featured
       };
 
+      let response = null;
+      
       if (editingService) {
-        await providerAPI.updateService(editingService.id, serviceData);
+        const serviceId = editingService.id || editingService._id;
+        if (!serviceId) {
+          throw new Error('Service ID not found');
+        }
+        if (typeof providerAPI.updateService === 'function') {
+          response = await providerAPI.updateService(serviceId, serviceData);
+        } else if (typeof providerAPI.editService === 'function') {
+          response = await providerAPI.editService(serviceId, serviceData);
+        } else {
+          throw new Error('Update service API methods not available');
+        }
         toast.success('Service updated successfully');
       } else {
-        await providerAPI.createService(serviceData);
+        if (typeof providerAPI.createService === 'function') {
+          response = await providerAPI.createService(serviceData);
+        } else if (typeof providerAPI.addService === 'function') {
+          response = await providerAPI.addService(serviceData);
+        } else {
+          throw new Error('Create service API methods not available');
+        }
         toast.success('Service created successfully');
       }
       
@@ -219,109 +333,147 @@ const MyServices = () => {
         is_featured: false
       });
       setFeatureInput('');
-      await fetchServices();
+      await fetchServices(false);
     } catch (error) {
       console.error('Error saving service:', error);
-      toast.error(error.response?.data?.message || 'Failed to save service');
+      toast.error(error.response?.data?.message || error.message || 'Failed to save service');
     } finally {
       setSaving(false);
     }
   };
 
+  // Handle delete service with real API
   const handleDeleteService = async () => {
     if (!serviceToDelete) return;
+    const serviceId = serviceToDelete.id || serviceToDelete._id;
+    if (!serviceId) return;
 
     setDeleting(true);
     try {
-      await providerAPI.deleteService(serviceToDelete.id);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.deleteService === 'function') {
+        await providerAPI.deleteService(serviceId);
+      } else if (typeof providerAPI.removeService === 'function') {
+        await providerAPI.removeService(serviceId);
+      } else {
+        throw new Error('Delete service API methods not available');
+      }
+      
       toast.success('Service deleted successfully');
       setShowDeleteModal(false);
       setServiceToDelete(null);
-      await fetchServices();
+      await fetchServices(false);
     } catch (error) {
       console.error('Error deleting service:', error);
-      toast.error('Failed to delete service');
+      toast.error(error.message || 'Failed to delete service');
     } finally {
       setDeleting(false);
     }
   };
 
+  // Toggle service status with real API
   const toggleStatus = async (service) => {
+    const serviceId = service.id || service._id;
+    if (!serviceId) return;
+    
     const newStatus = service.status === 'active' ? 'inactive' : 'active';
     try {
-      await providerAPI.updateService(service.id, { status: newStatus });
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { status: newStatus };
+      
+      if (typeof providerAPI.updateService === 'function') {
+        await providerAPI.updateService(serviceId, payload);
+      } else if (typeof providerAPI.updateServiceStatus === 'function') {
+        await providerAPI.updateServiceStatus(serviceId, newStatus);
+      } else {
+        throw new Error('Update service status API methods not available');
+      }
+      
       toast.success(`Service ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
-      await fetchServices();
+      await fetchServices(false);
     } catch (error) {
       console.error('Error toggling status:', error);
-      toast.error('Failed to update service status');
+      toast.error(error.message || 'Failed to update service status');
     }
   };
 
   const handleEdit = (service) => {
     setEditingService(service);
     setFormData({
-      name: service.name,
-      category: service.category,
+      name: service.name || '',
+      category: service.category || '',
       description: service.description || '',
-      price: service.price,
+      price: service.price || '',
       duration: service.duration || '',
       features: service.features || [],
-      image_url: service.image_url || '',
+      image_url: service.image_url || service.image || '',
       is_featured: service.is_featured || false
     });
     setShowModal(true);
   };
 
-  // Calculate stats
+  // Calculate stats from services data
   const stats = {
     total: services.length,
-    active: services.filter(s => s.status === 'active').length,
-    inactive: services.filter(s => s.status === 'inactive').length,
-    totalBookings: services.reduce((sum, s) => sum + (s.total_bookings || 0), 0),
-    averageRating: services.reduce((sum, s) => sum + (s.rating || 0), 0) / (services.length || 1),
-    totalRevenue: services.reduce((sum, s) => sum + ((s.total_bookings || 0) * (s.price || 0)), 0)
+    active: services.filter(s => s.status?.toLowerCase() === 'active').length,
+    inactive: services.filter(s => s.status?.toLowerCase() === 'inactive').length,
+    totalBookings: services.reduce((sum, s) => sum + (parseInt(s.total_bookings) || parseInt(s.bookings) || 0), 0),
+    averageRating: services.reduce((sum, s) => sum + (parseFloat(s.rating) || 0), 0) / (services.length || 1),
+    totalRevenue: services.reduce((sum, s) => sum + ((parseInt(s.total_bookings) || parseInt(s.bookings) || 0) * (parseFloat(s.price) || 0)), 0)
   };
 
   const getStatusBadge = (status) => {
-    if (status === 'active') {
+    if (!status) {
+      return <Badge bg="secondary" className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill"><PowerOff size={12} /> Unknown</Badge>;
+    }
+    if (status.toLowerCase() === 'active') {
       return <Badge bg="success" className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill"><Power size={12} /> Active</Badge>;
     }
     return <Badge bg="secondary" className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill"><PowerOff size={12} /> Inactive</Badge>;
   };
 
   const getRatingStars = (rating) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+    const numRating = parseFloat(rating) || 0;
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
     return (
       <div className="d-flex align-items-center gap-1">
         {[...Array(5)].map((_, i) => (
           <Star
             key={i}
             size={14}
-            fill={i < fullStars ? '#fbbf24' : 'none'}
-            color={i < fullStars ? '#fbbf24' : '#e2e8f0'}
+            fill={i < fullStars || (i === fullStars && hasHalfStar) ? '#fbbf24' : 'none'}
+            color={i < fullStars || (i === fullStars && hasHalfStar) ? '#fbbf24' : '#e2e8f0'}
           />
         ))}
-        <span className="ms-1 small fw-medium">{rating.toFixed(1)}</span>
+        <span className="ms-1 small fw-medium">{numRating.toFixed(1)}</span>
       </div>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading services...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchServices(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -534,87 +686,101 @@ const MyServices = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {services.map((service) => (
-                    <tr key={service.id}>
-                      <td style={{ padding: '16px' }}>
-                        <div className="d-flex align-items-center gap-3">
-                          {service.image_url ? (
-                            <img 
-                              src={service.image_url} 
-                              alt={service.name} 
-                              style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '48px', height: '48px', background: '#e2e8f0' }}>
-                              <Tag size={20} className="text-muted" />
+                  {services.map((service) => {
+                    const serviceId = service.id || service._id;
+                    const name = getField(service, ['name', 'title', 'service_name'], 'Unnamed Service');
+                    const category = getField(service, ['category', 'categoryName', 'category_name'], 'Uncategorized');
+                    const description = getField(service, ['description', 'short_description', 'desc'], '');
+                    const price = parseFloat(service.price) || 0;
+                    const duration = getField(service, ['duration', 'estimated_duration', 'time_required'], 'N/A');
+                    const bookings = parseInt(service.total_bookings) || parseInt(service.bookings) || 0;
+                    const rating = parseFloat(service.rating) || 0;
+                    const reviews = parseInt(service.total_reviews) || parseInt(service.reviews) || 0;
+                    const status = getField(service, ['status', 'service_status'], 'inactive');
+                    const imageUrl = getField(service, ['image_url', 'image', 'featured_image'], '');
+
+                    return (
+                      <tr key={serviceId}>
+                        <td style={{ padding: '16px' }}>
+                          <div className="d-flex align-items-center gap-3">
+                            {imageUrl ? (
+                              <img 
+                                src={imageUrl} 
+                                alt={name} 
+                                style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '48px', height: '48px', background: '#e2e8f0' }}>
+                                <Tag size={20} className="text-muted" />
+                              </div>
+                            )}
+                            <div>
+                              <div className="fw-bold">{name}</div>
+                              {description && <small className="text-muted">{description.substring(0, 50)}...</small>}
                             </div>
-                          )}
-                          <div>
-                            <div className="fw-bold">{service.name}</div>
-                            <small className="text-muted">{service.description?.substring(0, 50)}...</small>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <Badge bg="light" text="dark" className="rounded-pill px-3 py-2">
-                          {service.category}
-                        </Badge>
-                      </td>
-                      <td style={{ padding: '16px' }} className="fw-bold text-primary">
-                        {formatNaira(service.price)}
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <div className="d-flex align-items-center gap-1">
-                          <Clock size={14} className="text-muted" />
-                          <span>{service.duration || 'N/A'}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <div className="d-flex align-items-center gap-1">
-                          <Users size={14} className="text-muted" />
-                          <span>{service.total_bookings || 0}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <div className="d-flex align-items-center gap-2">
-                          {getRatingStars(service.rating || 0)}
-                          <small className="text-muted">({service.total_reviews || 0})</small>
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px' }}>{getStatusBadge(service.status)}</td>
-                      <td style={{ padding: '16px' }}>
-                        <div className="d-flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline-primary"
-                            onClick={() => handleEdit(service)}
-                            style={{ borderRadius: '8px' }}
-                          >
-                            <Edit2 size={14} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-secondary"
-                            onClick={() => toggleStatus(service)}
-                            style={{ borderRadius: '8px' }}
-                          >
-                            {service.status === 'active' ? <PowerOff size={14} /> : <Power size={14} />}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-danger"
-                            onClick={() => {
-                              setServiceToDelete(service);
-                              setShowDeleteModal(true);
-                            }}
-                            style={{ borderRadius: '8px' }}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td style={{ padding: '16px' }}>
+                          <Badge bg="light" text="dark" className="rounded-pill px-3 py-2">
+                            {category}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '16px' }} className="fw-bold text-primary">
+                          {formatNaira(price)}
+                        </td>
+                        <td style={{ padding: '16px' }}>
+                          <div className="d-flex align-items-center gap-1">
+                            <Clock size={14} className="text-muted" />
+                            <span>{duration}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px' }}>
+                          <div className="d-flex align-items-center gap-1">
+                            <Users size={14} className="text-muted" />
+                            <span>{bookings}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px' }}>
+                          <div className="d-flex align-items-center gap-2">
+                            {getRatingStars(rating)}
+                            <small className="text-muted">({reviews})</small>
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px' }}>{getStatusBadge(status)}</td>
+                        <td style={{ padding: '16px' }}>
+                          <div className="d-flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline-primary"
+                              onClick={() => handleEdit(service)}
+                              style={{ borderRadius: '8px' }}
+                            >
+                              <Edit2 size={14} />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline-secondary"
+                              onClick={() => toggleStatus(service)}
+                              style={{ borderRadius: '8px' }}
+                            >
+                              {status === 'active' ? <PowerOff size={14} /> : <Power size={14} />}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline-danger"
+                              onClick={() => {
+                                setServiceToDelete(service);
+                                setShowDeleteModal(true);
+                              }}
+                              style={{ borderRadius: '8px' }}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </Table>
             </div>
@@ -627,15 +793,27 @@ const MyServices = () => {
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={currentPage === 1}
                   />
-                  {[...Array(totalPages)].map((_, idx) => (
-                    <Pagination.Item
-                      key={idx + 1}
-                      active={idx + 1 === currentPage}
-                      onClick={() => setCurrentPage(idx + 1)}
-                    >
-                      {idx + 1}
-                    </Pagination.Item>
-                  ))}
+                  {[...Array(Math.min(5, totalPages))].map((_, idx) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = idx + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = idx + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + idx;
+                    } else {
+                      pageNum = currentPage - 2 + idx;
+                    }
+                    return (
+                      <Pagination.Item
+                        key={pageNum}
+                        active={pageNum === currentPage}
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum}
+                      </Pagination.Item>
+                    );
+                  })}
                   <Pagination.Next
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages}
@@ -814,7 +992,7 @@ const MyServices = () => {
         <Modal.Body className="pt-4">
           <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
             <AlertCircle size={18} className="me-2" />
-            Are you sure you want to delete "{serviceToDelete?.name}"? This action cannot be undone.
+            Are you sure you want to delete "{serviceToDelete ? getField(serviceToDelete, ['name', 'title', 'service_name'], 'this service') : ''}"? This action cannot be undone.
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">

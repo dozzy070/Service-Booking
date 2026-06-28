@@ -1,5 +1,5 @@
 // src/components/admin/AdminReports.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -13,7 +13,8 @@ import {
   Modal,
   Spinner,
   Alert,
-  ProgressBar
+  ProgressBar,
+  Nav
 } from 'react-bootstrap';
 import {
   FileText,
@@ -66,15 +67,16 @@ import {
   ExternalLink as ExternalLinkIcon,
   Copy,
   Save,
-  Settings
+  Settings,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
-// Remove any duplicate imports from react-icons/fa if they exist
 
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Line, Bar, Pie,  Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Line, Bar, Pie, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -88,7 +90,12 @@ const AdminReports = () => {
   const [exportFormat, setExportFormat] = useState('pdf');
   const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [error, setError] = useState(null);
   
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   // Data states
   const [reportData, setReportData] = useState({
     revenue: { total: 0, growth: 0, data: [] },
@@ -108,63 +115,209 @@ const AdminReports = () => {
 
   // Format currency to NGN
   const formatNaira = (amount) => {
+    const num = Number(amount) || 0;
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(amount || 0);
+    }).format(num);
   };
 
   const formatCompactNaira = (amount) => {
-    if (amount >= 1000000) return `₦${(amount / 1000000).toFixed(1)}M`;
-    if (amount >= 1000) return `₦${(amount / 1000).toFixed(0)}k`;
-    return formatNaira(amount);
+    const num = Number(amount) || 0;
+    if (num >= 1000000) return `₦${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `₦${(num / 1000).toFixed(0)}k`;
+    return formatNaira(num);
   };
 
-  // Fetch report data
-  const fetchReportData = useCallback(async () => {
+  const formatNumber = (value) => {
+    const num = Number(value) || 0;
+    return num.toLocaleString();
+  };
+
+  const formatPercent = (value) => {
+    const num = Number(value) || 0;
+    return `${num.toFixed(1)}%`;
+  };
+
+  // ✅ Fetch report data from real API
+  const fetchReportData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         type: reportType,
         range: dateRange
       };
-      const response = await adminAPI.getReport(params);
-      setReportData(response.data);
-      setSummary(response.data.summary);
-      setTopPerformers(response.data.topPerformers || []);
-      setRecentActivity(response.data.recentActivity || []);
+
+      let response = null;
+      
+      // Try getReport first
+      if (typeof adminAPI.getReport === 'function') {
+        response = await adminAPI.getReport(params);
+      } 
+      // Fallback to getReports
+      else if (typeof adminAPI.getReports === 'function') {
+        response = await adminAPI.getReports(params);
+      } 
+      else {
+        throw new Error('Report API methods not available');
+      }
+
+      const data = response?.data || {};
+      
+      // Set report data with safe defaults
+      setReportData({
+        revenue: data.revenue || { total: 0, growth: 0, data: [] },
+        bookings: data.bookings || { total: 0, growth: 0, data: [] },
+        users: data.users || { total: 0, growth: 0, data: [] }
+      });
+      
+      setSummary(data.summary || {
+        totalRevenue: 0,
+        totalBookings: 0,
+        totalUsers: 0,
+        averageOrderValue: 0,
+        conversionRate: 0,
+        customerSatisfaction: 0
+      });
+      
+      setTopPerformers(data.topPerformers || []);
+      setRecentActivity(data.recentActivity || []);
+      
     } catch (error) {
       console.error('Error fetching report data:', error);
-      toast.error('Failed to load report data');
+      setError(error.message || 'Failed to load report data');
+      
+      // Set empty states
+      setReportData({
+        revenue: { total: 0, growth: 0, data: [] },
+        bookings: { total: 0, growth: 0, data: [] },
+        users: { total: 0, growth: 0, data: [] }
+      });
+      setSummary({
+        totalRevenue: 0,
+        totalBookings: 0,
+        totalUsers: 0,
+        averageOrderValue: 0,
+        conversionRate: 0,
+        customerSatisfaction: 0
+      });
+      setTopPerformers([]);
+      setRecentActivity([]);
+      
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load report data');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [reportType, dateRange]);
 
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchReportData();
-    setRefreshing(false);
+    await fetchReportData(false);
     toast.success('Report data refreshed');
   };
 
-  useEffect(() => {
-    fetchReportData();
-  }, [fetchReportData]);
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchReportData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 60000); // Poll every 60 seconds for report updates
+  };
 
-  // Export report
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    fetchReportData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when report type or date range changes
+  useEffect(() => {
+    if (!loading) {
+      fetchReportData(false);
+    }
+  }, [reportType, dateRange]);
+
+  // ✅ Export report with real API
   const exportReport = async () => {
     setExporting(true);
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         type: reportType,
         range: dateRange,
         format: exportFormat
       };
-      const response = await adminAPI.exportReport(params);
+
+      let response = null;
       
-      // Handle blob download
+      // Try exportReport first
+      if (typeof adminAPI.exportReport === 'function') {
+        response = await adminAPI.exportReport(params);
+      } 
+      // Fallback to generateReport
+      else if (typeof adminAPI.generateReport === 'function') {
+        response = await adminAPI.generateReport(params);
+      }
+      // Fallback to downloadReport
+      else if (typeof adminAPI.downloadReport === 'function') {
+        response = await adminAPI.downloadReport(params);
+      }
+      else {
+        // Generate PDF using jsPDF as fallback
+        const doc = new jsPDF();
+        doc.setFontSize(18);
+        doc.text(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`, 14, 22);
+        doc.setFontSize(11);
+        doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 32);
+        doc.text(`Period: ${dateRange}`, 14, 38);
+        
+        // Add summary data
+        doc.setFontSize(12);
+        doc.text('Summary', 14, 50);
+        doc.setFontSize(10);
+        doc.text(`Total Revenue: ${formatNaira(summary.totalRevenue)}`, 14, 58);
+        doc.text(`Total Bookings: ${formatNumber(summary.totalBookings)}`, 14, 64);
+        doc.text(`Total Users: ${formatNumber(summary.totalUsers)}`, 14, 70);
+        
+        doc.save(`report_${reportType}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+        toast.success('Report exported successfully');
+        setShowExportModal(false);
+        setExporting(false);
+        return;
+      }
+
       const blob = new Blob([response.data], { 
         type: exportFormat === 'pdf' ? 'application/pdf' : 'text/csv' 
       });
@@ -179,45 +332,57 @@ const AdminReports = () => {
       setShowExportModal(false);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export report');
+      toast.error(error.message || 'Failed to export report');
     } finally {
       setExporting(false);
     }
   };
 
-  // Get report current data
+  // Get report current data with safe fallbacks
   const currentReport = reportData[reportType] || { total: 0, growth: 0, data: [] };
 
   // Get color based on growth
   const getGrowthColor = (growth) => {
-    if (growth > 0) return 'success';
-    if (growth < 0) return 'danger';
+    const num = Number(growth) || 0;
+    if (num > 0) return 'success';
+    if (num < 0) return 'danger';
     return 'secondary';
   };
 
   // Get status badge
   const getStatusBadge = (status) => {
+    if (!status) {
+      return <Badge bg="secondary" className="rounded-pill">Unknown</Badge>;
+    }
+    
     const config = {
       completed: { variant: 'success', label: 'Completed' },
       pending: { variant: 'warning', label: 'Pending' },
       cancelled: { variant: 'danger', label: 'Cancelled' },
       active: { variant: 'info', label: 'Active' },
-      inactive: { variant: 'secondary', label: 'Inactive' }
+      inactive: { variant: 'secondary', label: 'Inactive' },
+      success: { variant: 'success', label: 'Success' },
+      failed: { variant: 'danger', label: 'Failed' }
     };
-    const item = config[status] || config.pending;
+    const item = config[status.toLowerCase()] || config.pending;
     return <Badge bg={item.variant} className="rounded-pill">{item.label}</Badge>;
   };
 
   // Chart colors
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
+  // Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading report data...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading report data...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -251,6 +416,14 @@ const AdminReports = () => {
             </Button>
           </div>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+          </Alert>
+        )}
 
         {/* Report Controls */}
         <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
@@ -314,11 +487,11 @@ const AdminReports = () => {
                   <div>
                     <p className="text-muted mb-1">Total {reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'Users'}</p>
                     <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' ? formatNaira(currentReport.total) : currentReport.total.toLocaleString()}
+                      {reportType === 'revenue' ? formatNaira(currentReport.total) : formatNumber(currentReport.total)}
                     </h2>
                     <small className={`text-${getGrowthColor(currentReport.growth)} d-flex align-items-center gap-1 mt-1`}>
-                      {currentReport.growth > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-                      {Math.abs(currentReport.growth)}% from last period
+                      {Number(currentReport.growth) > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                      {Math.abs(Number(currentReport.growth) || 0)}% from last period
                     </small>
                   </div>
                   <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
@@ -337,7 +510,10 @@ const AdminReports = () => {
                   <div>
                     <p className="text-muted mb-1">Average / Month</p>
                     <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' ? formatNaira(currentReport.data.reduce((sum, d) => sum + (d.value || 0), 0) / (currentReport.data.length || 1)) : Math.round(currentReport.data.reduce((sum, d) => sum + (d.value || 0), 0) / (currentReport.data.length || 1))}
+                      {reportType === 'revenue' 
+                        ? formatNaira((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1))
+                        : formatNumber((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1))
+                      }
                     </h2>
                     <small className="text-muted">Per month average</small>
                   </div>
@@ -355,10 +531,13 @@ const AdminReports = () => {
                   <div>
                     <p className="text-muted mb-1">Highest Month</p>
                     <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' ? formatNaira(Math.max(...currentReport.data.map(d => d.value || 0), 0)) : Math.max(...currentReport.data.map(d => d.value || 0), 0)}
+                      {reportType === 'revenue' 
+                        ? formatNaira(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))
+                        : formatNumber(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))
+                      }
                     </h2>
                     <small className="text-muted">
-                      {currentReport.data.find(d => d.value === Math.max(...currentReport.data.map(d => d.value || 0), 0))?.month || 'N/A'}
+                      {(currentReport.data || []).find(d => d.value === Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))?.month || 'N/A'}
                     </small>
                   </div>
                   <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
@@ -375,7 +554,7 @@ const AdminReports = () => {
                   <div>
                     <p className="text-muted mb-1">Growth Rate</p>
                     <h2 className={`fw-bold mb-0 text-${getGrowthColor(currentReport.growth)}`}>
-                      {currentReport.growth > 0 ? '+' : ''}{currentReport.growth}%
+                      {Number(currentReport.growth) > 0 ? '+' : ''}{Number(currentReport.growth) || 0}%
                     </h2>
                     <small className="text-muted">Period over period</small>
                   </div>
@@ -403,7 +582,6 @@ const AdminReports = () => {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
-            {/* Summary Cards */}
             <Row className="g-4 mb-4">
               <Col md={3}>
                 <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
@@ -429,7 +607,7 @@ const AdminReports = () => {
                       </div>
                       <div>
                         <small className="text-muted d-block">Total Bookings</small>
-                        <span className="fw-bold">{summary.totalBookings}</span>
+                        <span className="fw-bold">{formatNumber(summary.totalBookings)}</span>
                       </div>
                     </div>
                   </Card.Body>
@@ -444,7 +622,7 @@ const AdminReports = () => {
                       </div>
                       <div>
                         <small className="text-muted d-block">Total Users</small>
-                        <span className="fw-bold">{summary.totalUsers}</span>
+                        <span className="fw-bold">{formatNumber(summary.totalUsers)}</span>
                       </div>
                     </div>
                   </Card.Body>
@@ -459,7 +637,7 @@ const AdminReports = () => {
                       </div>
                       <div>
                         <small className="text-muted d-block">Conversion Rate</small>
-                        <span className="fw-bold">{summary.conversionRate}%</span>
+                        <span className="fw-bold">{formatPercent(summary.conversionRate)}</span>
                       </div>
                     </div>
                   </Card.Body>
@@ -467,7 +645,6 @@ const AdminReports = () => {
               </Col>
             </Row>
 
-            {/* Recent Activity */}
             <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
               <Card.Header className="bg-white border-0 pt-4">
                 <div className="d-flex justify-content-between align-items-center">
@@ -476,20 +653,20 @@ const AdminReports = () => {
                 </div>
               </Card.Header>
               <Card.Body>
-                {recentActivity.length === 0 ? (
+                {(recentActivity || []).length === 0 ? (
                   <div className="text-center py-4">
                     <Activity size={32} className="text-muted opacity-50" />
                     <p className="text-muted mb-0">No recent activity</p>
                   </div>
                 ) : (
-                  recentActivity.slice(0, 5).map((activity, idx) => (
-                    <div key={idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+                  (recentActivity || []).slice(0, 5).map((activity, idx) => (
+                    <div key={activity.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
                       <div className="rounded-circle p-2" style={{ background: '#f1f5f9' }}>
                         <Activity size={16} className="text-muted" />
                       </div>
                       <div className="flex-grow-1">
-                        <p className="mb-0 small">{activity.message}</p>
-                        <small className="text-muted">{formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}</small>
+                        <p className="mb-0 small">{activity.message || activity.action || 'Activity'}</p>
+                        <small className="text-muted">{activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Recent'}</small>
                       </div>
                       {activity.status && getStatusBadge(activity.status)}
                     </div>
@@ -507,16 +684,23 @@ const AdminReports = () => {
               <h6 className="fw-bold mb-0">Monthly {reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'User Registrations'}</h6>
             </Card.Header>
             <Card.Body>
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={currentReport.data}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis tickFormatter={(v) => reportType === 'revenue' ? formatCompactNaira(v) : v} />
-                  <Tooltip formatter={(v) => reportType === 'revenue' ? formatNaira(v) : v} />
-                  <Legend />
-                  <Bar dataKey="value" fill="#3b82f6" />
-                </BarChart>
-              </ResponsiveContainer>
+              {(currentReport.data || []).length === 0 ? (
+                <div className="text-center py-5">
+                  <BarChart3 size={48} className="text-muted opacity-25" />
+                  <p className="text-muted mt-2">No data available for the selected period</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={(currentReport.data || [])}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis tickFormatter={(v) => reportType === 'revenue' ? formatCompactNaira(v) : formatNumber(v)} />
+                    <Tooltip formatter={(v) => reportType === 'revenue' ? formatNaira(v) : formatNumber(v)} />
+                    <Legend />
+                    <Bar dataKey="value" fill="#3b82f6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </Card.Body>
           </Card>
         )}
@@ -545,30 +729,38 @@ const AdminReports = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {currentReport.data.map((item, idx) => {
-                      const prevValue = idx > 0 ? currentReport.data[idx-1].value : item.value;
-                      const growth = ((item.value - prevValue) / prevValue * 100).toFixed(1);
-                      return (
-                        <tr key={idx}>
-                          <td style={{ padding: '16px' }} className="fw-semibold">{item.month}</td>
-                          <td style={{ padding: '16px' }}>
-                            {reportType === 'revenue' ? formatNaira(item.value) : item.value.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <span className={growth >= 0 ? 'text-success' : 'text-danger'}>
-                              {growth >= 0 ? '+' : ''}{growth}%
-                            </span>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {growth >= 0 ? (
-                              <Badge bg="success" className="rounded-pill"><ArrowUp size={12} className="me-1" /> Upward</Badge>
-                            ) : (
-                              <Badge bg="danger" className="rounded-pill"><ArrowDown size={12} className="me-1" /> Downward</Badge>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {(currentReport.data || []).length === 0 ? (
+                      <tr>
+                        <td colSpan="4" style={{ padding: '30px', textAlign: 'center' }}>
+                          <p className="text-muted mb-0">No data available</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      (currentReport.data || []).map((item, idx) => {
+                        const prevValue = idx > 0 ? (currentReport.data || [])[idx-1]?.value || item.value : item.value;
+                        const growth = prevValue > 0 ? ((item.value - prevValue) / prevValue * 100) : 0;
+                        return (
+                          <tr key={idx}>
+                            <td style={{ padding: '16px' }} className="fw-semibold">{item.month || 'N/A'}</td>
+                            <td style={{ padding: '16px' }}>
+                              {reportType === 'revenue' ? formatNaira(item.value) : formatNumber(item.value)}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span className={growth >= 0 ? 'text-success' : 'text-danger'}>
+                                {growth >= 0 ? '+' : ''}{growth.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {growth >= 0 ? (
+                                <Badge bg="success" className="rounded-pill"><ArrowUp size={12} className="me-1" /> Upward</Badge>
+                              ) : (
+                                <Badge bg="danger" className="rounded-pill"><ArrowDown size={12} className="me-1" /> Downward</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </Table>
               </div>
@@ -585,27 +777,27 @@ const AdminReports = () => {
                   <h6 className="fw-bold mb-0">Top Providers</h6>
                 </Card.Header>
                 <Card.Body>
-                  {topPerformers.length === 0 ? (
+                  {(topPerformers || []).length === 0 ? (
                     <div className="text-center py-4">
                       <Award size={32} className="text-muted opacity-50" />
                       <p className="text-muted mb-0">No top performers found</p>
                     </div>
                   ) : (
-                    topPerformers.slice(0, 5).map((performer, idx) => (
-                      <div key={idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+                    (topPerformers || []).slice(0, 5).map((performer, idx) => (
+                      <div key={performer.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
                         <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px', background: '#f1f5f9' }}>
                           {idx === 0 ? <Crown size={20} className="text-warning" /> :
                            idx === 1 ? <Medal size={20} className="text-secondary" /> :
                            idx === 2 ? <Medal size={20} className="text-orange" /> :
-                           <Star size={20} className="text-muted" />}
+                           <StarIcon size={20} className="text-muted" />}
                         </div>
                         <div className="flex-grow-1">
-                          <p className="mb-0 fw-semibold">{performer.name}</p>
-                          <small className="text-muted">{performer.category}</small>
+                          <p className="mb-0 fw-semibold">{performer.name || performer.provider || 'Unknown'}</p>
+                          <small className="text-muted">{performer.category || 'General'}</small>
                         </div>
                         <div className="text-end">
-                          <div className="fw-bold text-primary">{formatNaira(performer.revenue)}</div>
-                          <small className="text-muted">{performer.bookings} bookings</small>
+                          <div className="fw-bold text-primary">{formatNaira(performer.revenue || 0)}</div>
+                          <small className="text-muted">{formatNumber(performer.bookings || 0)} bookings</small>
                         </div>
                       </div>
                     ))
@@ -619,24 +811,24 @@ const AdminReports = () => {
                   <h6 className="fw-bold mb-0">Top Services</h6>
                 </Card.Header>
                 <Card.Body>
-                  {topPerformers.length === 0 ? (
+                  {(topPerformers || []).length === 0 ? (
                     <div className="text-center py-4">
                       <ShoppingCart size={32} className="text-muted opacity-50" />
                       <p className="text-muted mb-0">No top services found</p>
                     </div>
                   ) : (
-                    topPerformers.slice(0, 5).map((performer, idx) => (
-                      <div key={idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+                    (topPerformers || []).slice(0, 5).map((performer, idx) => (
+                      <div key={performer.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
                         <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px', background: '#f1f5f9' }}>
                           <ShoppingCart size={20} className="text-primary" />
                         </div>
                         <div className="flex-grow-1">
-                          <p className="mb-0 fw-semibold">{performer.service}</p>
-                          <small className="text-muted">{performer.category}</small>
+                          <p className="mb-0 fw-semibold">{performer.service || performer.name || 'Unknown'}</p>
+                          <small className="text-muted">{performer.category || 'General'}</small>
                         </div>
                         <div className="text-end">
-                          <div className="fw-bold text-primary">{formatNaira(performer.revenue)}</div>
-                          <small className="text-muted">{performer.bookings} bookings</small>
+                          <div className="fw-bold text-primary">{formatNaira(performer.revenue || 0)}</div>
+                          <small className="text-muted">{formatNumber(performer.bookings || 0)} bookings</small>
                         </div>
                       </div>
                     ))

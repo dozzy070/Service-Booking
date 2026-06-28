@@ -1,5 +1,5 @@
 // src/pages/admin/ServiceManagement.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { adminAPI } from '../../api/api';
 import {
   Container,
@@ -192,6 +192,7 @@ const ServiceManagement = () => {
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
   // Data State
   const [services, setServices] = useState([]);
@@ -215,6 +216,10 @@ const ServiceManagement = () => {
   const [selectedServices, setSelectedServices] = useState([]);
   const [rejectionReason, setRejectionReason] = useState('');
   const [processing, setProcessing] = useState(false);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -243,6 +248,10 @@ const ServiceManagement = () => {
   // ✅ Fetch services with proper data extraction
   const fetchServices = useCallback(async () => {
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         startDate: dateRange.start || undefined,
         endDate: dateRange.end || undefined,
@@ -253,29 +262,66 @@ const ServiceManagement = () => {
         providerId: filterProvider !== 'all' ? filterProvider : undefined,
         search: searchTerm || undefined,
         sortBy: sortConfig.key,
-        sortOrder: sortConfig.direction
+        sortOrder: sortConfig.direction,
+        limit: itemsPerPage,
+        page: currentPage
       };
-      const response = await adminAPI.getServices(params);
-      // ✅ Extract services array safely
-      const serviceList = Array.isArray(response.data) ? response.data : 
-                          Array.isArray(response.data?.services) ? response.data.services : [];
+
+      let response = null;
+      
+      // Try getServices first
+      if (typeof adminAPI.getServices === 'function') {
+        response = await adminAPI.getServices(params);
+      } 
+      // Fallback to getServicesList
+      else if (typeof adminAPI.getServicesList === 'function') {
+        response = await adminAPI.getServicesList(params);
+      } 
+      else {
+        throw new Error('Services API methods not available');
+      }
+
+      const data = response?.data || [];
+      const serviceList = Array.isArray(data) ? data : 
+                          Array.isArray(data?.services) ? data.services : 
+                          Array.isArray(data?.data) ? data.data : [];
       setServices(serviceList);
       calculateStats(serviceList);
     } catch (error) {
       console.error('Error fetching services:', error);
-      toast.error('Failed to load services');
+      setError(error.message || 'Failed to load services');
       setServices([]);
-    } finally {
-      setLoading(false);
+      setStats({
+        total: 0, pending: 0, approved: 0, rejected: 0, featured: 0,
+        categories: 0, providers: 0, averagePrice: 0,
+        totalBookings: 0, totalRevenue: 0
+      });
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load services');
+      }
     }
-  }, [dateRange, priceRange, filterCategory, filterStatus, filterProvider, searchTerm, sortConfig]);
+  }, [dateRange, priceRange, filterCategory, filterStatus, filterProvider, searchTerm, sortConfig, itemsPerPage, currentPage]);
 
   // ✅ Fetch categories with proper data extraction
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await adminAPI.getCategories();
-      const categoryList = Array.isArray(response.data) ? response.data : 
-                           Array.isArray(response.data?.categories) ? response.data.categories : [];
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof adminAPI.getCategories === 'function') {
+        response = await adminAPI.getCategories();
+      } else if (typeof adminAPI.getCategoryList === 'function') {
+        response = await adminAPI.getCategoryList();
+      } else {
+        throw new Error('Categories API methods not available');
+      }
+
+      const data = response?.data || [];
+      const categoryList = Array.isArray(data) ? data : 
+                           Array.isArray(data?.categories) ? data.categories : [];
       setCategories(categoryList);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -286,9 +332,23 @@ const ServiceManagement = () => {
   // ✅ Fetch providers with proper data extraction
   const fetchProviders = useCallback(async () => {
     try {
-      const response = await adminAPI.getProviders();
-      const providerList = Array.isArray(response.data) ? response.data : 
-                           Array.isArray(response.data?.providers) ? response.data.providers : [];
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof adminAPI.getProviders === 'function') {
+        response = await adminAPI.getProviders();
+      } else if (typeof adminAPI.getProviderList === 'function') {
+        response = await adminAPI.getProviderList();
+      } else {
+        throw new Error('Providers API methods not available');
+      }
+
+      const data = response?.data || [];
+      const providerList = Array.isArray(data) ? data : 
+                           Array.isArray(data?.providers) ? data.providers : [];
       setProviders(providerList);
     } catch (error) {
       console.error('Error fetching providers:', error);
@@ -301,40 +361,75 @@ const ServiceManagement = () => {
     const list = Array.isArray(serviceList) ? serviceList : [];
     const newStats = {
       total: list.length,
-      pending: list.filter(s => s?.status === 'pending').length,
-      approved: list.filter(s => s?.status === 'approved').length,
-      rejected: list.filter(s => s?.status === 'rejected').length,
-      featured: list.filter(s => s?.featured).length,
+      pending: list.filter(s => s?.status?.toLowerCase() === 'pending').length,
+      approved: list.filter(s => s?.status?.toLowerCase() === 'approved' || s?.status?.toLowerCase() === 'active').length,
+      rejected: list.filter(s => s?.status?.toLowerCase() === 'rejected').length,
+      featured: list.filter(s => s?.featured === true).length,
       categories: new Set(list.map(s => s?.category).filter(Boolean)).size,
-      providers: new Set(list.map(s => s?.providerId).filter(Boolean)).size,
-      averagePrice: list.length ? Math.round(list.reduce((sum, s) => sum + (s?.price || 0), 0) / list.length) : 0,
-      totalBookings: list.reduce((sum, s) => sum + (s?.bookings || 0), 0),
-      totalRevenue: list.reduce((sum, s) => sum + (s?.revenue || 0), 0)
+      providers: new Set(list.map(s => s?.providerId || s?.provider_id).filter(Boolean)).size,
+      averagePrice: list.length ? Math.round(list.reduce((sum, s) => sum + (parseFloat(s?.price) || 0), 0) / list.length) : 0,
+      totalBookings: list.reduce((sum, s) => sum + (parseInt(s?.bookings) || 0), 0),
+      totalRevenue: list.reduce((sum, s) => sum + (parseFloat(s?.revenue) || 0), 0)
     };
     setStats(newStats);
   };
 
   // ✅ Fetch all data
-  const fetchAllData = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([fetchServices(), fetchCategories(), fetchProviders()]);
-    setLoading(false);
+  const fetchAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchServices(),
+        fetchCategories(),
+        fetchProviders()
+      ]);
+    } catch (error) {
+      console.error('Error fetching all data:', error);
+      setError(error.message || 'Failed to load data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
   }, [fetchServices, fetchCategories, fetchProviders]);
 
-  const refreshData = async () => {
-    setRefreshing(true);
-    await fetchAllData();
-    setRefreshing(false);
-    toast.success('Data refreshed');
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+    fetchAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
   // Refetch when filters change
   useEffect(() => {
-    fetchServices();
+    if (!loading) {
+      fetchServices();
+    }
   }, [fetchServices]);
 
   // Reset page when filters change
@@ -342,15 +437,35 @@ const ServiceManagement = () => {
     setCurrentPage(1);
   }, [searchTerm, filterCategory, filterStatus, filterProvider, dateRange, priceRange, activeTab]);
 
+  // ✅ Manual refresh
+  const refreshData = async () => {
+    setRefreshing(true);
+    await fetchAllData(false);
+    toast.success('Data refreshed');
+  };
+
   // ✅ Service actions with adminAPI
   const handleStatusChange = async (serviceId, newStatus, reason = '') => {
+    if (!serviceId) return;
     setProcessing(true);
     try {
-      await adminAPI.updateServiceStatus(serviceId, { status: newStatus, rejectionReason: reason });
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.updateServiceStatus === 'function') {
+        await adminAPI.updateServiceStatus(serviceId, { status: newStatus, rejectionReason: reason });
+      } else if (typeof adminAPI.updateService === 'function') {
+        await adminAPI.updateService(serviceId, { status: newStatus, rejectionReason: reason });
+      } else {
+        throw new Error('Service update API methods not available');
+      }
+      
       await fetchServices();
       toast.success(`Service ${newStatus}`);
     } catch (error) {
-      toast.error('Failed to update status');
+      console.error('Status update error:', error);
+      toast.error(error.message || 'Failed to update status');
     } finally {
       setProcessing(false);
     }
@@ -358,46 +473,100 @@ const ServiceManagement = () => {
 
   const handleDeleteService = async () => {
     if (!selectedService) return;
+    const serviceId = selectedService.id || selectedService._id;
+    if (!serviceId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.deleteService(selectedService.id);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.deleteService === 'function') {
+        await adminAPI.deleteService(serviceId);
+      } else if (typeof adminAPI.removeService === 'function') {
+        await adminAPI.removeService(serviceId);
+      } else {
+        throw new Error('Service delete API methods not available');
+      }
+      
       await fetchServices();
       setShowDeleteModal(false);
       setSelectedService(null);
       toast.success('Service deleted');
     } catch (error) {
-      toast.error('Failed to delete service');
+      console.error('Delete error:', error);
+      toast.error(error.message || 'Failed to delete service');
     } finally {
       setProcessing(false);
     }
   };
 
   const handleFeaturedToggle = async (serviceId) => {
+    if (!serviceId) return;
     try {
-      const service = services.find(s => s.id === serviceId);
-      await adminAPI.toggleFeatured(serviceId, { featured: !service?.featured });
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      const service = services.find(s => (s.id || s._id) === serviceId);
+      const newFeatured = !service?.featured;
+
+      if (typeof adminAPI.toggleFeatured === 'function') {
+        await adminAPI.toggleFeatured(serviceId, { featured: newFeatured });
+      } else if (typeof adminAPI.updateService === 'function') {
+        await adminAPI.updateService(serviceId, { featured: newFeatured });
+      } else {
+        throw new Error('Featured toggle API methods not available');
+      }
+      
       await fetchServices();
-      toast.success(`Service ${service?.featured ? 'removed from' : 'added to'} featured`);
+      toast.success(`Service ${newFeatured ? 'added to' : 'removed from'} featured`);
     } catch (error) {
-      toast.error('Failed to update featured status');
+      console.error('Featured toggle error:', error);
+      toast.error(error.message || 'Failed to update featured status');
     }
   };
 
   const handleSaveService = async () => {
     setProcessing(true);
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { ...formData };
+      
       if (modalMode === 'add') {
-        await adminAPI.createService(formData);
+        if (typeof adminAPI.createService === 'function') {
+          await adminAPI.createService(payload);
+        } else if (typeof adminAPI.addService === 'function') {
+          await adminAPI.addService(payload);
+        } else {
+          throw new Error('Service create API methods not available');
+        }
         toast.success('Service added');
       } else if (modalMode === 'edit' && selectedService) {
-        await adminAPI.updateService(selectedService.id, formData);
+        const serviceId = selectedService.id || selectedService._id;
+        if (!serviceId) {
+          throw new Error('Service ID not found');
+        }
+        if (typeof adminAPI.updateService === 'function') {
+          await adminAPI.updateService(serviceId, payload);
+        } else if (typeof adminAPI.editService === 'function') {
+          await adminAPI.editService(serviceId, payload);
+        } else {
+          throw new Error('Service update API methods not available');
+        }
         toast.success('Service updated');
       }
+      
       await fetchServices();
       setShowServiceModal(false);
       setSelectedService(null);
     } catch (error) {
-      toast.error(`Failed to ${modalMode === 'add' ? 'add' : 'update'} service`);
+      console.error('Save error:', error);
+      toast.error(error.message || `Failed to ${modalMode === 'add' ? 'add' : 'update'} service`);
     } finally {
       setProcessing(false);
     }
@@ -407,13 +576,27 @@ const ServiceManagement = () => {
     if (selectedServices.length === 0) return;
     setProcessing(true);
     try {
-      await adminAPI.bulkServiceAction({ serviceIds: selectedServices, action: newStatus });
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { serviceIds: selectedServices, action: newStatus };
+      
+      if (typeof adminAPI.bulkServiceAction === 'function') {
+        await adminAPI.bulkServiceAction(payload);
+      } else if (typeof adminAPI.bulkUpdateServices === 'function') {
+        await adminAPI.bulkUpdateServices(payload);
+      } else {
+        throw new Error('Bulk action API methods not available');
+      }
+      
       await fetchServices();
       setSelectedServices([]);
       setShowBulkActions(false);
       toast.success(`${selectedServices.length} services updated to ${newStatus}`);
     } catch (error) {
-      toast.error('Bulk update failed');
+      console.error('Bulk update error:', error);
+      toast.error(error.message || 'Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -423,40 +606,61 @@ const ServiceManagement = () => {
     if (selectedServices.length === 0) return;
     setProcessing(true);
     try {
-      await adminAPI.bulkServiceDelete({ serviceIds: selectedServices });
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { serviceIds: selectedServices };
+      
+      if (typeof adminAPI.bulkServiceDelete === 'function') {
+        await adminAPI.bulkServiceDelete(payload);
+      } else if (typeof adminAPI.bulkDeleteServices === 'function') {
+        await adminAPI.bulkDeleteServices(payload);
+      } else {
+        throw new Error('Bulk delete API methods not available');
+      }
+      
       await fetchServices();
       setSelectedServices([]);
       setShowBulkActions(false);
       toast.success(`${selectedServices.length} services deleted`);
     } catch (error) {
-      toast.error('Bulk delete failed');
+      console.error('Bulk delete error:', error);
+      toast.error(error.message || 'Bulk delete failed');
     } finally {
       setProcessing(false);
     }
   };
 
   const handleExportServices = () => {
-    const dataStr = JSON.stringify(services, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `services_export_${format(new Date(), 'yyyy-MM-dd')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Services exported');
+    try {
+      const dataStr = JSON.stringify(services, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `services_export_${format(new Date(), 'yyyy-MM-dd')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Services exported');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export services');
+    }
   };
 
   // Selection handlers
   const handleSelectAll = () => {
-    if (selectedServices.length === filteredServices.length) {
+    const allIds = filteredServices.map(s => s.id || s._id).filter(Boolean);
+    if (selectedServices.length === allIds.length && allIds.length > 0) {
       setSelectedServices([]);
     } else {
-      setSelectedServices(filteredServices.map(s => s.id).filter(Boolean));
+      setSelectedServices(allIds);
     }
   };
 
   const handleSelectService = (serviceId) => {
+    if (!serviceId) return;
     setSelectedServices(prev =>
       prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId]
     );
@@ -478,10 +682,10 @@ const ServiceManagement = () => {
   const filteredServices = useMemo(() => {
     const list = Array.isArray(services) ? services : [];
     let filtered = [...list];
-    if (activeTab === 'pending') filtered = filtered.filter(s => s?.status === 'pending');
-    if (activeTab === 'approved') filtered = filtered.filter(s => s?.status === 'approved');
-    if (activeTab === 'rejected') filtered = filtered.filter(s => s?.status === 'rejected');
-    if (activeTab === 'featured') filtered = filtered.filter(s => s?.featured);
+    if (activeTab === 'pending') filtered = filtered.filter(s => s?.status?.toLowerCase() === 'pending');
+    if (activeTab === 'approved') filtered = filtered.filter(s => s?.status?.toLowerCase() === 'approved' || s?.status?.toLowerCase() === 'active');
+    if (activeTab === 'rejected') filtered = filtered.filter(s => s?.status?.toLowerCase() === 'rejected');
+    if (activeTab === 'featured') filtered = filtered.filter(s => s?.featured === true);
     return filtered;
   }, [services, activeTab]);
 
@@ -493,12 +697,24 @@ const ServiceManagement = () => {
 
   // Get status badge
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaClock />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const badges = {
       approved: { bg: 'success', icon: <FaCheckCircle />, label: 'Approved' },
+      active: { bg: 'success', icon: <FaCheckCircle />, label: 'Active' },
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
-      rejected: { bg: 'danger', icon: <FaTimesCircle />, label: 'Rejected' }
+      rejected: { bg: 'danger', icon: <FaTimesCircle />, label: 'Rejected' },
+      inactive: { bg: 'secondary', icon: <FaClock />, label: 'Inactive' }
     };
-    const b = badges[status] || badges.pending;
+    const b = badges[lowerStatus] || badges.pending;
     return (
       <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
         {b.icon}
@@ -507,20 +723,33 @@ const ServiceManagement = () => {
     );
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading services...</p>
-        </div>
-      </div>
-    );
-  }
+  // Get service ID safely
+  const getServiceId = (service) => {
+    return service?.id || service?._id || null;
+  };
+
+  // Get field with fallback
+  const getField = (obj, fields, fallback = 'N/A') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -719,7 +948,9 @@ const ServiceManagement = () => {
                 >
                   <option value="all">All Categories</option>
                   {categories.map(cat => (
-                    <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    <option key={cat.id || cat._id} value={cat.name || cat.categoryName}>
+                      {cat.name || cat.categoryName}
+                    </option>
                   ))}
                 </Form.Select>
                 <Form.Select 
@@ -729,7 +960,9 @@ const ServiceManagement = () => {
                 >
                   <option value="all">All Providers</option>
                   {providers.map(prov => (
-                    <option key={prov.id} value={prov.id}>{prov.name}</option>
+                    <option key={prov.id || prov._id} value={prov.id || prov._id}>
+                      {prov.name || prov.providerName || prov.fullName}
+                    </option>
                   ))}
                 </Form.Select>
                 <Form.Select 
@@ -760,6 +993,7 @@ const ServiceManagement = () => {
                     size="sm" 
                     onClick={() => handleBulkStatusChange('approved')}
                     className="d-flex align-items-center gap-1"
+                    disabled={processing}
                   >
                     <FaCheckCircle /> Approve ({selectedServices.length})
                   </Button>
@@ -889,189 +1123,207 @@ const ServiceManagement = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentItems.map(service => service && (
-                        <tr key={service.id} className={selectedServices.includes(service.id) ? 'table-active' : ''}>
-                          <td style={{ padding: '16px' }}>
-                            <Form.Check 
-                              type="checkbox" 
-                              checked={selectedServices.includes(service.id)} 
-                              onChange={() => handleSelectService(service.id)} 
-                            />
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-3">
-                              <img 
-                                src={service.images?.[0] || getServiceImage(service.title, service.id, 50, 50)} 
-                                alt={service.title} 
-                                className="rounded" 
-                                style={{ width: '50px', height: '50px', objectFit: 'cover' }} 
-                                onError={(e) => handleServiceImageError(e, service.title)}
+                      {currentItems.map(service => {
+                        const serviceId = getServiceId(service);
+                        const providerName = getField(service, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown');
+                        const category = getField(service, ['category', 'categoryName'], 'Uncategorized');
+                        const title = getField(service, ['title', 'name', 'serviceName'], 'Untitled');
+                        const description = getField(service, ['description', 'shortDescription'], '');
+                        const price = parseFloat(service?.price) || 0;
+                        const bookings = parseInt(service?.bookings) || 0;
+                        const revenue = parseFloat(service?.revenue) || 0;
+                        const rating = parseFloat(service?.rating) || 0;
+                        const reviews = parseInt(service?.reviews) || 0;
+                        const discount = parseInt(service?.discount) || 0;
+                        const status = service?.status || 'pending';
+                        const featured = service?.featured || false;
+                        const images = service?.images || [];
+                        const createdAt = service?.createdAt || service?.created_at || new Date().toISOString();
+                        
+                        return (
+                          <tr key={serviceId} className={selectedServices.includes(serviceId) ? 'table-active' : ''}>
+                            <td style={{ padding: '16px' }}>
+                              <Form.Check 
+                                type="checkbox" 
+                                checked={selectedServices.includes(serviceId)} 
+                                onChange={() => handleSelectService(serviceId)} 
                               />
-                              <div>
-                                <div className="fw-semibold">{service.title}</div>
-                                <small className="text-muted">{service.description?.substring(0, 50)}...</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-3">
+                                <img 
+                                  src={images[0] || getServiceImage(title, serviceId, 50, 50)} 
+                                  alt={title} 
+                                  className="rounded" 
+                                  style={{ width: '50px', height: '50px', objectFit: 'cover' }} 
+                                  onError={(e) => handleServiceImageError(e, title)}
+                                />
+                                <div>
+                                  <div className="fw-semibold">{title}</div>
+                                  {description && <small className="text-muted">{description.substring(0, 50)}...</small>}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <Badge bg="secondary" className="px-3 py-2 rounded-pill">
-                              <FaTag className="me-1" size={10} /> {service.category}
-                            </Badge>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <img 
-                                src={service.providerAvatar || `https://ui-avatars.com/api/?name=${service.providerName}&background=6366f1&color=fff&size=30`} 
-                                alt={service.providerName} 
-                                className="rounded-circle" 
-                                style={{ width: '30px', height: '30px' }} 
-                              />
-                              <div>
-                                <div>{service.providerName}</div>
-                                <small className="text-warning">
-                                  <FaStar className="me-1" size={10} /> {service.providerRating || 'New'}
-                                </small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <Badge bg="secondary" className="px-3 py-2 rounded-pill">
+                                <FaTag className="me-1" size={10} /> {category}
+                              </Badge>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-2">
+                                <img 
+                                  src={service.providerAvatar || `https://ui-avatars.com/api/?name=${providerName}&background=6366f1&color=fff&size=30`} 
+                                  alt={providerName} 
+                                  className="rounded-circle" 
+                                  style={{ width: '30px', height: '30px' }} 
+                                />
+                                <div>
+                                  <div>{providerName}</div>
+                                  <small className="text-warning">
+                                    <FaStar className="me-1" size={10} /> {service.providerRating || 'New'}
+                                  </small>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-bold text-primary">
-                              {formatNaira(service.price)}
-                              {service.discount > 0 && (
-                                <Badge bg="danger" className="ms-2">-{service.discount}%</Badge>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-bold text-primary">
+                                {formatNaira(price)}
+                                {discount > 0 && (
+                                  <Badge bg="danger" className="ms-2">-{discount}%</Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px' }}>{getStatusBadge(status)}</td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-semibold">{bookings}</div>
+                              <small className="text-muted">{formatCompactNaira(revenue)}</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {rating > 0 ? (
+                                <span className="text-warning">
+                                  <FaStar className="me-1" />{rating.toFixed(1)} ({reviews})
+                                </span>
+                              ) : (
+                                <span className="text-muted">No ratings</span>
                               )}
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>{getStatusBadge(service.status)}</td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">{service.bookings || 0}</div>
-                            <small className="text-muted">{formatCompactNaira(service.revenue || 0)}</small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {service.rating > 0 ? (
-                              <span className="text-warning">
-                                <FaStar className="me-1" />{service.rating} ({service.reviews || 0})
-                              </span>
-                            ) : (
-                              <span className="text-muted">No ratings</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <small>
-                              <FaCalendarAlt className="me-1 text-muted" size={10} /> 
-                              {format(new Date(service.createdAt), 'MMM dd, yyyy')}
-                            </small>
-                            <div className="small text-muted">
-                              {formatDistanceToNow(new Date(service.createdAt), { addSuffix: true })}
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex gap-1">
-                              <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-primary" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedService(service); 
-                                    setModalMode('view'); 
-                                    setShowServiceModal(true); 
-                                  }}
-                                >
-                                  <FaEye size={14} />
-                                </Button>
-                              </OverlayTrigger>
-                              
-                              <OverlayTrigger placement="top" overlay={<Tooltip>Edit Service</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-info" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedService(service); 
-                                    setModalMode('edit'); 
-                                    setFormData({ ...service }); 
-                                    setShowServiceModal(true); 
-                                  }}
-                                >
-                                  <FaEdit size={14} />
-                                </Button>
-                              </OverlayTrigger>
-
-                              {service.status === 'pending' && (
-                                <>
-                                  <OverlayTrigger placement="top" overlay={<Tooltip>Approve Service</Tooltip>}>
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline-success" 
-                                      className="rounded-circle p-1"
-                                      style={{ width: '32px', height: '32px' }}
-                                      onClick={() => { 
-                                        setSelectedService(service); 
-                                        setShowApproveModal(true); 
-                                      }}
-                                    >
-                                      <FaCheckCircle size={14} />
-                                    </Button>
-                                  </OverlayTrigger>
-                                  <OverlayTrigger placement="top" overlay={<Tooltip>Reject Service</Tooltip>}>
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline-danger" 
-                                      className="rounded-circle p-1"
-                                      style={{ width: '32px', height: '32px' }}
-                                      onClick={() => { 
-                                        setSelectedService(service); 
-                                        setShowRejectModal(true); 
-                                      }}
-                                    >
-                                      <FaTimesCircle size={14} />
-                                    </Button>
-                                  </OverlayTrigger>
-                                </>
-                              )}
-
-                              <Dropdown>
-                                <Dropdown.Toggle 
-                                  size="sm" 
-                                  variant="outline-secondary" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                >
-                                  <FaEllipsisV size={14} />
-                                </Dropdown.Toggle>
-                                <Dropdown.Menu align="end">
-                                  <Dropdown.Item onClick={() => handleFeaturedToggle(service.id)}>
-                                    {service.featured ? 
-                                      <FaStar className="me-2 text-warning" /> : 
-                                      <FaStar className="me-2 text-muted" />
-                                    }
-                                    {service.featured ? 'Remove Featured' : 'Mark Featured'}
-                                  </Dropdown.Item>
-                                  <Dropdown.Item onClick={() => { 
-                                    setSelectedService(service); 
-                                    setShowImageModal(true); 
-                                  }}>
-                                    <FaImage className="me-2" /> Manage Images
-                                  </Dropdown.Item>
-                                  <Dropdown.Divider />
-                                  <Dropdown.Item 
-                                    className="text-danger"
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <small>
+                                <FaCalendarAlt className="me-1 text-muted" size={10} /> 
+                                {format(new Date(createdAt), 'MMM dd, yyyy')}
+                              </small>
+                              <div className="small text-muted">
+                                {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex gap-1">
+                                <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-primary" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
                                     onClick={() => { 
                                       setSelectedService(service); 
-                                      setShowDeleteModal(true); 
+                                      setModalMode('view'); 
+                                      setShowServiceModal(true); 
                                     }}
                                   >
-                                    <FaTrash className="me-2" /> Delete
-                                  </Dropdown.Item>
-                                </Dropdown.Menu>
-                              </Dropdown>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                                    <FaEye size={14} />
+                                  </Button>
+                                </OverlayTrigger>
+                                
+                                <OverlayTrigger placement="top" overlay={<Tooltip>Edit Service</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-info" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                    onClick={() => { 
+                                      setSelectedService(service); 
+                                      setModalMode('edit'); 
+                                      setFormData({ ...service }); 
+                                      setShowServiceModal(true); 
+                                    }}
+                                  >
+                                    <FaEdit size={14} />
+                                  </Button>
+                                </OverlayTrigger>
+
+                                {(status === 'pending' || status === 'Pending') && (
+                                  <>
+                                    <OverlayTrigger placement="top" overlay={<Tooltip>Approve Service</Tooltip>}>
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline-success" 
+                                        className="rounded-circle p-1"
+                                        style={{ width: '32px', height: '32px' }}
+                                        onClick={() => { 
+                                          setSelectedService(service); 
+                                          setShowApproveModal(true); 
+                                        }}
+                                      >
+                                        <FaCheckCircle size={14} />
+                                      </Button>
+                                    </OverlayTrigger>
+                                    <OverlayTrigger placement="top" overlay={<Tooltip>Reject Service</Tooltip>}>
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline-danger" 
+                                        className="rounded-circle p-1"
+                                        style={{ width: '32px', height: '32px' }}
+                                        onClick={() => { 
+                                          setSelectedService(service); 
+                                          setShowRejectModal(true); 
+                                        }}
+                                      >
+                                        <FaTimesCircle size={14} />
+                                      </Button>
+                                    </OverlayTrigger>
+                                  </>
+                                )}
+
+                                <Dropdown>
+                                  <Dropdown.Toggle 
+                                    size="sm" 
+                                    variant="outline-secondary" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                  >
+                                    <FaEllipsisV size={14} />
+                                  </Dropdown.Toggle>
+                                  <Dropdown.Menu align="end">
+                                    <Dropdown.Item onClick={() => handleFeaturedToggle(serviceId)}>
+                                      {featured ? 
+                                        <FaStar className="me-2 text-warning" /> : 
+                                        <FaStar className="me-2 text-muted" />
+                                      }
+                                      {featured ? 'Remove Featured' : 'Mark Featured'}
+                                    </Dropdown.Item>
+                                    <Dropdown.Item onClick={() => { 
+                                      setSelectedService(service); 
+                                      setShowImageModal(true); 
+                                    }}>
+                                      <FaImage className="me-2" /> Manage Images
+                                    </Dropdown.Item>
+                                    <Dropdown.Divider />
+                                    <Dropdown.Item 
+                                      className="text-danger"
+                                      onClick={() => { 
+                                        setSelectedService(service); 
+                                        setShowDeleteModal(true); 
+                                      }}
+                                    >
+                                      <FaTrash className="me-2" /> Delete
+                                    </Dropdown.Item>
+                                  </Dropdown.Menu>
+                                </Dropdown>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -1116,7 +1368,8 @@ const ServiceManagement = () => {
         </Card>
       </Container>
 
-      {/* Modals */}
+      {/* Modals - same as before but with proper field access */}
+
       {/* View/Edit/Add Modal */}
       <Modal show={showServiceModal} onHide={() => setShowServiceModal(false)} size="xl" centered>
         <Modal.Header closeButton className="border-0 pb-0">
@@ -1133,7 +1386,7 @@ const ServiceManagement = () => {
             <div>
               <Row className="g-4">
                 <Col lg={8}>
-                  <h4>{selectedService.title}</h4>
+                  <h4>{getField(selectedService, ['title', 'name', 'serviceName'], 'Untitled')}</h4>
                   <div className="d-flex gap-2 mb-3">
                     {getStatusBadge(selectedService.status)}
                     {selectedService.featured && (
@@ -1142,7 +1395,7 @@ const ServiceManagement = () => {
                       </Badge>
                     )}
                   </div>
-                  <p>{selectedService.description}</p>
+                  <p>{getField(selectedService, ['description', 'shortDescription'], 'No description provided')}</p>
                   <Row className="g-3">
                     <Col md={4}>
                       <Card className="border-0 bg-light text-center">
@@ -1158,7 +1411,7 @@ const ServiceManagement = () => {
                         <Card.Body>
                           <FaClock className="text-success mb-2" size={24} />
                           <h6>Duration</h6>
-                          <h5>{selectedService.duration} hours</h5>
+                          <h5>{getField(selectedService, ['duration', 'estimatedDuration'], 'N/A')} hours</h5>
                         </Card.Body>
                       </Card>
                     </Col>
@@ -1167,7 +1420,7 @@ const ServiceManagement = () => {
                         <Card.Body>
                           <FaMapMarkerAlt className="text-danger mb-2" size={24} />
                           <h6>Location</h6>
-                          <h5>{selectedService.location}</h5>
+                          <h5>{getField(selectedService, ['location', 'serviceLocation', 'address'], 'N/A')}</h5>
                         </Card.Body>
                       </Card>
                     </Col>
@@ -1179,13 +1432,13 @@ const ServiceManagement = () => {
                       <h6>Provider</h6>
                       <div className="d-flex align-items-center gap-2">
                         <img 
-                          src={`https://ui-avatars.com/api/?name=${selectedService.providerName}&background=6366f1&color=fff&size=50`} 
+                          src={selectedService.providerAvatar || `https://ui-avatars.com/api/?name=${getField(selectedService, ['providerName', 'provider.name', 'provider.fullName'], 'P')}&background=6366f1&color=fff&size=50`} 
                           className="rounded-circle" 
                           style={{ width: '50px', height: '50px' }} 
                           alt="" 
                         />
                         <div>
-                          <h6 className="mb-1">{selectedService.providerName}</h6>
+                          <h6 className="mb-1">{getField(selectedService, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown')}</h6>
                           <div className="text-warning">
                             <FaStar /> {selectedService.providerRating || 'New'}
                           </div>
@@ -1239,7 +1492,7 @@ const ServiceManagement = () => {
                     >
                       <option value="">Select</option>
                       {categories.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
+                        <option key={c.id || c._id} value={c.name || c.categoryName}>{c.name || c.categoryName}</option>
                       ))}
                     </Form.Select>
                   </Form.Group>
@@ -1249,11 +1502,11 @@ const ServiceManagement = () => {
                     <Form.Label className="fw-semibold">Provider</Form.Label>
                     <Form.Select 
                       value={formData.providerId} 
-                      onChange={(e) => setFormData({ ...formData, providerId: parseInt(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, providerId: e.target.value })}
                     >
                       <option value="">Select</option>
                       {providers.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
+                        <option key={p.id || p._id} value={p.id || p._id}>{p.name || p.providerName}</option>
                       ))}
                     </Form.Select>
                   </Form.Group>
@@ -1293,7 +1546,7 @@ const ServiceManagement = () => {
         </Modal.Header>
         <Modal.Body className="pt-4">
           <Alert variant="success" className="mb-0" style={{ borderRadius: '12px' }}>
-            Are you sure you want to approve <strong>{selectedService?.title}</strong>?
+            Are you sure you want to approve <strong>{getField(selectedService, ['title', 'name', 'serviceName'], 'this service')}</strong>?
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
@@ -1303,7 +1556,7 @@ const ServiceManagement = () => {
           <Button 
             variant="success" 
             onClick={() => { 
-              handleStatusChange(selectedService.id, 'approved'); 
+              handleStatusChange(getServiceId(selectedService), 'approved'); 
               setShowApproveModal(false); 
             }} 
             disabled={processing}
@@ -1322,7 +1575,7 @@ const ServiceManagement = () => {
         </Modal.Header>
         <Modal.Body className="pt-4">
           <Alert variant="danger" className="mb-3" style={{ borderRadius: '12px' }}>
-            Are you sure you want to reject <strong>{selectedService?.title}</strong>?
+            Are you sure you want to reject <strong>{getField(selectedService, ['title', 'name', 'serviceName'], 'this service')}</strong>?
           </Alert>
           <Form.Group>
             <Form.Label className="fw-semibold">Reason for rejection</Form.Label>
@@ -1342,7 +1595,7 @@ const ServiceManagement = () => {
           <Button 
             variant="danger" 
             onClick={() => { 
-              handleStatusChange(selectedService.id, 'rejected', rejectionReason); 
+              handleStatusChange(getServiceId(selectedService), 'rejected', rejectionReason); 
               setShowRejectModal(false); 
               setRejectionReason(''); 
             }} 
@@ -1363,7 +1616,7 @@ const ServiceManagement = () => {
         <Modal.Body className="pt-4">
           <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
             <FaExclamationTriangle className="me-2" />
-            Are you sure you want to delete <strong>{selectedService?.title}</strong>?
+            Are you sure you want to delete <strong>{getField(selectedService, ['title', 'name', 'serviceName'], 'this service')}</strong>?
             <p className="mb-0 mt-2 small text-danger">This action cannot be undone.</p>
           </Alert>
         </Modal.Body>
@@ -1386,7 +1639,7 @@ const ServiceManagement = () => {
         </Modal.Header>
         <Modal.Body className="pt-4">
           <Row className="g-3">
-            {selectedService?.images?.map((img, i) => (
+            {(selectedService?.images || []).map((img, i) => (
               <Col xs={4} key={i}>
                 <div className="position-relative">
                   <img 
@@ -1436,16 +1689,16 @@ const ServiceManagement = () => {
         <Modal.Body className="pt-4">
           <p className="mb-4">Selected services: <strong className="text-primary">{selectedServices.length}</strong></p>
           <div className="d-grid gap-2">
-            <Button variant="success" onClick={() => handleBulkStatusChange('approved')} className="d-flex align-items-center justify-content-center gap-2">
+            <Button variant="success" onClick={() => handleBulkStatusChange('approved')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
               <FaCheckCircle /> Approve All
             </Button>
-            <Button variant="warning" onClick={() => handleBulkStatusChange('pending')} className="d-flex align-items-center justify-content-center gap-2">
+            <Button variant="warning" onClick={() => handleBulkStatusChange('pending')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
               <FaClock /> Set to Pending
             </Button>
-            <Button variant="danger" onClick={() => handleBulkStatusChange('rejected')} className="d-flex align-items-center justify-content-center gap-2">
+            <Button variant="danger" onClick={() => handleBulkStatusChange('rejected')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
               <FaTimesCircle /> Reject All
             </Button>
-            <Button variant="outline-danger" onClick={handleBulkDelete} className="d-flex align-items-center justify-content-center gap-2">
+            <Button variant="outline-danger" onClick={handleBulkDelete} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
               <FaTrash /> Delete All
             </Button>
           </div>

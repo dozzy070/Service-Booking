@@ -1,5 +1,5 @@
 // src/pages/customer/Wallet.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -23,7 +23,7 @@ import {
   FaHistory,
   FaMoneyBillWave,
   FaCreditCard,
-  FaUniversity,  // ✅ Fixed: Changed from FaBank to FaUniversity
+  FaUniversity,
   FaMobileAlt,
   FaArrowUp,
   FaArrowDown,
@@ -50,6 +50,7 @@ const Wallet = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [walletData, setWalletData] = useState({
     balance: 0,
     totalSpent: 0,
@@ -72,6 +73,11 @@ const Wallet = () => {
   const [dateRange, setDateRange] = useState('month');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
 
@@ -91,68 +97,168 @@ const Wallet = () => {
     return formatNaira(amount);
   };
 
-  // Fetch wallet data
+  // Fetch wallet data from real API
   const fetchWalletData = useCallback(async () => {
     try {
-      const response = await customerAPI.getWallet();
-      setWalletData(response.data);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof customerAPI.getWallet === 'function') {
+        response = await customerAPI.getWallet();
+      } else if (typeof customerAPI.getWalletBalance === 'function') {
+        response = await customerAPI.getWalletBalance();
+      } else {
+        throw new Error('Wallet API methods not available');
+      }
+
+      const data = response?.data || {};
+      setWalletData({
+        balance: data.balance || data.balance_amount || 0,
+        totalSpent: data.totalSpent || data.total_spent || 0,
+        totalSaved: data.totalSaved || data.total_saved || 0,
+        pendingCredits: data.pendingCredits || data.pending_credits || 0,
+        currency: data.currency || 'NGN'
+      });
     } catch (error) {
       console.error('Error fetching wallet:', error);
+      setError(error.message || 'Failed to load wallet data');
       toast.error('Failed to load wallet data');
     }
   }, []);
 
-  // Fetch transactions
+  // Fetch transactions from real API
   const fetchTransactions = useCallback(async () => {
     try {
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
         type: filterType !== 'all' ? filterType : undefined,
         range: dateRange
       };
-      const response = await customerAPI.getTransactions(params);
-      setTransactions(response.data.transactions || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+
+      let response = null;
+      
+      if (typeof customerAPI.getTransactions === 'function') {
+        response = await customerAPI.getTransactions(params);
+      } else if (typeof customerAPI.getTransactionHistory === 'function') {
+        response = await customerAPI.getTransactionHistory(params);
+      } else {
+        throw new Error('Transactions API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const transactionsData = data.transactions || data.data || [];
+      
+      setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
+      setTotalCount(data.total || transactionsData.length || 0);
+      setTotalPages(Math.ceil((data.total || transactionsData.length || 0) / itemsPerPage));
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setTransactions([]);
+      setTotalCount(0);
+      setTotalPages(1);
       toast.error('Failed to load transactions');
     }
   }, [currentPage, filterType, dateRange]);
 
-  // Fetch rewards
+  // Fetch rewards from real API
   const fetchRewards = useCallback(async () => {
     try {
-      const response = await customerAPI.getRewards();
-      setRewards(response.data || []);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof customerAPI.getRewards === 'function') {
+        response = await customerAPI.getRewards();
+      } else if (typeof customerAPI.getAvailableRewards === 'function') {
+        response = await customerAPI.getAvailableRewards();
+      } else {
+        throw new Error('Rewards API methods not available');
+      }
+
+      const data = response?.data || [];
+      setRewards(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching rewards:', error);
+      setRewards([]);
     }
   }, []);
 
   // Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchWalletData(),
-      fetchTransactions(),
-      fetchRewards()
-    ]);
-    setLoading(false);
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchWalletData(),
+        fetchTransactions(),
+        fetchRewards()
+      ]);
+    } catch (error) {
+      console.error('Error loading wallet data:', error);
+      setError('Failed to load wallet data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [fetchWalletData, fetchTransactions, fetchRewards]);
+
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchTransactions();
+    }
+  }, [currentPage, filterType, dateRange]);
+
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await loadAllData(false);
     toast.success('Wallet updated');
   };
 
-  useEffect(() => {
-    loadAllData();
-  }, [currentPage, filterType, dateRange]);
-
-  // Add funds
+  // Add funds with real API
   const handleAddFunds = async () => {
     if (!amount || parseFloat(amount) <= 0) {
       toast.error('Please enter a valid amount');
@@ -167,14 +273,39 @@ const Wallet = () => {
 
     setProcessing(true);
     try {
-      const response = await customerAPI.addFunds(amountValue, paymentMethod);
-      if (response.data.payment_url) {
-        window.location.href = response.data.payment_url;
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        amount: amountValue,
+        payment_method: paymentMethod
+      };
+
+      let response = null;
+      
+      if (typeof customerAPI.addFunds === 'function') {
+        response = await customerAPI.addFunds(payload);
+      } else if (typeof customerAPI.depositFunds === 'function') {
+        response = await customerAPI.depositFunds(payload);
+      } else {
+        throw new Error('Add funds API methods not available');
+      }
+
+      const data = response?.data || {};
+      
+      if (data.payment_url) {
+        window.location.href = data.payment_url;
+      } else if (data.reference || data.transaction_id) {
+        toast.success('Funds added successfully!');
+        setShowAddFundsModal(false);
+        setAmount('');
+        await loadAllData(false);
       } else {
         toast.success('Funds added successfully!');
         setShowAddFundsModal(false);
         setAmount('');
-        await loadAllData();
+        await loadAllData(false);
       }
     } catch (error) {
       console.error('Error adding funds:', error);
@@ -184,7 +315,7 @@ const Wallet = () => {
     }
   };
 
-  // Withdraw funds
+  // Withdraw funds with real API
   const handleWithdraw = async () => {
     if (!amount || parseFloat(amount) <= 0) {
       toast.error('Please enter a valid amount');
@@ -204,11 +335,27 @@ const Wallet = () => {
 
     setProcessing(true);
     try {
-      await customerAPI.withdrawFunds(amountValue, withdrawMethod);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        amount: amountValue,
+        method: withdrawMethod
+      };
+
+      if (typeof customerAPI.withdrawFunds === 'function') {
+        await customerAPI.withdrawFunds(payload);
+      } else if (typeof customerAPI.requestWithdrawal === 'function') {
+        await customerAPI.requestWithdrawal(payload);
+      } else {
+        throw new Error('Withdrawal API methods not available');
+      }
+      
       toast.success('Withdrawal request submitted successfully!');
       setShowWithdrawModal(false);
       setAmount('');
-      await loadAllData();
+      await loadAllData(false);
     } catch (error) {
       console.error('Error withdrawing funds:', error);
       toast.error(error.response?.data?.message || 'Failed to process withdrawal');
@@ -217,22 +364,54 @@ const Wallet = () => {
     }
   };
 
-  // Redeem reward
+  // Redeem reward with real API
   const handleRedeemReward = async (rewardId) => {
+    if (!rewardId) return;
+    
     try {
-      await customerAPI.redeemReward(rewardId);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.redeemReward === 'function') {
+        await customerAPI.redeemReward(rewardId);
+      } else if (typeof customerAPI.useReward === 'function') {
+        await customerAPI.useReward(rewardId);
+      } else {
+        throw new Error('Redeem reward API methods not available');
+      }
+      
       toast.success('Reward redeemed successfully!');
-      await loadAllData();
+      await loadAllData(false);
     } catch (error) {
       console.error('Error redeeming reward:', error);
       toast.error(error.response?.data?.message || 'Failed to redeem reward');
     }
   };
 
-  // Export transactions
+  // Export transactions with real API
   const exportTransactions = async () => {
     try {
-      const response = await customerAPI.getTransactions({ export: true });
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const params = {
+        export: true,
+        type: filterType !== 'all' ? filterType : undefined,
+        range: dateRange
+      };
+
+      let response = null;
+      
+      if (typeof customerAPI.getTransactions === 'function') {
+        response = await customerAPI.getTransactions(params);
+      } else if (typeof customerAPI.exportTransactions === 'function') {
+        response = await customerAPI.exportTransactions(params);
+      } else {
+        throw new Error('Export transactions API methods not available');
+      }
+
       const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -243,24 +422,38 @@ const Wallet = () => {
       toast.success('Transactions exported successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export transactions');
+      toast.error(error.message || 'Failed to export transactions');
     }
   };
 
-  // Copy to clipboard
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard!');
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
   };
 
   const getTransactionStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaClock size={10} />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const config = {
       completed: { variant: 'success', icon: FaCheckCircle, text: 'Completed' },
+      success: { variant: 'success', icon: FaCheckCircle, text: 'Success' },
       pending: { variant: 'warning', icon: FaClock, text: 'Pending' },
       failed: { variant: 'danger', icon: FaTimesCircle, text: 'Failed' },
-      processing: { variant: 'info', icon: FaClock, text: 'Processing' }
+      processing: { variant: 'info', icon: FaClock, text: 'Processing' },
+      cancelled: { variant: 'secondary', icon: FaTimesCircle, text: 'Cancelled' }
     };
-    const item = config[status] || config.pending;
+    const item = config[lowerStatus] || config.pending;
     const Icon = item.icon;
     return (
       <Badge bg={item.variant} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
@@ -271,7 +464,16 @@ const Wallet = () => {
   };
 
   const getTransactionTypeBadge = (type) => {
-    if (type === 'credit') {
+    if (!type) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerType = type.toLowerCase();
+    if (lowerType === 'credit' || lowerType === 'deposit' || lowerType === 'refund') {
       return (
         <Badge bg="success" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
           <FaArrowUp size={10} />
@@ -279,31 +481,41 @@ const Wallet = () => {
         </Badge>
       );
     }
+    if (lowerType === 'debit' || lowerType === 'withdrawal' || lowerType === 'payment') {
+      return (
+        <Badge bg="danger" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaArrowDown size={10} />
+          <span className="ms-1">Debit</span>
+        </Badge>
+      );
+    }
     return (
-      <Badge bg="danger" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
-        <FaArrowDown size={10} />
-        <span className="ms-1">Debit</span>
+      <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+        <span className="ms-1">{type}</span>
       </Badge>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading wallet...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   // Get available rewards count
-  const availableRewards = rewards.filter(r => r.is_available).length;
+  const availableRewards = rewards.filter(r => r.is_available !== false).length;
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaWallet className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => loadAllData(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -426,33 +638,43 @@ const Wallet = () => {
             </Card.Header>
             <Card.Body>
               <Row className="g-3">
-                {rewards.slice(0, 3).map(reward => (
-                  <Col md={4} key={reward.id}>
-                    <div className="reward-card p-3 rounded-3 border" style={{ background: '#f8fafc' }}>
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <Badge bg={reward.type === 'discount' ? 'success' : 'primary'} className="rounded-pill">
-                          {reward.type === 'discount' ? `${reward.value}% OFF` : reward.name}
-                        </Badge>
-                        {reward.expiry_date && (
-                          <small className="text-muted">
-                            Expires: {format(new Date(reward.expiry_date), 'MMM dd')}
-                          </small>
-                        )}
+                {rewards.slice(0, 3).map(reward => {
+                  const rewardId = reward.id || reward._id;
+                  const rewardName = getField(reward, ['name', 'title', 'reward_name'], 'Reward');
+                  const rewardDescription = getField(reward, ['description', 'desc', 'details'], '');
+                  const rewardType = getField(reward, ['type', 'reward_type'], 'discount');
+                  const rewardValue = reward.value || reward.amount || 0;
+                  const isAvailable = reward.is_available !== false && reward.expired !== true;
+                  const expiryDate = reward.expiry_date || reward.expires_at || reward.valid_until;
+
+                  return (
+                    <Col md={4} key={rewardId}>
+                      <div className="reward-card p-3 rounded-3 border" style={{ background: '#f8fafc' }}>
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <Badge bg={rewardType === 'discount' ? 'success' : 'primary'} className="rounded-pill">
+                            {rewardType === 'discount' ? `${rewardValue}% OFF` : rewardName}
+                          </Badge>
+                          {expiryDate && (
+                            <small className="text-muted">
+                              Expires: {format(new Date(expiryDate), 'MMM dd')}
+                            </small>
+                          )}
+                        </div>
+                        <h6 className="mb-1">{rewardName}</h6>
+                        <p className="small text-muted mb-3">{rewardDescription}</p>
+                        <Button
+                          size="sm"
+                          variant="outline-success"
+                          className="w-100"
+                          onClick={() => handleRedeemReward(rewardId)}
+                          disabled={!isAvailable}
+                        >
+                          {isAvailable ? 'Redeem Now' : 'Expired'}
+                        </Button>
                       </div>
-                      <h6 className="mb-1">{reward.name}</h6>
-                      <p className="small text-muted mb-3">{reward.description}</p>
-                      <Button
-                        size="sm"
-                        variant="outline-success"
-                        className="w-100"
-                        onClick={() => handleRedeemReward(reward.id)}
-                        disabled={!reward.is_available}
-                      >
-                        {reward.is_available ? 'Redeem Now' : 'Expired'}
-                      </Button>
-                    </div>
-                  </Col>
-                ))}
+                    </Col>
+                  );
+                })}
               </Row>
             </Card.Body>
           </Card>
@@ -514,45 +736,57 @@ const Wallet = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {transactions.map((transaction) => (
-                        <tr key={transaction.id} style={{ cursor: 'pointer' }}>
-                          <td style={{ padding: '16px' }}>
-                            <span className="text-primary fw-medium">#{transaction.id.slice(-8)}</span>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div>{format(new Date(transaction.date), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{format(new Date(transaction.date), 'hh:mm a')}</small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {transaction.description}
-                            {transaction.reference && (
-                              <div className="small text-muted mt-1">
-                                Ref: {transaction.reference}
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ padding: '16px' }}>{getTransactionTypeBadge(transaction.type)}</td>
-                          <td style={{ padding: '16px' }}>
-                            <span className={transaction.type === 'credit' ? 'text-success' : 'text-danger'} style={{ fontWeight: 600 }}>
-                              {transaction.type === 'credit' ? '+' : '-'} {formatNaira(Math.abs(transaction.amount))}
-                            </span>
-                          </td>
-                          <td style={{ padding: '16px' }}>{getTransactionStatusBadge(transaction.status)}</td>
-                          <td style={{ padding: '16px' }}>
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="text-primary p-0"
-                              onClick={() => {
-                                setSelectedTransaction(transaction);
-                                setShowTransactionModal(true);
-                              }}
-                            >
-                              <FaEye />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {transactions.map((transaction) => {
+                        const transactionId = transaction.id || transaction._id;
+                        const transactionDate = transaction.date || transaction.created_at || transaction.timestamp || new Date().toISOString();
+                        const description = getField(transaction, ['description', 'details', 'note', 'reason'], 'Transaction');
+                        const reference = getField(transaction, ['reference', 'ref', 'transaction_ref'], '');
+                        const type = getField(transaction, ['type', 'transaction_type', 'txn_type'], 'credit');
+                        const amountValue = parseFloat(transaction.amount) || 0;
+                        const status = getField(transaction, ['status', 'transaction_status', 'txn_status'], 'pending');
+                        const balanceAfter = parseFloat(transaction.balance_after) || parseFloat(transaction.balance) || walletData.balance;
+                        const paymentMethod = getField(transaction, ['payment_method', 'method', 'payment_type'], '');
+
+                        return (
+                          <tr key={transactionId} style={{ cursor: 'pointer' }}>
+                            <td style={{ padding: '16px' }}>
+                              <span className="text-primary fw-medium">#{transactionId.slice(-8)}</span>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div>{format(new Date(transactionDate), 'MMM dd, yyyy')}</div>
+                              <small className="text-muted">{format(new Date(transactionDate), 'hh:mm a')}</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {description}
+                              {reference && (
+                                <div className="small text-muted mt-1">
+                                  Ref: {reference}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ padding: '16px' }}>{getTransactionTypeBadge(type)}</td>
+                            <td style={{ padding: '16px' }}>
+                              <span className={type === 'credit' || type === 'deposit' || type === 'refund' ? 'text-success' : 'text-danger'} style={{ fontWeight: 600 }}>
+                                {type === 'credit' || type === 'deposit' || type === 'refund' ? '+' : '-'} {formatNaira(amountValue)}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px' }}>{getTransactionStatusBadge(status)}</td>
+                            <td style={{ padding: '16px' }}>
+                              <Button
+                                variant="link"
+                                size="sm"
+                                className="text-primary p-0"
+                                onClick={() => {
+                                  setSelectedTransaction(transaction);
+                                  setShowTransactionModal(true);
+                                }}
+                              >
+                                <FaEye />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -653,7 +887,7 @@ const Wallet = () => {
                   onClick={() => setPaymentMethod('bank')}
                   style={{ cursor: 'pointer' }}
                 >
-                  <FaUniversity size={24} className="mb-2" />  {/* ✅ Fixed: Changed from FaBank */}
+                  <FaUniversity size={24} className="mb-2" />
                   <div className="fw-semibold">Bank Transfer</div>
                   <small className="text-muted">Direct bank transfer</small>
                 </div>
@@ -739,7 +973,7 @@ const Wallet = () => {
                   onClick={() => setWithdrawMethod('bank')}
                   style={{ cursor: 'pointer' }}
                 >
-                  <FaUniversity size={24} className="mb-2" />  {/* ✅ Fixed: Changed from FaBank */}
+                  <FaUniversity size={24} className="mb-2" />
                   <div className="fw-semibold">Bank Transfer</div>
                   <small className="text-muted">1-2 business days</small>
                 </div>
@@ -800,27 +1034,27 @@ const Wallet = () => {
           {selectedTransaction && (
             <div>
               <div className="text-center mb-4">
-                <div className={`rounded-circle d-inline-flex p-3 mb-3 ${selectedTransaction.type === 'credit' ? 'bg-success bg-opacity-10' : 'bg-danger bg-opacity-10'}`}>
-                  {selectedTransaction.type === 'credit' ? (
+                <div className={`rounded-circle d-inline-flex p-3 mb-3 ${selectedTransaction.type === 'credit' || selectedTransaction.type === 'deposit' || selectedTransaction.type === 'refund' ? 'bg-success bg-opacity-10' : 'bg-danger bg-opacity-10'}`}>
+                  {selectedTransaction.type === 'credit' || selectedTransaction.type === 'deposit' || selectedTransaction.type === 'refund' ? (
                     <FaArrowUp size={32} className="text-success" />
                   ) : (
                     <FaArrowDown size={32} className="text-danger" />
                   )}
                 </div>
-                <h3 className={selectedTransaction.type === 'credit' ? 'text-success' : 'text-danger'}>
-                  {selectedTransaction.type === 'credit' ? '+' : '-'} {formatNaira(Math.abs(selectedTransaction.amount))}
+                <h3 className={selectedTransaction.type === 'credit' || selectedTransaction.type === 'deposit' || selectedTransaction.type === 'refund' ? 'text-success' : 'text-danger'}>
+                  {selectedTransaction.type === 'credit' || selectedTransaction.type === 'deposit' || selectedTransaction.type === 'refund' ? '+' : '-'} {formatNaira(Math.abs(selectedTransaction.amount || 0))}
                 </h3>
-                <p className="text-muted">{selectedTransaction.description}</p>
+                <p className="text-muted">{getField(selectedTransaction, ['description', 'details', 'note', 'reason'], 'Transaction')}</p>
               </div>
 
               <div className="border-top pt-3">
                 <div className="d-flex justify-content-between mb-2">
                   <span className="text-muted">Transaction ID:</span>
-                  <span className="fw-medium">{selectedTransaction.id}</span>
+                  <span className="fw-medium">{selectedTransaction.id || selectedTransaction._id}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-2">
                   <span className="text-muted">Date & Time:</span>
-                  <span>{format(new Date(selectedTransaction.date), 'MMM dd, yyyy hh:mm a')}</span>
+                  <span>{format(new Date(selectedTransaction.date || selectedTransaction.created_at || selectedTransaction.timestamp || new Date()), 'MMM dd, yyyy hh:mm a')}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-2">
                   <span className="text-muted">Status:</span>
@@ -840,7 +1074,7 @@ const Wallet = () => {
                 )}
                 <div className="d-flex justify-content-between">
                   <span className="text-muted">Balance After:</span>
-                  <span className="fw-bold">{formatNaira(selectedTransaction.balance_after || walletData.balance)}</span>
+                  <span className="fw-bold">{formatNaira(selectedTransaction.balance_after || selectedTransaction.balance || walletData.balance)}</span>
                 </div>
               </div>
             </div>

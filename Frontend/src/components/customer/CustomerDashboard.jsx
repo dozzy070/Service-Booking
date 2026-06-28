@@ -1,5 +1,5 @@
 // src/pages/dashboard/CustomerDashboard.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FaCalendarCheck,
@@ -196,7 +196,7 @@ const styles = {
     overflow: 'hidden',
   },
   progressFill: (percent) => ({
-    width: `${percent}%`,
+    width: `${Math.min(percent, 100)}%`,
     height: '100%',
     background: 'linear-gradient(90deg, #f59e0b, #f97316)',
     borderRadius: '3px',
@@ -556,6 +556,7 @@ const CustomerDashboard = () => {
   const [greeting, setGreeting] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({
     totalBookings: 0,
     upcomingBookings: 0,
@@ -574,6 +575,10 @@ const CustomerDashboard = () => {
   const [featuredServices, setFeaturedServices] = useState([]);
   const [trendingServices, setTrendingServices] = useState([]);
   const [hoveredStat, setHoveredStat] = useState(null);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -597,52 +602,142 @@ const CustomerDashboard = () => {
     else setGreeting('Good Evening');
   }, []);
 
-  const fetchDashboardData = useCallback(async () => {
+  // ✅ Fetch dashboard data from real API
+  const fetchDashboardData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const [statsRes, bookingsRes, recommendationsRes, remindersRes, featuredRes, trendingRes] =
-        await Promise.all([
-          customerAPI.getDashboardStats(),
-          customerAPI.getRecentBookings(),
-          customerAPI.getRecommendedServices(),
-          customerAPI.getReminders(),
-          customerAPI.getFeaturedServices(),
-          customerAPI.getTrendingServices(),
-        ]);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
 
-      setStats(statsRes.data);
-      setRecentBookings(bookingsRes.data || []);
-      setRecommendedServices(recommendationsRes.data || []);
-      setUpcomingReminders(remindersRes.data || []);
-      setFeaturedServices(featuredRes.data || []);
-      setTrendingServices(trendingRes.data || []);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      // Try to fetch data with proper error handling for each call
+      let statsRes, bookingsRes, recommendationsRes, remindersRes, featuredRes, trendingRes;
+      
+      try {
+        statsRes = await customerAPI.getDashboardStats();
+        setStats(statsRes?.data || stats);
+      } catch (err) {
+        console.error('Error fetching stats:', err);
+        // Keep existing stats
+      }
+      
+      try {
+        bookingsRes = await customerAPI.getRecentBookings();
+        setRecentBookings(bookingsRes?.data || []);
+      } catch (err) {
+        console.error('Error fetching recent bookings:', err);
+        setRecentBookings([]);
+      }
+      
+      try {
+        recommendationsRes = await customerAPI.getRecommendedServices();
+        setRecommendedServices(recommendationsRes?.data || []);
+      } catch (err) {
+        console.error('Error fetching recommendations:', err);
+        setRecommendedServices([]);
+      }
+      
+      try {
+        remindersRes = await customerAPI.getReminders();
+        setUpcomingReminders(remindersRes?.data || []);
+      } catch (err) {
+        console.error('Error fetching reminders:', err);
+        setUpcomingReminders([]);
+      }
+      
+      try {
+        featuredRes = await customerAPI.getFeaturedServices();
+        setFeaturedServices(featuredRes?.data || []);
+      } catch (err) {
+        console.error('Error fetching featured services:', err);
+        setFeaturedServices([]);
+      }
+      
+      try {
+        trendingRes = await customerAPI.getTrendingServices();
+        setTrendingServices(trendingRes?.data || []);
+      } catch (err) {
+        console.error('Error fetching trending services:', err);
+        setTrendingServices([]);
+      }
+      
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      setError('Failed to load dashboard data');
       toast.error('Failed to load dashboard data');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
+  // ✅ Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchDashboardData();
-    setRefreshing(false);
+    await fetchDashboardData(false);
     toast.success('Dashboard updated');
   };
 
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchDashboardData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    fetchDashboardData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <span style={styles.badge('#e2e8f0', '#4a5568')}>
+          <FaClock size={10} /> Unknown
+        </span>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const map = {
       pending: { bg: '#fef3c7', color: '#b45309', label: 'Pending', icon: FaClock },
       confirmed: { bg: '#dbeafe', color: '#1d4ed8', label: 'Confirmed', icon: FaCheckCircle },
+      accepted: { bg: '#dbeafe', color: '#1d4ed8', label: 'Accepted', icon: FaCheckCircle },
       in_progress: { bg: '#e0e7ff', color: '#4338ca', label: 'In Progress', icon: FaRegClock },
       completed: { bg: '#d1fae5', color: '#065f46', label: 'Completed', icon: FaCheckCircle },
       cancelled: { bg: '#fee2e2', color: '#991b1b', label: 'Cancelled', icon: FaExclamationCircle },
     };
-    const item = map[status] || map.pending;
+    const item = map[lowerStatus] || map.pending;
     const Icon = item.icon;
     return (
       <span style={styles.badge(item.bg, item.color)}>
@@ -652,6 +747,7 @@ const CustomerDashboard = () => {
   };
 
   const getDateBadge = (date) => {
+    if (!date) return null;
     const d = new Date(date);
     if (isToday(d)) {
       return <span style={{ ...styles.badge('#d1fae5', '#065f46'), fontSize: '10px' }}>Today</span>;
@@ -663,28 +759,43 @@ const CustomerDashboard = () => {
   };
 
   const getMembershipTier = () => {
-    if (stats.totalSpent >= 500000) return { name: 'Platinum', icon: FaCrown, color: '#7c3aed' };
-    if (stats.totalSpent >= 200000) return { name: 'Gold', icon: FaTrophy, color: '#d97706' };
-    if (stats.totalSpent >= 50000) return { name: 'Silver', icon: FaMedal, color: '#6b7280' };
+    const spent = stats.totalSpent || 0;
+    if (spent >= 500000) return { name: 'Platinum', icon: FaCrown, color: '#7c3aed' };
+    if (spent >= 200000) return { name: 'Gold', icon: FaTrophy, color: '#d97706' };
+    if (spent >= 50000) return { name: 'Silver', icon: FaMedal, color: '#6b7280' };
     return { name: 'Bronze', icon: FaAward, color: '#b45309' };
   };
 
   const tier = getMembershipTier();
   const TierIcon = tier.icon;
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
-          <p style={{ color: '#718096' }}>Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={styles.container}>
+      {/* Error Alert */}
+      {error && (
+        <div style={{
+          background: '#fee2e2',
+          color: '#991b1b',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <span><FaExclamationCircle style={{ marginRight: '10px' }} />{error}</span>
+          <button 
+            onClick={() => fetchDashboardData(false)}
+            style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: '600' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Welcome Card */}
       <div style={styles.welcomeCard}>
         <div style={styles.welcomeCardBg}></div>
@@ -700,13 +811,13 @@ const CustomerDashboard = () => {
               </p>
               <div style={styles.welcomeStats}>
                 <span style={styles.welcomeStat}>
-                  <FaStar size={12} /> {stats.completedBookings} Services Completed
+                  <FaStar size={12} /> {stats.completedBookings || 0} Services Completed
                 </span>
                 <span style={styles.welcomeStat}>
-                  <FaFire size={12} /> {stats.loyaltyPoints} Points
+                  <FaFire size={12} /> {stats.loyaltyPoints || 0} Points
                 </span>
                 <span style={styles.welcomeStat}>
-                  <FaWallet size={12} /> {formatCompactNaira(stats.totalSpent)} Spent
+                  <FaWallet size={12} /> {formatCompactNaira(stats.totalSpent || 0)} Spent
                 </span>
               </div>
             </div>
@@ -739,10 +850,10 @@ const CustomerDashboard = () => {
       {/* Stats Cards */}
       <div style={styles.statsGrid}>
         {[
-          { key: 'total', icon: FaCalendarCheck, label: 'Total Bookings', value: stats.totalBookings, color: '#6366f1', bg: '#eef2ff', detail: `${stats.upcomingBookings} upcoming` },
-          { key: 'favorites', icon: FaHeart, label: 'Favorites', value: stats.favorites, color: '#ef4444', bg: '#fef2f2', detail: 'View all →' },
-          { key: 'reviews', icon: FaStar, label: 'Reviews', value: stats.reviews, color: '#f59e0b', bg: '#fffbeb', detail: 'Write a review →' },
-          { key: 'spent', icon: FaWallet, label: 'Total Spent', value: formatCompactNaira(stats.totalSpent), color: '#10b981', bg: '#ecfdf5', detail: `Saved ${formatCompactNaira(stats.savings)}` },
+          { key: 'total', icon: FaCalendarCheck, label: 'Total Bookings', value: stats.totalBookings || 0, color: '#6366f1', bg: '#eef2ff', detail: `${stats.upcomingBookings || 0} upcoming` },
+          { key: 'favorites', icon: FaHeart, label: 'Favorites', value: stats.favorites || 0, color: '#ef4444', bg: '#fef2f2', detail: 'View all →' },
+          { key: 'reviews', icon: FaStar, label: 'Reviews', value: stats.reviews || 0, color: '#f59e0b', bg: '#fffbeb', detail: 'Write a review →' },
+          { key: 'spent', icon: FaWallet, label: 'Total Spent', value: formatCompactNaira(stats.totalSpent || 0), color: '#10b981', bg: '#ecfdf5', detail: `Saved ${formatCompactNaira(stats.savings || 0)}` },
         ].map((item, idx) => {
           const Icon = item.icon;
           const isHovered = hoveredStat === idx;
@@ -788,14 +899,14 @@ const CustomerDashboard = () => {
             <div>
               <h5 style={{ margin: 0, fontWeight: '600', color: '#92400e' }}>{tier.name} Member</h5>
               <p style={{ margin: 0, fontSize: '14px', color: '#78350f' }}>
-                {stats.loyaltyPoints} points • {formatCompactNaira(stats.totalSpent)} spent
+                {stats.loyaltyPoints || 0} points • {formatCompactNaira(stats.totalSpent || 0)} spent
               </p>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '13px', color: '#78350f' }}>Next Reward</div>
-              <div style={{ fontWeight: '600', color: '#92400e' }}>{stats.nextReward} points needed</div>
+              <div style={{ fontWeight: '600', color: '#92400e' }}>{stats.nextReward || 500} points needed</div>
             </div>
             <button
               style={{
@@ -817,7 +928,7 @@ const CustomerDashboard = () => {
         <div style={styles.progressBar}>
           <div
             style={styles.progressFill(
-              (stats.loyaltyPoints / (stats.loyaltyPoints + stats.nextReward)) * 100
+              ((stats.loyaltyPoints || 0) / ((stats.loyaltyPoints || 0) + (stats.nextReward || 500))) * 100
             )}
           />
         </div>
@@ -838,50 +949,53 @@ const CustomerDashboard = () => {
               </Link>
             </div>
             <div style={styles.cardBody}>
-              {recentBookings.filter(b => b.status === 'pending' || b.status === 'confirmed').length > 0 ? (
+              {recentBookings && recentBookings.filter(b => b && (b.status === 'pending' || b.status === 'confirmed' || b.status === 'accepted')).length > 0 ? (
                 recentBookings
-                  .filter(b => b.status === 'pending' || b.status === 'confirmed')
-                  .map((booking, idx) => (
-                    <div
-                      key={booking.id}
-                      style={{
-                        ...styles.bookingItem,
-                        ...(idx === recentBookings.filter(b => b.status === 'pending' || b.status === 'confirmed').length - 1
-                          ? styles.bookingItemLast
-                          : {}),
-                      }}
-                    >
-                      <div style={styles.bookingInfo}>
-                        <div style={styles.providerAvatar}>
-                          {booking.provider_name?.charAt(0).toUpperCase() || 'P'}
+                  .filter(b => b && (b.status === 'pending' || b.status === 'confirmed' || b.status === 'accepted'))
+                  .map((booking, idx) => {
+                    const upcomingCount = recentBookings.filter(b => b && (b.status === 'pending' || b.status === 'confirmed' || b.status === 'accepted')).length;
+                    return (
+                      <div
+                        key={booking.id || booking._id}
+                        style={{
+                          ...styles.bookingItem,
+                          ...(idx === upcomingCount - 1 ? styles.bookingItemLast : {}),
+                        }}
+                      >
+                        <div style={styles.bookingInfo}>
+                          <div style={styles.providerAvatar}>
+                            {getField(booking, ['provider_name', 'provider.name', 'providerName'], 'P').charAt(0).toUpperCase()}
+                          </div>
+                          <div style={styles.bookingMeta}>
+                            <p style={styles.bookingService}>
+                              {getField(booking, ['service_name', 'service.title', 'serviceName', 'title'], 'Unknown Service')}
+                            </p>
+                            <p style={styles.bookingProvider}>
+                              <FaUserTie size={12} /> {getField(booking, ['provider_name', 'provider.name', 'providerName'], 'Unknown')}
+                            </p>
+                          </div>
                         </div>
-                        <div style={styles.bookingMeta}>
-                          <p style={styles.bookingService}>{booking.service_name}</p>
-                          <p style={styles.bookingProvider}>
-                            <FaUserTie size={12} /> {booking.provider_name}
-                          </p>
+                        <div style={styles.bookingDate}>
+                          <div style={styles.bookingDateDay}>
+                            {booking.date ? format(new Date(booking.date), 'MMM dd') : 'N/A'}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#a0aec0' }}>{booking.time || 'N/A'}</div>
+                          {getDateBadge(booking.date)}
+                        </div>
+                        <div style={styles.bookingPrice}>
+                          {formatCompactNaira(booking.amount || 0)}
+                        </div>
+                        <div style={styles.bookingActions}>
+                          <Link
+                            to={`/customer/bookings/${booking.id || booking._id}`}
+                            style={{ ...styles.btnSmall, ...styles.btnPrimary }}
+                          >
+                            View
+                          </Link>
                         </div>
                       </div>
-                      <div style={styles.bookingDate}>
-                        <div style={styles.bookingDateDay}>
-                          {format(new Date(booking.date), 'MMM dd')}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#a0aec0' }}>{booking.time}</div>
-                        {getDateBadge(booking.date)}
-                      </div>
-                      <div style={styles.bookingPrice}>
-                        {formatCompactNaira(booking.amount)}
-                      </div>
-                      <div style={styles.bookingActions}>
-                        <Link
-                          to={`/customer/bookings/${booking.id}`}
-                          style={{ ...styles.btnSmall, ...styles.btnPrimary }}
-                        >
-                          View
-                        </Link>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
               ) : (
                 <div style={styles.emptyState}>
                   <FaCalendarCheck style={styles.emptyIcon} />
@@ -903,31 +1017,41 @@ const CustomerDashboard = () => {
               </h5>
             </div>
             <div style={styles.cardBody}>
-              {recentBookings.slice(0, 4).map((booking, idx) => {
+              {recentBookings && recentBookings.slice(0, 4).map((booking, idx) => {
+                if (!booking) return null;
                 const statusColors = {
                   completed: { color: '#10b981', bg: '#ecfdf5' },
                   cancelled: { color: '#ef4444', bg: '#fef2f2' },
                   pending: { color: '#f59e0b', bg: '#fffbeb' },
                   confirmed: { color: '#3b82f6', bg: '#eff6ff' },
+                  accepted: { color: '#3b82f6', bg: '#eff6ff' },
+                  in_progress: { color: '#8b5cf6', bg: '#f3e8ff' },
                 };
-                const sc = statusColors[booking.status] || statusColors.pending;
+                const sc = statusColors[booking.status?.toLowerCase()] || statusColors.pending;
                 return (
-                  <div key={booking.id} style={{ ...styles.activityItem, borderBottom: idx < 3 ? '1px solid #f0f4f8' : 'none' }}>
+                  <div key={booking.id || booking._id} style={{ ...styles.activityItem, borderBottom: idx < 3 ? '1px solid #f0f4f8' : 'none' }}>
                     <div style={styles.activityIcon(sc.color, sc.bg)}>
                       {booking.status === 'completed' ? <FaCheckCircle /> :
                        booking.status === 'cancelled' ? <FaExclamationCircle /> :
                        <FaClock />}
                     </div>
                     <div style={styles.activityContent}>
-                      <p style={styles.activityTitle}>{booking.service_name}</p>
+                      <p style={styles.activityTitle}>
+                        {getField(booking, ['service_name', 'service.title', 'serviceName', 'title'], 'Unknown Service')}
+                      </p>
                       <span style={styles.activityTime}>
-                        {formatDistanceToNow(new Date(booking.date), { addSuffix: true })} • {formatCompactNaira(booking.amount)}
+                        {booking.date ? formatDistanceToNow(new Date(booking.date), { addSuffix: true }) : 'Recently'} • {formatCompactNaira(booking.amount || 0)}
                       </span>
                     </div>
                     {getStatusBadge(booking.status)}
                   </div>
                 );
               })}
+              {(!recentBookings || recentBookings.length === 0) && (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyText}>No recent activity</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -957,8 +1081,8 @@ const CustomerDashboard = () => {
             </div>
           </div>
 
-          {/* Recommended Services - ✅ FIXED IMAGE USAGE */}
-          {recommendedServices.length > 0 && (
+          {/* Recommended Services */}
+          {recommendedServices && recommendedServices.length > 0 && (
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <h5 style={styles.cardTitle}>
@@ -970,24 +1094,24 @@ const CustomerDashboard = () => {
               </div>
               <div style={styles.cardBody}>
                 {recommendedServices.slice(0, 3).map(service => (
-                  <div key={service.id} style={styles.recommendedItem}>
+                  <div key={service.id || service._id} style={styles.recommendedItem}>
                     <img
-                      src={service.image || getServiceImage(service.title, service.id, 64, 64)}
-                      alt={service.title}
+                      src={service.image || getServiceImage(service.title || service.name, service.id || service._id, 64, 64)}
+                      alt={service.title || service.name}
                       style={styles.recommendedImg}
-                      onError={(e) => handleServiceImageError(e, service.title)}
+                      onError={(e) => handleServiceImageError(e, service.title || service.name)}
                     />
                     <div style={styles.recommendedInfo}>
                       <div>
-                        <p style={styles.recommendedTitle}>{service.title}</p>
+                        <p style={styles.recommendedTitle}>{service.title || service.name || 'Unknown Service'}</p>
                         <div style={styles.recommendedRating}>
                           <FaStar style={{ color: '#f59e0b' }} size={12} />
-                          {service.rating} ({service.reviews} reviews)
+                          {service.rating || 0} ({service.reviews || 0} reviews)
                         </div>
                       </div>
                       <div style={styles.recommendedFooter}>
-                        <span style={styles.recommendedPrice}>{formatCompactNaira(service.price)}</span>
-                        <Link to={`/services/${service.id}`} style={styles.recommendedBookBtn}>
+                        <span style={styles.recommendedPrice}>{formatCompactNaira(service.price || 0)}</span>
+                        <Link to={`/services/${service.id || service._id}`} style={styles.recommendedBookBtn}>
                           Book
                         </Link>
                       </div>
@@ -999,7 +1123,7 @@ const CustomerDashboard = () => {
           )}
 
           {/* Reminders */}
-          {upcomingReminders.length > 0 && (
+          {upcomingReminders && upcomingReminders.length > 0 && (
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <h5 style={styles.cardTitle}>
@@ -1008,12 +1132,12 @@ const CustomerDashboard = () => {
               </div>
               <div style={styles.cardBody}>
                 {upcomingReminders.slice(0, 3).map(reminder => (
-                  <div key={reminder.id} style={styles.reminderItem}>
+                  <div key={reminder.id || reminder._id} style={styles.reminderItem}>
                     <div style={styles.reminderDot}></div>
                     <div>
-                      <p style={styles.reminderText}>{reminder.message}</p>
+                      <p style={styles.reminderText}>{reminder.message || reminder.text || 'Reminder'}</p>
                       <span style={styles.reminderTime}>
-                        {formatDistanceToNow(new Date(reminder.date), { addSuffix: true })}
+                        {reminder.date ? formatDistanceToNow(new Date(reminder.date), { addSuffix: true }) : 'Soon'}
                       </span>
                     </div>
                   </div>

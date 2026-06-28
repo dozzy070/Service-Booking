@@ -205,6 +205,7 @@ export const customerAPI = {
 
 // ==================== PROVIDER API ====================
 export const providerAPI = {
+  // Dashboard
   getDashboardStats: () => api.get('/provider/dashboard/stats'),
   getRecentBookings: () => api.get('/provider/dashboard/recent-bookings'),
   getTodaySchedule: () => api.get('/provider/dashboard/today-schedule'),
@@ -233,6 +234,82 @@ export const providerAPI = {
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
   getProfile: () => api.get('/provider/profile'),
   updateProfile: (data) => api.put('/provider/profile', data),
+
+  // =========================================================================
+  // HELP CENTER / SUPPORT - ✅ ADDED
+  // =========================================================================
+
+  // FAQs
+  getFAQs: (params) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.category) query.append('category', params.category);
+    
+    const queryString = query.toString();
+    return api.get(`/provider/faqs${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Alias for getFAQs
+  getHelpFAQs: (params) => providerAPI.getFAQs(params),
+
+  // Support Tickets
+  getSupportTickets: (params) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.append('status', params.status);
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    
+    const queryString = query.toString();
+    return api.get(`/provider/tickets${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Alias for getSupportTickets
+  getTickets: (params) => providerAPI.getSupportTickets(params),
+
+  // Create Support Ticket
+  createSupportTicket: (data) => api.post('/provider/tickets', data),
+  createTicket: (data) => providerAPI.createSupportTicket(data),
+
+  // Reply to Ticket
+  replyToTicket: (ticketId, data) => api.post(`/provider/tickets/${ticketId}/reply`, data),
+  addTicketReply: (ticketId, data) => providerAPI.replyToTicket(ticketId, data),
+
+  // Announcements
+  getAnnouncements: (params) => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.page) query.append('page', params.page);
+    
+    const queryString = query.toString();
+    return api.get(`/provider/announcements${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Alias for getAnnouncements
+  getAnnouncementsList: (params) => providerAPI.getAnnouncements(params),
+
+  // Knowledge Base
+  getKnowledgeBase: (params) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.category) query.append('category', params.category);
+    if (params?.limit) query.append('limit', params.limit);
+    
+    const queryString = query.toString();
+    return api.get(`/provider/knowledge-base${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Alias for getKnowledgeBase
+  getHelpArticles: (params) => providerAPI.getKnowledgeBase(params),
+
+  // FAQ Feedback
+  submitFAQFeedback: (faqId, data) => api.post(`/provider/faqs/${faqId}/feedback`, data),
+  faqFeedback: (faqId, data) => providerAPI.submitFAQFeedback(faqId, data),
+
+  // Contact Form
+  submitContactForm: (data) => api.post('/provider/contact', data),
+  sendContactMessage: (data) => providerAPI.submitContactForm(data),
 };
 
 // ==================== ADMIN API ====================
@@ -279,10 +356,9 @@ export const adminAPI = {
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
   
   // =========================================================================
-  // PAYMENT MANAGEMENT - UPDATED WITH ALL METHODS
+  // PAYMENT MANAGEMENT
   // =========================================================================
 
-  // Get all payments with filters
   getPayments: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);
@@ -297,7 +373,6 @@ export const adminAPI = {
     return api.get(`/admin/payments${queryString ? `?${queryString}` : ''}`);
   },
 
-  // ✅ Get payouts/payout history
   getPayouts: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);
@@ -310,13 +385,8 @@ export const adminAPI = {
     return api.get(`/admin/payouts${queryString ? `?${queryString}` : ''}`);
   },
 
-  // Get payment overview / summary
   getPaymentOverview: () => api.get('/admin/payments/overview'),
-
-  // Get revenue by payment method
   getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
-
-  // Get payment trends
   getPaymentTrends: (params) => {
     const query = new URLSearchParams();
     if (params?.period) query.append('period', params.period);
@@ -326,32 +396,60 @@ export const adminAPI = {
     const queryString = query.toString();
     return api.get(`/admin/payments/trends${queryString ? `?${queryString}` : ''}`);
   },
-
-  // Process a refund
   refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
-
-  // Get payment details
   getPaymentDetails: (id) => api.get(`/admin/payments/${id}`),
-
-  // Update payment status
   updatePaymentStatus: (id, status) => api.put(`/admin/payments/${id}/status`, { status }),
-
-  // Get provider payout summary
   getProviderPayoutSummary: (providerId) => api.get(`/admin/payouts/provider/${providerId}`),
-
-  // Process bulk payouts
   processBulkPayouts: (data) => api.post('/admin/payouts/bulk', data),
 
-  // Reports & Analytics
+  // =========================================================================
+  // SETTINGS
+  // =========================================================================
+
+  getSettings: () => api.get('/admin/settings'),
+  updateSettings: (data) => api.put('/admin/settings', data),
+  
+  // Alternative names for compatibility
+  getPlatformSettings: () => api.get('/admin/settings'),
+  updatePlatformSettings: (data) => api.put('/admin/settings', data),
+
+  // =========================================================================
+  // REPORTS & ANALYTICS
+  // =========================================================================
+
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
   
-  // Notifications
+  // =========================================================================
+  // NOTIFICATIONS
+  // =========================================================================
+
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
   
-  // Activity Log
-  getActivityLog: (params) => api.get('/admin/activities', { params }),
+  // =========================================================================
+  // ACTIVITY LOG
+  // =========================================================================
+
+  getActivityLog: (params) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.search) query.append('search', params.search);
+    if (params?.type) query.append('type', params.type);
+    if (params?.status) query.append('status', params.status);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+    if (params?.userId) query.append('userId', params.userId);
+    if (params?.sortBy) query.append('sortBy', params.sortBy);
+    if (params?.sortOrder) query.append('sortOrder', params.sortOrder);
+    
+    const queryString = query.toString();
+    return api.get(`/admin/activities${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Alias for getActivityLog (backward compatibility)
+  getAuditLogs: (params) => adminAPI.getActivityLog(params),
 };
 
 // ==================== NOTIFICATION API ====================

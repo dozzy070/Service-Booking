@@ -1,5 +1,5 @@
 // src/pages/provider/CreateService.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -57,6 +57,7 @@ const CreateService = () => {
   
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
   const [errors, setErrors] = useState({});
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
@@ -68,6 +69,10 @@ const CreateService = () => {
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -76,6 +81,14 @@ const CreateService = () => {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount || 0);
+  };
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
   };
 
   // Form state
@@ -107,15 +120,31 @@ const CreateService = () => {
     certifications: []
   });
 
-  // Fetch categories
+  // Fetch categories from real API
   const fetchCategories = useCallback(async () => {
     setLoadingCategories(true);
     try {
-      const response = await providerAPI.getCategories();
-      setCategories(response.data || []);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getCategories === 'function') {
+        response = await providerAPI.getCategories();
+      } else if (typeof providerAPI.getCategoryList === 'function') {
+        response = await providerAPI.getCategoryList();
+      } else {
+        throw new Error('Categories API methods not available');
+      }
+
+      const data = response?.data || [];
+      setCategories(Array.isArray(data) ? data : []);
+      
     } catch (error) {
       console.error('Error fetching categories:', error);
-      // Fallback categories
+      setError(error.message || 'Failed to load categories');
+      // Set fallback categories
       setCategories([
         { id: 1, name: 'Cleaning', icon: '🧹', subcategories: ['House Cleaning', 'Office Cleaning', 'Carpet Cleaning'] },
         { id: 2, name: 'Plumbing', icon: '🔧', subcategories: ['Pipe Repair', 'Drain Cleaning', 'Fixture Installation'] },
@@ -123,60 +152,114 @@ const CreateService = () => {
         { id: 4, name: 'Gardening', icon: '🌱', subcategories: ['Lawn Mowing', 'Planting', 'Tree Trimming'] },
         { id: 5, name: 'Painting', icon: '🎨', subcategories: ['Interior', 'Exterior', 'Wallpaper'] }
       ]);
+      toast.error('Failed to load categories');
     } finally {
       setLoadingCategories(false);
     }
   }, []);
 
+  // Fetch service data for editing from real API
+  const fetchServiceData = useCallback(async () => {
+    if (!id) return;
+    
+    setLoading(true);
+    setError(null);
+    try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getServiceById === 'function') {
+        response = await providerAPI.getServiceById(id);
+      } else if (typeof providerAPI.getService === 'function') {
+        response = await providerAPI.getService(id);
+      } else {
+        throw new Error('Get service API methods not available');
+      }
+
+      const service = response?.data || {};
+      
+      setFormData({
+        title: getField(service, ['title', 'name', 'service_name'], ''),
+        category: getField(service, ['category', 'category_name', 'categoryName'], ''),
+        subcategory: getField(service, ['subcategory', 'sub_category', 'subCategory'], ''),
+        description: getField(service, ['description', 'desc', 'full_description'], ''),
+        shortDescription: getField(service, ['shortDescription', 'short_description', 'short_desc'], ''),
+        price: service.price || '',
+        discountPrice: service.discount_price || service.discountPrice || '',
+        duration: service.duration || '',
+        location: getField(service, ['location', 'service_location', 'area'], ''),
+        address: getField(service, ['address', 'street_address', 'street'], ''),
+        city: getField(service, ['city', 'city_name'], ''),
+        state: getField(service, ['state', 'state_name'], ''),
+        zipCode: getField(service, ['zipCode', 'zip_code', 'postal_code'], ''),
+        features: service.features || [''],
+        requirements: service.requirements || [''],
+        cancellationPolicy: getField(service, ['cancellationPolicy', 'cancellation_policy', 'cancel_policy'], 'flexible'),
+        isAvailable: service.is_available !== false,
+        isFeatured: service.is_featured || service.featured || false,
+        tags: service.tags || [],
+        maxBookingsPerDay: service.max_bookings_per_day || service.maxBookingsPerDay || 5,
+        advanceBooking: service.advance_booking || service.advanceBooking || 2,
+        preparationTime: service.preparation_time || service.preparationTime || 30,
+        serviceType: getField(service, ['serviceType', 'service_type', 'type'], 'online'),
+        languages: service.languages || ['English'],
+        certifications: service.certifications || []
+      });
+      
+      if (service.images) {
+        setImagePreviews(service.images);
+      }
+      
+    } catch (error) {
+      console.error('Error fetching service:', error);
+      setError(error.message || 'Failed to load service data');
+      toast.error('Failed to load service data');
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  // Initial data load
   useEffect(() => {
     fetchCategories();
     if (id) {
       fetchServiceData();
     }
-  }, [id, fetchCategories]);
+  }, [id, fetchCategories, fetchServiceData]);
 
-  const fetchServiceData = async () => {
-    setLoading(true);
-    try {
-      const response = await providerAPI.getServiceById(id);
-      const service = response.data;
-      setFormData({
-        title: service.title || '',
-        category: service.category || '',
-        subcategory: service.subcategory || '',
-        description: service.description || '',
-        shortDescription: service.short_description || '',
-        price: service.price || '',
-        discountPrice: service.discount_price || '',
-        duration: service.duration || '',
-        location: service.location || '',
-        address: service.address || '',
-        city: service.city || '',
-        state: service.state || '',
-        zipCode: service.zip_code || '',
-        features: service.features || [''],
-        requirements: service.requirements || [''],
-        cancellationPolicy: service.cancellation_policy || 'flexible',
-        isAvailable: service.is_available !== false,
-        isFeatured: service.is_featured || false,
-        tags: service.tags || [],
-        maxBookingsPerDay: service.max_bookings_per_day || 5,
-        advanceBooking: service.advance_booking || 2,
-        preparationTime: service.preparation_time || 30,
-        serviceType: service.service_type || 'online',
-        languages: service.languages || ['English'],
-        certifications: service.certifications || []
-      });
-      if (service.images) {
-        setImagePreviews(service.images);
+  // Polling for real-time updates when editing
+  useEffect(() => {
+    if (!id) return;
+
+    const startPolling = () => {
+      stopPolling();
+      pollingInterval.current = setInterval(() => {
+        if (!isPolling.current) {
+          isPolling.current = true;
+          fetchServiceData().finally(() => {
+            isPolling.current = false;
+          });
+        }
+      }, 60000); // Poll every 60 seconds
+    };
+
+    const stopPolling = () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
       }
-    } catch (error) {
-      console.error('Error fetching service:', error);
-      toast.error('Failed to load service data');
-    } finally {
-      setLoading(false);
-    }
-  };
+      isPolling.current = false;
+    };
+
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, [id, fetchServiceData]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -221,6 +304,7 @@ const CreateService = () => {
     }));
   };
 
+  // Handle image upload with real API
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -237,17 +321,29 @@ const CreateService = () => {
       formDataImg.append('image', file);
       
       try {
-        const response = await providerAPI.uploadServiceImage(formDataImg, {
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setUploadProgress(percentCompleted);
-          }
-        });
-        uploadedImages.push(response.data.url);
+        if (!providerAPI) {
+          throw new Error('API service not available');
+        }
+
+        let response = null;
+        
+        if (typeof providerAPI.uploadServiceImage === 'function') {
+          response = await providerAPI.uploadServiceImage(formDataImg);
+        } else if (typeof providerAPI.uploadImage === 'function') {
+          response = await providerAPI.uploadImage(formDataImg);
+        } else {
+          throw new Error('Upload image API methods not available');
+        }
+
+        const data = response?.data || {};
+        const imageUrl = data.url || data.image_url || data.imageUrl;
+        uploadedImages.push(imageUrl);
         newPreviews.push(URL.createObjectURL(file));
+        setUploadProgress(((i + 1) / files.length) * 100);
+        
       } catch (error) {
         console.error('Error uploading image:', error);
-        toast.error(`Failed to upload ${file.name}`);
+        toast.error(error.message || `Failed to upload ${file.name}`);
       }
     }
     
@@ -284,12 +380,18 @@ const CreateService = () => {
     return true;
   };
 
+  // Handle submit with real API
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
     
     setSubmitting(true);
+    setError(null);
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const serviceData = {
         title: formData.title,
         category: formData.category,
@@ -311,25 +413,41 @@ const CreateService = () => {
         is_featured: formData.isFeatured,
         tags: formData.tags,
         images: images,
-        max_bookings_per_day: formData.maxBookingsPerDay,
-        advance_booking: formData.advanceBooking,
-        preparation_time: formData.preparationTime,
+        max_bookings_per_day: parseInt(formData.maxBookingsPerDay) || 5,
+        advance_booking: parseInt(formData.advanceBooking) || 2,
+        preparation_time: parseInt(formData.preparationTime) || 30,
         service_type: formData.serviceType,
         languages: formData.languages,
         certifications: formData.certifications
       };
 
+      let response = null;
+      
       if (id) {
-        await providerAPI.updateService(id, serviceData);
+        if (typeof providerAPI.updateService === 'function') {
+          response = await providerAPI.updateService(id, serviceData);
+        } else if (typeof providerAPI.editService === 'function') {
+          response = await providerAPI.editService(id, serviceData);
+        } else {
+          throw new Error('Update service API methods not available');
+        }
         toast.success('Service updated successfully!');
       } else {
-        await providerAPI.createService(serviceData);
+        if (typeof providerAPI.createService === 'function') {
+          response = await providerAPI.createService(serviceData);
+        } else if (typeof providerAPI.addService === 'function') {
+          response = await providerAPI.addService(serviceData);
+        } else {
+          throw new Error('Create service API methods not available');
+        }
         toast.success('Service created successfully!');
       }
+      
       navigate('/provider/my-services');
     } catch (error) {
       console.error('Error saving service:', error);
-      toast.error(error.response?.data?.message || (id ? 'Failed to update service' : 'Failed to create service'));
+      setError(error.message || (id ? 'Failed to update service' : 'Failed to create service'));
+      toast.error(error.response?.data?.message || error.message || (id ? 'Failed to update service' : 'Failed to create service'));
     } finally {
       setSubmitting(false);
     }
@@ -344,20 +462,23 @@ const CreateService = () => {
     return category?.icon || '📦';
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading service data...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => id ? fetchServiceData() : null} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -423,8 +544,8 @@ const CreateService = () => {
                         >
                           <option value="">Select a category</option>
                           {categories.map(cat => (
-                            <option key={cat.id} value={cat.name}>
-                              {cat.icon} {cat.name}
+                            <option key={cat.id || cat._id} value={cat.name || cat.categoryName}>
+                              {cat.icon || '📦'} {cat.name || cat.categoryName}
                             </option>
                           ))}
                         </Form.Select>
@@ -441,7 +562,7 @@ const CreateService = () => {
                           className="py-2"
                         >
                           <option value="">Select subcategory</option>
-                          {formData.category && categories.find(c => c.name === formData.category)?.subcategories?.map(sub => (
+                          {formData.category && categories.find(c => (c.name || c.categoryName) === formData.category)?.subcategories?.map(sub => (
                             <option key={sub} value={sub}>{sub}</option>
                           ))}
                         </Form.Select>

@@ -1,5 +1,5 @@
 // src/components/customer/CustomerSettings.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -60,6 +60,7 @@ const CustomerSettings = () => {
   const { user, updateUser, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('profile');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -70,6 +71,10 @@ const CustomerSettings = () => {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Profile form state
   const [profileForm, setProfileForm] = useState({
@@ -90,7 +95,7 @@ const CustomerSettings = () => {
     confirmPassword: ''
   });
 
-  // ✅ LOCAL ONLY - Notification preferences (no API call)
+  // Notification preferences (saved locally)
   const [notifications, setNotifications] = useState({
     email_notifications: true,
     push_notifications: true,
@@ -131,6 +136,16 @@ const CustomerSettings = () => {
     is_default: false
   });
 
+  // Format currency to NGN
+  const formatNaira = (amount) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+  };
+
   // ✅ Load notification preferences from localStorage on mount
   useEffect(() => {
     const savedPrefs = localStorage.getItem('notification_preferences');
@@ -142,87 +157,171 @@ const CustomerSettings = () => {
         // Use defaults
       }
     }
+    // Load theme from localStorage
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+      setAppearance(prev => ({ ...prev, theme: savedTheme }));
+      document.body.setAttribute('data-theme', savedTheme);
+    }
   }, []);
 
-  // Format currency to NGN
-  const formatNaira = (amount) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount || 0);
-  };
-
-  // Fetch user profile
+  // ✅ Fetch user profile from real API
   const fetchProfile = useCallback(async () => {
     try {
-      const response = await authAPI.getProfile();
-      const userData = response.data;
+      if (!authAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof authAPI.getProfile === 'function') {
+        response = await authAPI.getProfile();
+      } else if (typeof authAPI.getUserProfile === 'function') {
+        response = await authAPI.getUserProfile();
+      } else {
+        throw new Error('Profile API methods not available');
+      }
+
+      const userData = response?.data || {};
       setProfileForm({
-        name: userData.name || '',
+        name: userData.name || userData.full_name || '',
         email: userData.email || '',
-        phone: userData.phone || '',
+        phone: userData.phone || userData.phone_number || '',
         address: userData.address || '',
         city: userData.city || '',
         state: userData.state || '',
-        zipCode: userData.zip_code || '',
+        zipCode: userData.zip_code || userData.zip || '',
         country: userData.country || 'Nigeria'
       });
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setError('Failed to load profile');
       toast.error('Failed to load profile');
     }
   }, []);
 
-  // ✅ REMOVED: fetchNotificationPreferences - using localStorage instead
-
-  // Fetch payment methods
+  // ✅ Fetch payment methods from real API
   const fetchPaymentMethods = useCallback(async () => {
     try {
-      const response = await customerAPI.getPaymentMethods();
-      setPaymentMethods(response.data || []);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof customerAPI.getPaymentMethods === 'function') {
+        response = await customerAPI.getPaymentMethods();
+      } else if (typeof customerAPI.getUserPaymentMethods === 'function') {
+        response = await customerAPI.getUserPaymentMethods();
+      } else {
+        throw new Error('Payment methods API not available');
+      }
+
+      const data = response?.data || [];
+      setPaymentMethods(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching payment methods:', error);
+      setPaymentMethods([]);
     }
   }, []);
 
-  // ✅ Load all data - notification preferences from localStorage only
-  const loadAllData = async () => {
-    setLoading(true);
+  // ✅ Load all data
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
       await Promise.all([
         fetchProfile(),
         fetchPaymentMethods()
-        // ✅ REMOVED: fetchNotificationPreferences()
       ]);
     } catch (error) {
       console.error('Error loading data:', error);
+      setError('Failed to load settings');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
+  }, [fetchProfile, fetchPaymentMethods]);
+
+  // ✅ Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 60000); // Poll every 60 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
   };
 
   useEffect(() => {
-    loadAllData();
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
   }, []);
 
-  // Update profile
+  // ✅ Update profile with real API
   const handleUpdateProfile = async () => {
     setSaving(true);
+    setError(null);
     try {
-      await authAPI.updateProfile(profileForm);
-      await updateUser({ name: profileForm.name, email: profileForm.email });
+      if (!authAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        name: profileForm.name,
+        email: profileForm.email,
+        phone: profileForm.phone,
+        address: profileForm.address,
+        city: profileForm.city,
+        state: profileForm.state,
+        zip_code: profileForm.zipCode,
+        country: profileForm.country
+      };
+
+      let response = null;
+      
+      if (typeof authAPI.updateProfile === 'function') {
+        response = await authAPI.updateProfile(payload);
+      } else if (typeof authAPI.editProfile === 'function') {
+        response = await authAPI.editProfile(payload);
+      } else {
+        throw new Error('Profile update API not available');
+      }
+
+      const updatedUser = response?.data || payload;
+      await updateUser({ 
+        name: updatedUser.name || payload.name, 
+        email: updatedUser.email || payload.email,
+        phone: updatedUser.phone || payload.phone
+      });
+      
       toast.success('Profile updated successfully');
+      await fetchProfile(); // Refresh profile data
     } catch (error) {
       console.error('Error updating profile:', error);
+      setError(error.response?.data?.message || 'Failed to update profile');
       toast.error(error.response?.data?.message || 'Failed to update profile');
     } finally {
       setSaving(false);
     }
   };
 
-  // Change password
+  // ✅ Change password with real API
   const handleChangePassword = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       toast.error('New passwords do not match');
@@ -234,11 +333,26 @@ const CustomerSettings = () => {
     }
 
     setSaving(true);
+    setError(null);
     try {
-      await authAPI.changePassword({
+      if (!authAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
         current_password: passwordForm.currentPassword,
-        new_password: passwordForm.newPassword
-      });
+        new_password: passwordForm.newPassword,
+        confirm_password: passwordForm.confirmPassword
+      };
+
+      if (typeof authAPI.changePassword === 'function') {
+        await authAPI.changePassword(payload);
+      } else if (typeof authAPI.updatePassword === 'function') {
+        await authAPI.updatePassword(payload);
+      } else {
+        throw new Error('Password change API not available');
+      }
+      
       toast.success('Password changed successfully');
       setShowPasswordModal(false);
       setPasswordForm({
@@ -248,13 +362,14 @@ const CustomerSettings = () => {
       });
     } catch (error) {
       console.error('Error changing password:', error);
+      setError(error.response?.data?.message || 'Failed to change password');
       toast.error(error.response?.data?.message || 'Failed to change password');
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ LOCAL ONLY - Update notification preferences (no API call)
+  // ✅ LOCAL ONLY - Update notification preferences
   const handleUpdateNotifications = async () => {
     setSaving(true);
     try {
@@ -269,7 +384,7 @@ const CustomerSettings = () => {
     }
   };
 
-  // Update appearance
+  // ✅ Update appearance
   const handleUpdateAppearance = async () => {
     setSaving(true);
     try {
@@ -284,38 +399,75 @@ const CustomerSettings = () => {
     }
   };
 
-  // Update privacy
+  // ✅ Update privacy with real API
   const handleUpdatePrivacy = async () => {
     setSaving(true);
+    setError(null);
     try {
-      await customerAPI.updatePrivacySettings(privacy);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        profile_visibility: privacy.profile_visibility,
+        show_email: privacy.show_email,
+        show_phone: privacy.show_phone,
+        show_address: privacy.show_address
+      };
+
+      if (typeof customerAPI.updatePrivacySettings === 'function') {
+        await customerAPI.updatePrivacySettings(payload);
+      } else if (typeof customerAPI.updatePrivacy === 'function') {
+        await customerAPI.updatePrivacy(payload);
+      } else {
+        throw new Error('Privacy update API not available');
+      }
+      
       toast.success('Privacy settings updated');
     } catch (error) {
       console.error('Error updating privacy:', error);
-      toast.error('Failed to update privacy settings');
+      setError(error.response?.data?.message || 'Failed to update privacy settings');
+      toast.error(error.response?.data?.message || 'Failed to update privacy settings');
     } finally {
       setSaving(false);
     }
   };
 
-  // Upload avatar
+  // ✅ Upload avatar with real API
   const handleAvatarUpload = async () => {
     if (!selectedImage) return;
 
     setUploading(true);
+    setError(null);
     const formData = new FormData();
     formData.append('avatar', selectedImage);
 
     try {
-      const response = await authAPI.uploadAvatar(formData);
-      await updateUser({ avatar: response.data.url });
+      if (!authAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof authAPI.uploadAvatar === 'function') {
+        response = await authAPI.uploadAvatar(formData);
+      } else if (typeof authAPI.updateProfilePicture === 'function') {
+        response = await authAPI.updateProfilePicture(formData);
+      } else {
+        throw new Error('Avatar upload API not available');
+      }
+
+      const avatarUrl = response?.data?.url || response?.data?.avatar || response?.data;
+      await updateUser({ avatar: avatarUrl });
       toast.success('Profile picture updated');
       setShowAvatarModal(false);
       setSelectedImage(null);
       setPreviewUrl(null);
+      await fetchProfile();
     } catch (error) {
       console.error('Error uploading avatar:', error);
-      toast.error('Failed to upload profile picture');
+      setError(error.response?.data?.message || 'Failed to upload profile picture');
+      toast.error(error.response?.data?.message || 'Failed to upload profile picture');
     } finally {
       setUploading(false);
     }
@@ -329,10 +481,30 @@ const CustomerSettings = () => {
     }
   };
 
-  // Add payment method
+  // ✅ Add payment method with real API
   const handleAddPaymentMethod = async () => {
+    setSaving(true);
+    setError(null);
     try {
-      await customerAPI.addPaymentMethod(newPaymentMethod);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        type: newPaymentMethod.type,
+        last4: newPaymentMethod.last4,
+        expiry: newPaymentMethod.expiry,
+        is_default: newPaymentMethod.is_default
+      };
+
+      if (typeof customerAPI.addPaymentMethod === 'function') {
+        await customerAPI.addPaymentMethod(payload);
+      } else if (typeof customerAPI.createPaymentMethod === 'function') {
+        await customerAPI.createPaymentMethod(payload);
+      } else {
+        throw new Error('Add payment method API not available');
+      }
+      
       toast.success('Payment method added successfully');
       setShowAddPaymentModal(false);
       setNewPaymentMethod({
@@ -344,44 +516,69 @@ const CustomerSettings = () => {
       await fetchPaymentMethods();
     } catch (error) {
       console.error('Error adding payment method:', error);
-      toast.error('Failed to add payment method');
+      setError(error.response?.data?.message || 'Failed to add payment method');
+      toast.error(error.response?.data?.message || 'Failed to add payment method');
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Set default payment method
+  // ✅ Set default payment method with real API
   const handleSetDefaultPayment = async (methodId) => {
+    if (!methodId) return;
+    setSaving(true);
     try {
-      await customerAPI.setDefaultPaymentMethod(methodId);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.setDefaultPaymentMethod === 'function') {
+        await customerAPI.setDefaultPaymentMethod(methodId);
+      } else if (typeof customerAPI.updatePaymentMethod === 'function') {
+        await customerAPI.updatePaymentMethod(methodId, { is_default: true });
+      } else {
+        throw new Error('Set default payment API not available');
+      }
+      
       toast.success('Default payment method updated');
       await fetchPaymentMethods();
     } catch (error) {
       console.error('Error setting default payment:', error);
-      toast.error('Failed to update default payment method');
+      toast.error(error.response?.data?.message || 'Failed to update default payment method');
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Delete payment method
+  // ✅ Delete payment method with real API
   const handleDeletePaymentMethod = async (methodId) => {
+    if (!methodId) return;
+    setSaving(true);
     try {
-      await customerAPI.deletePaymentMethod(methodId);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.deletePaymentMethod === 'function') {
+        await customerAPI.deletePaymentMethod(methodId);
+      } else if (typeof customerAPI.removePaymentMethod === 'function') {
+        await customerAPI.removePaymentMethod(methodId);
+      } else {
+        throw new Error('Delete payment method API not available');
+      }
+      
       toast.success('Payment method deleted');
       await fetchPaymentMethods();
     } catch (error) {
       console.error('Error deleting payment method:', error);
-      toast.error('Failed to delete payment method');
+      toast.error(error.response?.data?.message || 'Failed to delete payment method');
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading settings...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
@@ -391,6 +588,14 @@ const CustomerSettings = () => {
           <h2 className="mb-1 fw-bold">Settings</h2>
           <p className="text-muted mb-0">Manage your account preferences and configurations</p>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
 
         <Row>
           {/* Sidebar */}
@@ -417,8 +622,8 @@ const CustomerSettings = () => {
                       <FaCamera size={12} />
                     </Button>
                   </div>
-                  <h6 className="mt-2 mb-0">{user?.name}</h6>
-                  <small className="text-muted">{user?.email}</small>
+                  <h6 className="mt-2 mb-0">{user?.name || 'Customer'}</h6>
+                  <small className="text-muted">{user?.email || ''}</small>
                 </div>
 
                 <div className="d-flex flex-column gap-1">
@@ -668,7 +873,7 @@ const CustomerSettings = () => {
                   </div>
                 )}
 
-                {/* ✅ LOCAL ONLY - Notification Settings (no API call) */}
+                {/* LOCAL ONLY - Notification Settings */}
                 {activeTab === 'notifications' && (
                   <div>
                     <h5 className="fw-bold mb-4">Notification Preferences</h5>
@@ -768,50 +973,55 @@ const CustomerSettings = () => {
                         </Button>
                       </div>
                     ) : (
-                      paymentMethods.map(method => (
-                        <div key={method.id} className="payment-method-item">
-                          <div className="d-flex justify-content-between align-items-center">
-                            <div className="d-flex align-items-center gap-3">
-                              <div className="payment-icon">
-                                {method.type === 'card' ? (
-                                  <FaCreditCard size={24} />
-                                ) : (
-                                  <FaMobileAlt size={24} />
-                                )}
-                              </div>
-                              <div>
-                                <div className="fw-semibold">
-                                  {method.type === 'card' ? `•••• ${method.last4}` : method.provider}
+                      paymentMethods.map(method => {
+                        const methodId = method.id || method._id;
+                        return (
+                          <div key={methodId} className="payment-method-item">
+                            <div className="d-flex justify-content-between align-items-center">
+                              <div className="d-flex align-items-center gap-3">
+                                <div className="payment-icon">
+                                  {method.type === 'card' ? (
+                                    <FaCreditCard size={24} />
+                                  ) : (
+                                    <FaMobileAlt size={24} />
+                                  )}
                                 </div>
-                                {method.expiry && (
-                                  <small className="text-muted">Expires {method.expiry}</small>
+                                <div>
+                                  <div className="fw-semibold">
+                                    {method.type === 'card' ? `•••• ${method.last4 || method.last_four || '0000'}` : (method.provider || 'Unknown')}
+                                  </div>
+                                  {method.expiry && (
+                                    <small className="text-muted">Expires {method.expiry}</small>
+                                  )}
+                                </div>
+                                {method.is_default && (
+                                  <Badge bg="success" className="ms-2">Default</Badge>
                                 )}
                               </div>
-                              {method.is_default && (
-                                <Badge bg="success" className="ms-2">Default</Badge>
-                              )}
-                            </div>
-                            <div className="d-flex gap-2">
-                              {!method.is_default && (
+                              <div className="d-flex gap-2">
+                                {!method.is_default && (
+                                  <Button
+                                    variant="outline-success"
+                                    size="sm"
+                                    onClick={() => handleSetDefaultPayment(methodId)}
+                                    disabled={saving}
+                                  >
+                                    Set Default
+                                  </Button>
+                                )}
                                 <Button
-                                  variant="outline-success"
+                                  variant="outline-danger"
                                   size="sm"
-                                  onClick={() => handleSetDefaultPayment(method.id)}
+                                  onClick={() => handleDeletePaymentMethod(methodId)}
+                                  disabled={saving}
                                 >
-                                  Set Default
+                                  <FaTrash size={12} />
                                 </Button>
-                              )}
-                              <Button
-                                variant="outline-danger"
-                                size="sm"
-                                onClick={() => handleDeletePaymentMethod(method.id)}
-                              >
-                                <FaTrash size={12} />
-                              </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -1066,6 +1276,69 @@ const CustomerSettings = () => {
           </Button>
           <Button variant="primary" onClick={handleAvatarUpload} disabled={!selectedImage || uploading}>
             {uploading ? 'Uploading...' : 'Upload'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Add Payment Method Modal */}
+      <Modal show={showAddPaymentModal} onHide={() => setShowAddPaymentModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">Add Payment Method</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Payment Type</Form.Label>
+              <Form.Select
+                value={newPaymentMethod.type}
+                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, type: e.target.value })}
+              >
+                <option value="card">Credit/Debit Card</option>
+                <option value="bank">Bank Transfer</option>
+                <option value="mobile">Mobile Money</option>
+              </Form.Select>
+            </Form.Group>
+
+            {newPaymentMethod.type === 'card' && (
+              <>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Card Number (Last 4 digits)</Form.Label>
+                  <Form.Control
+                    type="text"
+                    placeholder="Enter last 4 digits"
+                    maxLength="4"
+                    value={newPaymentMethod.last4}
+                    onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, last4: e.target.value.replace(/\D/g, '') })}
+                  />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Expiry Date</Form.Label>
+                  <Form.Control
+                    type="text"
+                    placeholder="MM/YY"
+                    value={newPaymentMethod.expiry}
+                    onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, expiry: e.target.value })}
+                  />
+                </Form.Group>
+              </>
+            )}
+
+            <Form.Group className="mb-3">
+              <Form.Check
+                type="checkbox"
+                label="Set as default payment method"
+                checked={newPaymentMethod.is_default}
+                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, is_default: e.target.checked })}
+              />
+            </Form.Group>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="light" onClick={() => setShowAddPaymentModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleAddPaymentMethod} disabled={saving}>
+            {saving ? 'Adding...' : 'Add Payment Method'}
           </Button>
         </Modal.Footer>
       </Modal>

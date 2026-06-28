@@ -1,5 +1,5 @@
 // src/components/customer/Review.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -54,6 +54,7 @@ const Review = () => {
   const { serviceId } = useParams();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [stats, setStats] = useState({
     average: 0,
@@ -73,39 +74,45 @@ const Review = () => {
   const [selectedReview, setSelectedReview] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [helpfulVotes, setHelpfulVotes] = useState({});
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
 
   // Get reviewer name from review data
   const getReviewerName = (review) => {
+    if (!review) return 'Customer';
     if (review.is_anonymous) return 'Anonymous';
-    return review.reviewer_name || review.customer_name || 'Customer';
+    return review.reviewer_name || review.customer_name || review.user_name || 'Customer';
   };
 
   // Get reviewer avatar
   const getReviewerAvatar = (review) => {
-    if (review.is_anonymous) return null;
-    return review.reviewer_avatar || review.customer_avatar || null;
+    if (!review || review.is_anonymous) return null;
+    return review.reviewer_avatar || review.customer_avatar || review.user_avatar || null;
   };
 
   // Check if review has images
   const hasImages = (review) => {
-    return review.images && Array.isArray(review.images) && review.images.length > 0;
+    return review?.images && Array.isArray(review.images) && review.images.length > 0;
   };
 
   // Check if review has provider response
   const hasProviderResponse = (review) => {
-    return review.admin_response || review.provider_response || review.responded_by;
+    return review?.admin_response || review?.provider_response || review?.responded_by;
   };
 
   // Get provider response
   const getProviderResponse = (review) => {
-    return review.admin_response || review.provider_response || null;
+    return review?.admin_response || review?.provider_response || review?.response_text || null;
   };
 
   // Get response date
   const getResponseDate = (review) => {
-    return review.responded_at || review.response_date || null;
+    return review?.responded_at || review?.response_date || review?.updated_at || null;
   };
 
   // Format currency to NGN
@@ -118,7 +125,7 @@ const Review = () => {
     }).format(amount || 0);
   };
 
-  // ✅ NEW: Calculate stats from reviews data (bypasses broken /stats endpoint)
+  // Calculate stats from reviews data
   const calculateStatsFromReviews = useCallback((reviewsData) => {
     if (!reviewsData || reviewsData.length === 0) {
       setStats({
@@ -133,20 +140,20 @@ const Review = () => {
     }
 
     const total = reviewsData.length;
-    const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
+    const sum = reviewsData.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
     const average = sum / total;
 
     const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
     reviewsData.forEach(review => {
-      const rating = Math.round(review.rating || 0);
+      const rating = Math.round(parseFloat(review.rating) || 0);
       if (rating >= 1 && rating <= 5) {
         distribution[rating]++;
       }
     });
 
-    const verified = reviewsData.filter(r => r.booking_id).length;
+    const verified = reviewsData.filter(r => r.booking_id || r.bookingId || r.is_verified).length;
     const withPhotos = reviewsData.filter(r => r.images && r.images.length > 0).length;
-    const withResponse = reviewsData.filter(r => r.admin_response || r.provider_response).length;
+    const withResponse = reviewsData.filter(r => r.admin_response || r.provider_response || r.response_text).length;
 
     setStats({
       average: parseFloat(average.toFixed(1)),
@@ -158,9 +165,16 @@ const Review = () => {
     });
   }, []);
 
-  // ✅ UPDATED: Fetch reviews AND calculate stats from them
-  const fetchReviews = useCallback(async () => {
+  // Fetch reviews from real API
+  const fetchReviews = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
@@ -169,85 +183,156 @@ const Review = () => {
         search: searchTerm || undefined,
         service_id: serviceId || undefined
       };
-      const response = await customerAPI.getReviews(params);
-      const data = response.data || response;
-      const reviewsData = data.reviews || [];
-      setReviews(reviewsData);
-      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
+
+      let response = null;
       
-      // ✅ Calculate stats from the reviews we just fetched
+      if (typeof customerAPI.getReviews === 'function') {
+        response = await customerAPI.getReviews(params);
+      } else if (typeof customerAPI.getReviewList === 'function') {
+        response = await customerAPI.getReviewList(params);
+      } else {
+        throw new Error('Reviews API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const reviewsData = data.reviews || data.data || [];
+      
+      setReviews(Array.isArray(reviewsData) ? reviewsData : []);
+      setTotalCount(data.total || reviewsData.length || 0);
+      setTotalPages(Math.ceil((data.total || reviewsData.length || 0) / itemsPerPage));
+      
+      // Calculate stats from the reviews we just fetched
       calculateStatsFromReviews(reviewsData);
-      
-      // ✅ Mark loading as complete if this is the main data fetch
-      setLoading(false);
       
     } catch (error) {
       console.error('Error fetching reviews:', error);
-      toast.error('Failed to load reviews');
+      setError(error.message || 'Failed to load reviews');
       setReviews([]);
+      setTotalCount(0);
       setTotalPages(1);
-      setLoading(false);
+      if (error.response?.status !== 401) {
+        toast.error('Failed to load reviews');
+      }
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [currentPage, filter, sortBy, searchTerm, serviceId, calculateStatsFromReviews]);
 
-  // ✅ REMOVED: Old fetchStats that called the broken /stats endpoint
-  // The stats are now calculated from reviews data
-
-  // Load all data - now only fetches reviews
-  const loadAllData = async () => {
-    setLoading(true);
-    await fetchReviews();
-    // Stats are calculated inside fetchReviews
-    setLoading(false);
-  };
-
+  // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await fetchReviews(false);
     toast.success('Reviews updated');
   };
 
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchReviews(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    fetchReviews(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchReviews(false);
+    }
   }, [currentPage, filter, sortBy, searchTerm, serviceId]);
 
-  // Report review
+  // Report review with real API
   const handleReportReview = async () => {
     if (!selectedReview || !reportReason) {
       toast.error('Please provide a reason');
       return;
     }
 
+    const reviewId = selectedReview.id || selectedReview._id;
+    if (!reviewId) {
+      toast.error('Review ID not found');
+      return;
+    }
+
     try {
-      await customerAPI.reportReview(selectedReview.id, reportReason);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { reason: reportReason };
+      
+      if (typeof customerAPI.reportReview === 'function') {
+        await customerAPI.reportReview(reviewId, payload);
+      } else if (typeof customerAPI.reportReviewContent === 'function') {
+        await customerAPI.reportReviewContent(reviewId, payload);
+      } else {
+        throw new Error('Report review API methods not available');
+      }
+      
       toast.success('Review reported successfully');
       setShowReportModal(false);
       setSelectedReview(null);
       setReportReason('');
     } catch (error) {
       console.error('Error reporting review:', error);
-      toast.error('Failed to report review');
+      toast.error(error.message || 'Failed to report review');
     }
   };
 
-  // Mark helpful
+  // Mark helpful with real API
   const handleHelpful = async (reviewId) => {
+    if (!reviewId) return;
+    
     try {
-      await customerAPI.markReviewHelpful(reviewId);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.markReviewHelpful === 'function') {
+        await customerAPI.markReviewHelpful(reviewId);
+      } else if (typeof customerAPI.helpfulReview === 'function') {
+        await customerAPI.helpfulReview(reviewId);
+      } else {
+        throw new Error('Mark helpful API methods not available');
+      }
+      
       setHelpfulVotes(prev => ({ ...prev, [reviewId]: true }));
       toast.success('Thanks for your feedback!');
-      await fetchReviews();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error marking helpful:', error);
-      toast.error('Failed to mark review as helpful');
+      toast.error(error.message || 'Failed to mark review as helpful');
     }
   };
 
   // Render stars
   const renderStars = (rating, size = 16, showNumber = false) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+    const numRating = parseFloat(rating) || 0;
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
     return (
@@ -259,46 +344,62 @@ const Review = () => {
         {[...Array(emptyStars)].map((_, i) => (
           <FaRegStar key={i} size={size} color="#e2e8f0" />
         ))}
-        {showNumber && <span className="ms-2 fw-bold">{rating.toFixed(1)}</span>}
+        {showNumber && <span className="ms-2 fw-bold">{numRating.toFixed(1)}</span>}
       </div>
     );
   };
 
   // Get rating color
   const getRatingColor = (rating) => {
-    if (rating >= 4) return 'success';
-    if (rating >= 3) return 'warning';
+    const numRating = parseFloat(rating) || 0;
+    if (numRating >= 4) return 'success';
+    if (numRating >= 3) return 'warning';
     return 'danger';
   };
 
   // Get status badge
   const getStatusBadge = (status) => {
-    switch (status) {
+    if (!status) return null;
+    const lowerStatus = status.toLowerCase();
+    switch (lowerStatus) {
       case 'approved':
+      case 'published':
         return <Badge bg="success" className="rounded-pill">Approved</Badge>;
       case 'pending':
         return <Badge bg="warning" className="rounded-pill">Pending</Badge>;
       case 'rejected':
+      case 'flagged':
         return <Badge bg="danger" className="rounded-pill">Rejected</Badge>;
       default:
         return null;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading reviews...</p>
-        </div>
-      </div>
-    );
-  }
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationCircle className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchReviews(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -351,7 +452,7 @@ const Review = () => {
                     </div>
                     <div className="text-center">
                       <FaAward className="text-warning mb-1" size={18} />
-                      <div className="fw-bold">{Math.round((stats.average / 5) * 100)}%</div>
+                      <div className="fw-bold">{stats.total > 0 ? Math.round((stats.average / 5) * 100) : 0}%</div>
                       <small className="text-muted">Satisfaction</small>
                     </div>
                   </div>
@@ -472,7 +573,7 @@ const Review = () => {
 
             <div className="mt-3">
               <small className="text-muted">
-                Showing {reviews.length} of {stats.total} reviews
+                Showing {reviews.length} of {totalCount || stats.total} reviews
               </small>
             </div>
           </Card.Body>
@@ -499,161 +600,179 @@ const Review = () => {
             </Card.Body>
           </Card>
         ) : (
-          reviews.map((review) => (
-            <Card key={review.id} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex gap-3">
-                  {/* Avatar */}
-                  <div 
-                    className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
-                    style={{ 
-                      width: '56px', 
-                      height: '56px', 
-                      background: review.is_anonymous 
-                        ? '#94a3b8' 
-                        : `linear-gradient(135deg, ${getRatingColor(review.rating)} 0%, ${getRatingColor(review.rating)} 100%)`,
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      color: 'white'
-                    }}
-                  >
-                    {review.is_anonymous ? (
-                      <FaUser size={24} />
-                    ) : (
-                      getReviewerName(review).charAt(0).toUpperCase()
-                    )}
-                  </div>
+          reviews.map((review) => {
+            const reviewId = review.id || review._id;
+            const isAnonymous = review.is_anonymous || false;
+            const reviewerName = getReviewerName(review);
+            const rating = parseFloat(review.rating) || 0;
+            const comment = getField(review, ['comment', 'content', 'review_text', 'text'], '');
+            const title = getField(review, ['title', 'review_title', 'subject'], '');
+            const pros = getField(review, ['pros', 'positive', 'good_points'], '');
+            const cons = getField(review, ['cons', 'negative', 'bad_points'], '');
+            const images = review.images || [];
+            const createdAt = review.created_at || review.createdAt || review.date || new Date().toISOString();
+            const helpfulCount = parseInt(review.helpful_count) || parseInt(review.helpful) || 0;
+            const isRecommended = review.is_recommended || review.recommended || false;
+            const status = review.status || 'approved';
+            const serviceName = getField(review, ['service_name', 'service.name', 'serviceTitle', 'service.title'], '');
+            const serviceIdFromReview = review.service_id || review.serviceId || review._serviceId || null;
 
-                  <div className="flex-grow-1">
-                    {/* Header */}
-                    <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-                      <div>
-                        <div className="d-flex align-items-center gap-2 flex-wrap">
-                          <h6 className="fw-bold mb-0">
-                            {getReviewerName(review)}
-                          </h6>
-                          {review.is_anonymous && (
-                            <Badge bg="secondary" className="rounded-pill">Anonymous</Badge>
-                          )}
-                          {review.status && getStatusBadge(review.status)}
-                        </div>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          {renderStars(review.rating, 14)}
-                          {review.is_recommended && (
-                            <Badge bg="success" className="d-flex align-items-center gap-1 rounded-pill">
-                              <FaCheck size={10} />
-                              Recommended
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="d-flex align-items-center gap-3 text-muted small mb-3">
-                          <span className="d-flex align-items-center gap-1">
-                            <FaCalendarAlt size={12} />
-                            {format(new Date(review.created_at), 'MMM dd, yyyy')}
-                          </span>
-                          <span className="d-flex align-items-center gap-1">
-                            <FaClock size={12} />
-                            {formatDistanceToNow(new Date(review.created_at), { addSuffix: true })}
-                          </span>
-                          {review.service_name && !serviceId && (
-                            <Link to={`/services/${review.service_id}`} className="text-decoration-none">
-                              <span className="d-flex align-items-center gap-1">
-                                <FaUserCircle size={12} />
-                                {review.service_name}
-                              </span>
-                            </Link>
-                          )}
-                        </div>
-                      </div>
+            return (
+              <Card key={reviewId} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
+                <Card.Body className="p-4">
+                  <div className="d-flex gap-3">
+                    {/* Avatar */}
+                    <div 
+                      className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+                      style={{ 
+                        width: '56px', 
+                        height: '56px', 
+                        background: isAnonymous 
+                          ? '#94a3b8' 
+                          : `linear-gradient(135deg, ${getRatingColor(rating)} 0%, ${getRatingColor(rating)} 100%)`,
+                        fontSize: '20px',
+                        fontWeight: 'bold',
+                        color: 'white'
+                      }}
+                    >
+                      {isAnonymous ? (
+                        <FaUser size={24} />
+                      ) : (
+                        reviewerName.charAt(0).toUpperCase()
+                      )}
                     </div>
 
-                    {/* Review Title */}
-                    {review.title && (
-                      <h6 className="mb-2 fw-semibold">{review.title}</h6>
-                    )}
-
-                    {/* Review Content */}
-                    <p className="mb-3" style={{ lineHeight: '1.6' }}>{review.comment}</p>
-
-                    {/* Pros & Cons */}
-                    {(review.pros || review.cons) && (
-                      <div className="mb-3">
-                        {review.pros && (
-                          <div className="mb-1">
-                            <small className="text-success fw-semibold">✓ Pros:</small>
-                            <small className="text-muted ms-1">{review.pros}</small>
+                    <div className="flex-grow-1">
+                      {/* Header */}
+                      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <div>
+                          <div className="d-flex align-items-center gap-2 flex-wrap">
+                            <h6 className="fw-bold mb-0">
+                              {reviewerName}
+                            </h6>
+                            {isAnonymous && (
+                              <Badge bg="secondary" className="rounded-pill">Anonymous</Badge>
+                            )}
+                            {status && getStatusBadge(status)}
                           </div>
-                        )}
-                        {review.cons && (
-                          <div>
-                            <small className="text-danger fw-semibold">✗ Cons:</small>
-                            <small className="text-muted ms-1">{review.cons}</small>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            {renderStars(rating, 14)}
+                            {isRecommended && (
+                              <Badge bg="success" className="d-flex align-items-center gap-1 rounded-pill">
+                                <FaCheck size={10} />
+                                Recommended
+                              </Badge>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Review Images */}
-                    {hasImages(review) && (
-                      <div className="d-flex gap-2 mb-3 flex-wrap">
-                        {review.images.map((img, idx) => (
-                          <img
-                            key={idx}
-                            src={img}
-                            alt={`Review ${idx + 1}`}
-                            style={{ width: '80px', height: '80px', borderRadius: '10px', objectFit: 'cover', cursor: 'pointer' }}
-                            onClick={() => window.open(img, '_blank')}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="d-flex gap-3">
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-muted p-0 d-flex align-items-center gap-1 text-decoration-none"
-                        onClick={() => handleHelpful(review.id)}
-                        disabled={helpfulVotes[review.id]}
-                      >
-                        <FaThumbsUp size={12} />
-                        Helpful ({review.helpful_count || 0})
-                      </Button>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-muted p-0 d-flex align-items-center gap-1 text-decoration-none"
-                        onClick={() => {
-                          setSelectedReview(review);
-                          setShowReportModal(true);
-                        }}
-                      >
-                        <FaFlag size={12} />
-                        Report
-                      </Button>
-                    </div>
-
-                    {/* Provider Response */}
-                    {hasProviderResponse(review) && (
-                      <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <FaReply size={12} className="text-primary" />
-                          <strong className="small">Provider Response:</strong>
+                          <div className="d-flex align-items-center gap-3 text-muted small mb-3">
+                            <span className="d-flex align-items-center gap-1">
+                              <FaCalendarAlt size={12} />
+                              {format(new Date(createdAt), 'MMM dd, yyyy')}
+                            </span>
+                            <span className="d-flex align-items-center gap-1">
+                              <FaClock size={12} />
+                              {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                            </span>
+                            {serviceName && !serviceId && serviceIdFromReview && (
+                              <Link to={`/services/${serviceIdFromReview}`} className="text-decoration-none">
+                                <span className="d-flex align-items-center gap-1">
+                                  <FaUserCircle size={12} />
+                                  {serviceName}
+                                </span>
+                              </Link>
+                            )}
+                          </div>
                         </div>
-                        <p className="mb-1 small">{getProviderResponse(review)}</p>
-                        {getResponseDate(review) && (
-                          <small className="text-muted">
-                            {formatDistanceToNow(new Date(getResponseDate(review)), { addSuffix: true })}
-                          </small>
-                        )}
                       </div>
-                    )}
+
+                      {/* Review Title */}
+                      {title && (
+                        <h6 className="mb-2 fw-semibold">{title}</h6>
+                      )}
+
+                      {/* Review Content */}
+                      <p className="mb-3" style={{ lineHeight: '1.6' }}>{comment}</p>
+
+                      {/* Pros & Cons */}
+                      {(pros || cons) && (
+                        <div className="mb-3">
+                          {pros && (
+                            <div className="mb-1">
+                              <small className="text-success fw-semibold">✓ Pros:</small>
+                              <small className="text-muted ms-1">{pros}</small>
+                            </div>
+                          )}
+                          {cons && (
+                            <div>
+                              <small className="text-danger fw-semibold">✗ Cons:</small>
+                              <small className="text-muted ms-1">{cons}</small>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Review Images */}
+                      {hasImages(review) && (
+                        <div className="d-flex gap-2 mb-3 flex-wrap">
+                          {images.map((img, idx) => (
+                            <img
+                              key={idx}
+                              src={img}
+                              alt={`Review ${idx + 1}`}
+                              style={{ width: '80px', height: '80px', borderRadius: '10px', objectFit: 'cover', cursor: 'pointer' }}
+                              onClick={() => window.open(img, '_blank')}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="d-flex gap-3">
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="text-muted p-0 d-flex align-items-center gap-1 text-decoration-none"
+                          onClick={() => handleHelpful(reviewId)}
+                          disabled={helpfulVotes[reviewId]}
+                        >
+                          <FaThumbsUp size={12} />
+                          Helpful ({helpfulCount})
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="text-muted p-0 d-flex align-items-center gap-1 text-decoration-none"
+                          onClick={() => {
+                            setSelectedReview(review);
+                            setShowReportModal(true);
+                          }}
+                        >
+                          <FaFlag size={12} />
+                          Report
+                        </Button>
+                      </div>
+
+                      {/* Provider Response */}
+                      {hasProviderResponse(review) && (
+                        <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            <FaReply size={12} className="text-primary" />
+                            <strong className="small">Provider Response:</strong>
+                          </div>
+                          <p className="mb-1 small">{getProviderResponse(review)}</p>
+                          {getResponseDate(review) && (
+                            <small className="text-muted">
+                              {formatDistanceToNow(new Date(getResponseDate(review)), { addSuffix: true })}
+                            </small>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card.Body>
-            </Card>
-          ))
+                </Card.Body>
+              </Card>
+            );
+          })
         )}
 
         {/* Pagination */}

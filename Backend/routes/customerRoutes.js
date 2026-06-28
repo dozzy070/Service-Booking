@@ -1215,4 +1215,303 @@ router.get('/wallet', async (req, res) => {
   }
 });
 
+// =========================================================================
+// CUSTOMER HELP CENTER - NEW
+// =========================================================================
+
+// ========================
+// CUSTOMER FAQs
+// ========================
+
+// GET /api/customer/faqs - Get published FAQs for customers
+router.get('/faqs', async (req, res) => {
+  try {
+    const { limit = 20, category, search } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'faqs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    let conditions = ["status = 'published'"];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const query = `
+      SELECT id, question, answer, category, icon, helpful_count, created_at
+      FROM faqs
+      WHERE ${whereClause}
+      ORDER BY helpful_count DESC, created_at DESC
+      LIMIT $${paramIndex}
+    `;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching customer FAQs:', error);
+    res.json([]);
+  }
+});
+
+// ========================
+// CUSTOMER SUPPORT TICKETS
+// ========================
+
+// GET /api/customer/tickets - Get customer's support tickets
+router.get('/tickets', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status, limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        tickets: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['user_id = $1'];
+    let params = [userId];
+    let paramIndex = 2;
+    
+    if (status) {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const countQuery = `SELECT COUNT(*) as total FROM support_tickets ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT * FROM support_tickets
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    // Get messages for each ticket
+    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
+      const messages = await pool.query(
+        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
+        [ticket.id]
+      );
+      return { ...ticket, messages: messages.rows };
+    }));
+    
+    res.json({
+      tickets: ticketsWithMessages,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('Error fetching customer tickets:', error);
+    res.json({
+      tickets: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// POST /api/customer/tickets - Create support ticket
+router.post('/tickets', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { subject, category, priority = 'medium', message } = req.body;
+    
+    if (!subject || !message) {
+      return res.status(400).json({ message: 'Subject and message are required' });
+    }
+    
+    const ticketResult = await pool.query(`
+      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
+      RETURNING *
+    `, [userId, subject, category || 'general', priority]);
+    
+    const ticket = ticketResult.rows[0];
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticket.id, userId, message]);
+    
+    res.status(201).json(ticket);
+  } catch (error) {
+    console.error('Error creating ticket:', error);
+    res.status(500).json({ message: 'Failed to create support ticket' });
+  }
+});
+
+// POST /api/customer/tickets/:id/reply - Reply to ticket
+router.post('/tickets/:id/reply', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const ticketId = req.params.id;
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ message: 'Message is required' });
+    }
+    
+    const ticketCheck = await pool.query(
+      'SELECT id, status FROM support_tickets WHERE id = $1 AND user_id = $2',
+      [ticketId, userId]
+    );
+    
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    if (ticketCheck.rows[0].status === 'closed') {
+      return res.status(400).json({ message: 'Cannot reply to closed ticket' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+      RETURNING *
+    `, [ticketId, userId, message]);
+    
+    await pool.query(`
+      UPDATE support_tickets 
+      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [ticketId]);
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error replying to ticket:', error);
+    res.status(500).json({ message: 'Failed to reply to ticket' });
+  }
+});
+
+// ========================
+// CUSTOMER ANNOUNCEMENTS
+// ========================
+
+// GET /api/customer/announcements - Get announcements for customers
+router.get('/announcements', async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'announcements'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    const result = await pool.query(`
+      SELECT * FROM announcements 
+      WHERE is_active = true
+      ORDER BY created_at DESC 
+      LIMIT $1
+    `, [parseInt(limit)]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching customer announcements:', error);
+    res.json([]);
+  }
+});
+
+// ========================
+// CUSTOMER KNOWLEDGE BASE
+// ========================
+
+// GET /api/customer/knowledge-base - Get knowledge base for customers
+router.get('/knowledge-base', async (req, res) => {
+  try {
+    const { search, category, limit = 10 } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'knowledge_base'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    let conditions = ['is_published = true'];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const query = `
+      SELECT id, title, content, category, tags, read_time, created_at, updated_at
+      FROM knowledge_base
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex}
+    `;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching customer knowledge base:', error);
+    res.json([]);
+  }
+});
+
 export default router;

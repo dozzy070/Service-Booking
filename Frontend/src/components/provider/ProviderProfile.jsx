@@ -1,5 +1,5 @@
 // src/components/provider/ProviderProfile.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -40,7 +40,6 @@ import {
   Plus,
   Minus
 } from 'lucide-react';
-// All social icons from react-icons/fa
 import {
   FaFacebook,
   FaTwitter,
@@ -60,10 +59,15 @@ const ProviderProfile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
+  
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
   
   const [profile, setProfile] = useState({
     name: '',
@@ -100,7 +104,6 @@ const ProviderProfile = () => {
     repeatCustomers: 0
   });
 
-  // ✅ REMOVED: recentActivity state - using bookings instead
   const [recentBookings, setRecentBookings] = useState([]);
   const [specialtyInput, setSpecialtyInput] = useState('');
   const [languageInput, setLanguageInput] = useState('');
@@ -116,49 +119,84 @@ const ProviderProfile = () => {
     }).format(amount || 0);
   };
 
-  // Fetch provider profile
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // ✅ Fetch provider profile from real API
   const fetchProviderProfile = useCallback(async () => {
     try {
-      const response = await providerAPI.getProfile();
-      const profileData = response.data;
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getProfile === 'function') {
+        response = await providerAPI.getProfile();
+      } else if (typeof providerAPI.getProviderProfile === 'function') {
+        response = await providerAPI.getProviderProfile();
+      } else {
+        throw new Error('Profile API methods not available');
+      }
+
+      const data = response?.data || {};
       setProfile({
-        name: profileData.name || user?.name || '',
-        email: profileData.email || user?.email || '',
-        phone: profileData.phone || '',
-        address: profileData.address || '',
-        city: profileData.city || '',
-        state: profileData.state || '',
-        zipCode: profileData.zip_code || '',
-        bio: profileData.bio || '',
-        specialties: profileData.specialties || [],
-        yearsOfExperience: profileData.years_of_experience || 0,
-        hourlyRate: profileData.hourly_rate || 0,
-        languages: profileData.languages || [],
-        website: profileData.website || '',
-        availability: profileData.availability || '',
-        serviceAreas: profileData.service_areas || [],
-        socialMedia: profileData.social_media || {
+        name: data.name || user?.name || '',
+        email: data.email || user?.email || '',
+        phone: data.phone || data.phone_number || '',
+        address: data.address || '',
+        city: data.city || '',
+        state: data.state || '',
+        zipCode: data.zip_code || data.zip || '',
+        bio: data.bio || data.about || '',
+        specialties: data.specialties || data.skills || [],
+        yearsOfExperience: data.years_of_experience || data.experience || 0,
+        hourlyRate: data.hourly_rate || data.rate || 0,
+        languages: data.languages || [],
+        website: data.website || '',
+        availability: data.availability || data.available_hours || '',
+        serviceAreas: data.service_areas || data.areas || [],
+        socialMedia: data.social_media || data.social || {
           instagram: '',
           facebook: '',
           twitter: '',
           linkedin: ''
         },
-        avatar: profileData.avatar,
-        coverPhoto: profileData.cover_photo
+        avatar: data.avatar || data.profile_picture || null,
+        coverPhoto: data.cover_photo || data.cover || null
       });
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setError(error.message || 'Failed to load profile data');
       toast.error('Failed to load profile data');
     }
   }, [user]);
 
-  // Fetch stats
+  // ✅ Fetch stats from real API
   const fetchStats = useCallback(async () => {
     try {
-      const response = await providerAPI.getStats();
-      const data = response.data || {};
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getStats === 'function') {
+        response = await providerAPI.getStats();
+      } else if (typeof providerAPI.getProviderStats === 'function') {
+        response = await providerAPI.getProviderStats();
+      } else {
+        throw new Error('Stats API methods not available');
+      }
+
+      const data = response?.data || {};
       setStats({
-        totalJobs: data.total_jobs || data.totalBookings || 0,
+        totalJobs: data.total_jobs || data.totalBookings || data.jobs || 0,
         rating: data.rating || data.averageRating || 0,
         responseTime: data.response_time || data.responseTime || '< 1 hour',
         completionRate: data.completion_rate || data.completionRate || 0,
@@ -167,43 +205,83 @@ const ProviderProfile = () => {
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
-      // Use default stats
-      setStats({
-        totalJobs: 0,
-        rating: 0,
-        responseTime: '< 1 hour',
-        completionRate: 0,
-        totalEarnings: 0,
-        repeatCustomers: 0
-      });
+      // Keep default stats
     }
   }, []);
 
-  // ✅ REPLACED: fetchRecentActivity with fetchRecentBookings
+  // ✅ Fetch recent bookings from real API
   const fetchRecentBookings = useCallback(async () => {
     try {
-      const response = await providerAPI.getRecentBookings({ limit: 5 });
-      const bookings = response.data || [];
-      setRecentBookings(bookings);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getRecentBookings === 'function') {
+        response = await providerAPI.getRecentBookings({ limit: 5 });
+      } else if (typeof providerAPI.getBookings === 'function') {
+        response = await providerAPI.getBookings({ limit: 5 });
+      } else {
+        throw new Error('Bookings API methods not available');
+      }
+
+      const data = response?.data || [];
+      setRecentBookings(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching recent bookings:', error);
       setRecentBookings([]);
     }
   }, []);
 
-  // Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchProviderProfile(),
-      fetchStats(),
-      fetchRecentBookings() // ✅ Replaced fetchRecentActivity
-    ]);
-    setLoading(false);
+  // ✅ Load all data
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchProviderProfile(),
+        fetchStats(),
+        fetchRecentBookings()
+      ]);
+    } catch (error) {
+      console.error('Error loading profile data:', error);
+      setError('Failed to load profile data');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [fetchProviderProfile, fetchStats, fetchRecentBookings]);
+
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 60000); // Poll every 60 seconds
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
   }, []);
 
   const handleChange = (e) => {
@@ -272,6 +350,7 @@ const ProviderProfile = () => {
     });
   };
 
+  // ✅ Upload image with real API
   const handleImageUpload = async (type, file) => {
     if (!file) return;
     
@@ -280,16 +359,33 @@ const ProviderProfile = () => {
     formData.append(type, file);
     
     try {
-      const response = await providerAPI.uploadImage(formData);
-      if (type === 'avatar') {
-        setProfile({ ...profile, avatar: response.data.url });
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.uploadImage === 'function') {
+        response = await providerAPI.uploadImage(formData);
+      } else if (typeof providerAPI.uploadProfileImage === 'function') {
+        response = await providerAPI.uploadProfileImage(formData);
       } else {
-        setProfile({ ...profile, coverPhoto: response.data.url });
+        throw new Error('Image upload API methods not available');
+      }
+
+      const data = response?.data || {};
+      const imageUrl = data.url || data.image_url || data.imageUrl;
+      
+      if (type === 'avatar') {
+        setProfile({ ...profile, avatar: imageUrl });
+        await updateUser({ avatar: imageUrl });
+      } else {
+        setProfile({ ...profile, coverPhoto: imageUrl });
       }
       toast.success(`${type === 'avatar' ? 'Avatar' : 'Cover photo'} updated successfully`);
     } catch (error) {
       console.error('Error uploading image:', error);
-      toast.error('Failed to upload image');
+      toast.error(error.message || 'Failed to upload image');
     } finally {
       setUploading(false);
       setShowAvatarModal(false);
@@ -298,9 +394,15 @@ const ProviderProfile = () => {
     }
   };
 
+  // ✅ Save profile with real API
   const handleSave = async () => {
     setSaving(true);
+    setError(null);
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const profileData = {
         name: profile.name,
         phone: profile.phone,
@@ -318,15 +420,27 @@ const ProviderProfile = () => {
         service_areas: profile.serviceAreas,
         social_media: profile.socialMedia
       };
+
+      let response = null;
       
-      await providerAPI.updateProfile(profileData);
-      await updateUser({ name: profile.name });
+      if (typeof providerAPI.updateProfile === 'function') {
+        response = await providerAPI.updateProfile(profileData);
+      } else if (typeof providerAPI.editProfile === 'function') {
+        response = await providerAPI.editProfile(profileData);
+      } else {
+        throw new Error('Update profile API methods not available');
+      }
+
+      const data = response?.data || {};
+      await updateUser({ name: profile.name, avatar: profile.avatar });
       toast.success('Profile updated successfully');
       setIsEditing(false);
       await fetchProviderProfile();
+      await fetchStats();
     } catch (error) {
       console.error('Error saving profile:', error);
-      toast.error('Failed to save profile');
+      setError(error.message || 'Failed to save profile');
+      toast.error(error.message || 'Failed to save profile');
     } finally {
       setSaving(false);
     }
@@ -340,33 +454,34 @@ const ProviderProfile = () => {
     }
   };
 
-  // ✅ Generate activity from bookings
+  // Generate activity from bookings
   const getActivityFromBookings = () => {
     if (recentBookings.length === 0) return [];
     
-    return recentBookings.map(booking => ({
-      id: booking.id,
-      type: booking.status === 'completed' ? 'job' : 'booking',
-      title: booking.service || booking.service_name || 'Service',
-      description: `${booking.customer || booking.customer_name || 'Customer'} - ${booking.status || 'pending'}`,
-      date: booking.booking_date || booking.date || booking.created_at || new Date().toISOString()
-    }));
+    return recentBookings.map(booking => {
+      const bookingId = booking.id || booking._id;
+      const serviceName = getField(booking, ['service', 'service_name', 'serviceTitle', 'title'], 'Service');
+      const customerName = getField(booking, ['customer', 'customer_name', 'customerName'], 'Customer');
+      const status = getField(booking, ['status', 'booking_status'], 'pending');
+      const date = booking.booking_date || booking.date || booking.created_at || new Date().toISOString();
+      
+      return {
+        id: bookingId,
+        type: status === 'completed' ? 'job' : 'booking',
+        title: serviceName,
+        description: `${customerName} - ${status}`,
+        date: date
+      };
+    });
   };
 
   const activityItems = getActivityFromBookings();
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading profile...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   const getInitials = (name) => {
+    if (!name) return 'P';
     return name
       .split(' ')
       .map(word => word[0])
@@ -378,6 +493,19 @@ const ProviderProfile = () => {
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+              <User size={18} className="me-2" />
+              {error}
+              <Button variant="outline-danger" size="sm" onClick={() => loadAllData(false)} className="ms-3">
+                Retry
+              </Button>
+            </Alert>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -497,7 +625,7 @@ const ProviderProfile = () => {
                     style={{ fontSize: '24px', fontWeight: 'bold', width: '300px' }}
                   />
                 ) : (
-                  <h3 className="mb-2">{profile.name}</h3>
+                  <h3 className="mb-2">{profile.name || 'Provider'}</h3>
                 )}
                 <div className="d-flex gap-2 mb-2">
                   <Badge bg="success" className="px-3 py-2">Verified Professional</Badge>
@@ -563,7 +691,7 @@ const ProviderProfile = () => {
                   {isEditing ? (
                     <Form.Control type="email" name="email" value={profile.email} onChange={handleChange} />
                   ) : (
-                    <p className="mb-0">{profile.email}</p>
+                    <p className="mb-0">{profile.email || 'Not provided'}</p>
                   )}
                 </div>
                 
@@ -598,8 +726,8 @@ const ProviderProfile = () => {
                     </>
                   ) : (
                     <p className="mb-0">
-                      {profile.address}<br />
-                      {profile.city && `${profile.city}, `}{profile.state}
+                      {profile.address || 'Not provided'}
+                      {profile.city && <br />}{profile.city && `${profile.city}, `}{profile.state}
                     </p>
                   )}
                 </div>
@@ -707,7 +835,7 @@ const ProviderProfile = () => {
                     </div>
                     <Form.Control
                       type="text"
-                      value={profile.socialMedia.instagram}
+                      value={profile.socialMedia?.instagram || ''}
                       onChange={(e) => handleSocialChange('instagram', e.target.value)}
                       placeholder="@username"
                     />
@@ -719,7 +847,7 @@ const ProviderProfile = () => {
                     </div>
                     <Form.Control
                       type="text"
-                      value={profile.socialMedia.facebook}
+                      value={profile.socialMedia?.facebook || ''}
                       onChange={(e) => handleSocialChange('facebook', e.target.value)}
                       placeholder="facebook.com/username"
                     />
@@ -731,7 +859,7 @@ const ProviderProfile = () => {
                     </div>
                     <Form.Control
                       type="text"
-                      value={profile.socialMedia.twitter}
+                      value={profile.socialMedia?.twitter || ''}
                       onChange={(e) => handleSocialChange('twitter', e.target.value)}
                       placeholder="@username"
                     />
@@ -743,7 +871,7 @@ const ProviderProfile = () => {
                     </div>
                     <Form.Control
                       type="text"
-                      value={profile.socialMedia.linkedin}
+                      value={profile.socialMedia?.linkedin || ''}
                       onChange={(e) => handleSocialChange('linkedin', e.target.value)}
                       placeholder="linkedin.com/in/username"
                     />
@@ -768,7 +896,7 @@ const ProviderProfile = () => {
                       as="textarea"
                       rows={5}
                       name="bio"
-                      value={profile.bio}
+                      value={profile.bio || ''}
                       onChange={handleChange}
                       placeholder="Tell customers about your experience and services..."
                     />
@@ -780,7 +908,7 @@ const ProviderProfile = () => {
                 <div className="mb-4">
                   <strong className="small text-muted d-block mb-2">Specialties</strong>
                   <div className="d-flex flex-wrap gap-2 mb-2">
-                    {profile.specialties.map((specialty, index) => (
+                    {(profile.specialties || []).map((specialty, index) => (
                       <Badge key={index} bg="light" text="dark" className="p-2 d-flex align-items-center gap-1">
                         {specialty}
                         {isEditing && (
@@ -808,7 +936,7 @@ const ProviderProfile = () => {
                 <div className="mb-4">
                   <strong className="small text-muted d-block mb-2">Languages</strong>
                   <div className="d-flex flex-wrap gap-2 mb-2">
-                    {profile.languages.map((language, index) => (
+                    {(profile.languages || []).map((language, index) => (
                       <Badge key={index} bg="info" className="p-2 d-flex align-items-center gap-1">
                         {language}
                         {isEditing && (
@@ -836,7 +964,7 @@ const ProviderProfile = () => {
                 <div className="mb-4">
                   <strong className="small text-muted d-block mb-2">Service Areas</strong>
                   <div className="d-flex flex-wrap gap-2 mb-2">
-                    {profile.serviceAreas.map((area, index) => (
+                    {(profile.serviceAreas || []).map((area, index) => (
                       <Badge key={index} bg="secondary" className="p-2 d-flex align-items-center gap-1">
                         {area}
                         {isEditing && (
@@ -863,7 +991,7 @@ const ProviderProfile = () => {
               </Card.Body>
             </Card>
 
-            {/* ✅ Recent Activity - Now using bookings data */}
+            {/* Recent Activity */}
             <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
               <Card.Header className="bg-white border-0 pt-4">
                 <h5 className="fw-bold mb-0">Recent Activity</h5>
@@ -876,7 +1004,7 @@ const ProviderProfile = () => {
                   </div>
                 ) : (
                   activityItems.map((activity, index) => (
-                    <div key={index} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+                    <div key={activity.id || index} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
                       <div 
                         className="rounded-circle d-flex align-items-center justify-content-center"
                         style={{ 

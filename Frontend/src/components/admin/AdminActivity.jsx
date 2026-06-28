@@ -1,5 +1,5 @@
 // src/components/admin/AdminActivity.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Container,
   Row,
@@ -59,9 +59,10 @@ import {
   Gift,
   Heart,
   Zap,
-  Flame
+  Flame,
+  MapPin,
+  Monitor
 } from 'lucide-react';
-// All social icons from react-icons/fa only
 import {
   FaFacebook,
   FaTwitter,
@@ -71,7 +72,6 @@ import {
   FaWhatsapp
 } from 'react-icons/fa';
 
-
 import { useAuth } from '../../context/AuthContext';
 import { adminAPI } from '../../api/api';
 import { format, formatDistanceToNow, subDays, subMonths, isToday, isYesterday } from 'date-fns';
@@ -79,8 +79,8 @@ import toast from 'react-hot-toast';
 
 const AdminActivity = () => {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -107,20 +107,41 @@ const AdminActivity = () => {
     security: 0,
     system: 0
   });
+  const [error, setError] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
+  
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
+  // ✅ SAFE NUMBER FORMATTER
+  const formatNumber = (value) => {
+    const num = Number(value) || 0;
+    return num.toLocaleString();
+  };
 
   // Format currency to NGN
   const formatNaira = (amount) => {
+    const num = Number(amount) || 0;
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(amount || 0);
+    }).format(num);
   };
 
-  // Fetch activities
-  const fetchActivities = useCallback(async () => {
+  // ✅ Fetch activities from real API
+  const fetchActivities = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      // Validate adminAPI exists
+      if (!adminAPI || typeof adminAPI.getActivities !== 'function') {
+        throw new Error('API service not available');
+      }
+
       const params = {
         startDate: dateRange.start,
         endDate: dateRange.end,
@@ -128,55 +149,145 @@ const AdminActivity = () => {
         status: filterStatus !== 'all' ? filterStatus : undefined,
         search: searchTerm || undefined,
         sortBy: sortConfig.key,
-        sortOrder: sortConfig.direction
+        sortOrder: sortConfig.direction,
+        limit: itemsPerPage,
+        page: currentPage
       };
+
       const response = await adminAPI.getActivities(params);
-      setActivities(response.data);
       
-      // Calculate stats
-      const total = response.data.length;
-      const today = response.data.filter(a => isToday(new Date(a.timestamp))).length;
-      const users = response.data.filter(a => a.type === 'user').length;
-      const bookings = response.data.filter(a => a.type === 'booking').length;
-      const security = response.data.filter(a => a.type === 'security').length;
-      const system = response.data.filter(a => a.type === 'system').length;
+      // Handle different response formats
+      let data = response?.data || [];
+      let total = 0;
       
-      setStats({ total, today, users, bookings, security, system });
+      if (Array.isArray(data)) {
+        setActivities(data);
+        total = data.length;
+      } else if (data.activities) {
+        setActivities(data.activities);
+        total = data.total || data.activities.length;
+      } else if (data.logs) {
+        setActivities(data.logs);
+        total = data.total || data.logs.length;
+      } else {
+        setActivities([]);
+        total = 0;
+      }
+      
+      setTotalCount(total);
+      updateStats(data.activities || data.logs || data || []);
+      
     } catch (error) {
       console.error('Error fetching activities:', error);
-      toast.error('Failed to load activities');
+      setError(error.message || 'Failed to load activities');
+      setActivities([]);
+      setTotalCount(0);
+      setStats({
+        total: 0,
+        today: 0,
+        users: 0,
+        bookings: 0,
+        security: 0,
+        system: 0
+      });
+      
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load activities');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
-  }, [dateRange, filterType, filterStatus, searchTerm, sortConfig]);
+  }, [dateRange, filterType, filterStatus, searchTerm, sortConfig, itemsPerPage, currentPage]);
 
+  // ✅ Update stats safely
+  const updateStats = (data) => {
+    if (!Array.isArray(data) || data.length === 0) {
+      setStats({
+        total: 0,
+        today: 0,
+        users: 0,
+        bookings: 0,
+        security: 0,
+        system: 0
+      });
+      return;
+    }
+    
+    const total = data.length;
+    const today = data.filter(a => a.timestamp && isToday(new Date(a.timestamp))).length;
+    const users = data.filter(a => a.type === 'user' || a.type === 'USER' || a.type === 'User').length;
+    const bookings = data.filter(a => a.type === 'booking' || a.type === 'BOOKING' || a.type === 'Booking').length;
+    const security = data.filter(a => a.type === 'security' || a.type === 'SECURITY' || a.type === 'Security').length;
+    const system = data.filter(a => a.type === 'system' || a.type === 'SYSTEM' || a.type === 'System').length;
+    
+    setStats({ total, today, users, bookings, security, system });
+  };
+
+  // ✅ Initial data load
+  useEffect(() => {
+    fetchActivities(true);
+    
+    // Set up real-time polling
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // ✅ Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchActivities(false);
+    }
+  }, [dateRange, filterType, filterStatus, searchTerm, sortConfig, itemsPerPage, currentPage]);
+
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchActivities(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchActivities();
-    setRefreshing(false);
+    await fetchActivities(false);
     toast.success('Activities refreshed');
   };
 
-  useEffect(() => {
-    fetchActivities();
-  }, [fetchActivities]);
-
-  // Auto-refresh every 60 seconds
-  useEffect(() => {
-    const interval = setInterval(fetchActivities, 60000);
-    return () => clearInterval(interval);
-  }, [fetchActivities]);
-
-  // Export activities
+  // ✅ Export activities
   const handleExport = async () => {
     setExporting(true);
     try {
+      if (!adminAPI || typeof adminAPI.exportActivities !== 'function') {
+        throw new Error('Export functionality not available');
+      }
+      
       const response = await adminAPI.exportActivities({
         format: exportFormat,
         startDate: dateRange.start,
         endDate: dateRange.end,
-        type: filterType !== 'all' ? filterType : undefined
+        type: filterType !== 'all' ? filterType : undefined,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        search: searchTerm || undefined
       });
+      
       const blob = new Blob([response.data], {
         type: exportFormat === 'csv' ? 'text/csv' :
               exportFormat === 'excel' ? 'application/vnd.ms-excel' :
@@ -191,14 +302,17 @@ const AdminActivity = () => {
       toast.success('Activities exported successfully');
       setShowExportModal(false);
     } catch (error) {
-      toast.error('Export failed');
+      console.error('Export error:', error);
+      toast.error(error.message || 'Export failed');
     } finally {
       setExporting(false);
     }
   };
 
   const getActionIcon = (type) => {
-    switch(type) {
+    if (!type) return <LogIn size={16} className="text-info" />;
+    const lowerType = type.toLowerCase();
+    switch(lowerType) {
       case 'user': return <UserPlus size={16} className="text-primary" />;
       case 'service': return <ShoppingCart size={16} className="text-success" />;
       case 'system': return <SettingsIcon size={16} className="text-secondary" />;
@@ -209,13 +323,27 @@ const AdminActivity = () => {
   };
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <Info size={12} />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const configs = {
       success: { bg: 'success', icon: <CheckCircle size={12} />, label: 'Success' },
+      completed: { bg: 'success', icon: <CheckCircle size={12} />, label: 'Completed' },
       warning: { bg: 'warning', icon: <AlertCircle size={12} />, label: 'Warning' },
+      pending: { bg: 'warning', icon: <AlertCircle size={12} />, label: 'Pending' },
       error: { bg: 'danger', icon: <XCircle size={12} />, label: 'Error' },
-      info: { bg: 'info', icon: <Info size={12} />, label: 'Info' }
+      failed: { bg: 'danger', icon: <XCircle size={12} />, label: 'Failed' },
+      info: { bg: 'info', icon: <Info size={12} />, label: 'Info' },
+      active: { bg: 'info', icon: <Info size={12} />, label: 'Active' }
     };
-    const config = configs[status] || configs.info;
+    const config = configs[lowerStatus] || configs.info;
     return (
       <Badge bg={config.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
         {config.icon}
@@ -225,12 +353,16 @@ const AdminActivity = () => {
   };
 
   const getUserTypeBadge = (type) => {
+    if (!type) return <Badge bg="secondary" className="rounded-pill">Unknown</Badge>;
+    
+    const lowerType = type.toLowerCase();
     const configs = {
       customer: { bg: 'primary', label: 'Customer' },
       provider: { bg: 'success', label: 'Provider' },
-      admin: { bg: 'danger', label: 'Admin' }
+      admin: { bg: 'danger', label: 'Admin' },
+      user: { bg: 'primary', label: 'User' }
     };
-    const config = configs[type] || configs.customer;
+    const config = configs[lowerType] || configs.customer;
     return <Badge bg={config.bg} className="rounded-pill">{config.label}</Badge>;
   };
 
@@ -246,6 +378,8 @@ const AdminActivity = () => {
 
   const handleDateRangeChange = (period) => {
     setSelectedPeriod(period);
+    if (period === 'custom') return;
+    
     const today = new Date();
     let start = new Date();
     switch(period) {
@@ -282,23 +416,36 @@ const AdminActivity = () => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(a =>
-        a.user?.toLowerCase().includes(term) ||
-        a.action?.toLowerCase().includes(term) ||
-        a.details?.toLowerCase().includes(term) ||
-        a.ip?.toLowerCase().includes(term)
+        (a.user || a.username || a.email || '').toLowerCase().includes(term) ||
+        (a.action || a.type || '').toLowerCase().includes(term) ||
+        (a.details || a.description || '').toLowerCase().includes(term) ||
+        (a.ip || a.ipAddress || '').toLowerCase().includes(term)
       );
     }
     
-    if (filterType !== 'all') filtered = filtered.filter(a => a.type === filterType);
-    if (filterStatus !== 'all') filtered = filtered.filter(a => a.status === filterStatus);
+    if (filterType !== 'all') {
+      filtered = filtered.filter(a => {
+        const type = (a.type || '').toLowerCase();
+        return type === filterType.toLowerCase();
+      });
+    }
+    
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(a => {
+        const status = (a.status || '').toLowerCase();
+        return status === filterStatus.toLowerCase();
+      });
+    }
     
     filtered.sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
-      if (sortConfig.key === 'timestamp') {
-        aVal = new Date(aVal).getTime();
-        bVal = new Date(bVal).getTime();
+      let aVal = a[sortConfig.key] || a[sortConfig.key.toLowerCase()] || '';
+      let bVal = b[sortConfig.key] || b[sortConfig.key.toLowerCase()] || '';
+      
+      if (sortConfig.key === 'timestamp' || sortConfig.key === 'createdAt' || sortConfig.key === 'date') {
+        aVal = aVal ? new Date(aVal).getTime() : 0;
+        bVal = bVal ? new Date(bVal).getTime() : 0;
       }
+      
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
@@ -319,13 +466,18 @@ const AdminActivity = () => {
     setCurrentPage(1);
   }, [searchTerm, filterType, filterStatus, dateRange]);
 
+  // ✅ Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading activities...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading activities...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -368,6 +520,14 @@ const AdminActivity = () => {
           </div>
         </div>
 
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+          </Alert>
+        )}
+
         {/* Stats Cards */}
         <Row className="g-4 mb-4">
           <Col xl={2} lg={4} md={6}>
@@ -379,7 +539,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">Total Activities</p>
-                    <h3 className="fw-bold mb-0">{stats.total}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.total)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -394,7 +554,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">Today's Activities</p>
-                    <h3 className="fw-bold mb-0">{stats.today}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.today)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -409,7 +569,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">User Activities</p>
-                    <h3 className="fw-bold mb-0">{stats.users}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.users)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -424,7 +584,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">Bookings</p>
-                    <h3 className="fw-bold mb-0">{stats.bookings}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.bookings)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -439,7 +599,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">Security Alerts</p>
-                    <h3 className="fw-bold mb-0">{stats.security}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.security)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -454,7 +614,7 @@ const AdminActivity = () => {
                   </div>
                   <div>
                     <p className="text-muted mb-0 small">System Events</p>
-                    <h3 className="fw-bold mb-0">{stats.system}</h3>
+                    <h3 className="fw-bold mb-0">{formatNumber(stats.system)}</h3>
                   </div>
                 </div>
               </Card.Body>
@@ -548,7 +708,7 @@ const AdminActivity = () => {
                     />
                   </>
                 )}
-                <Button variant="primary" size="sm" onClick={fetchActivities}>
+                <Button variant="primary" size="sm" onClick={() => fetchActivities(false)}>
                   Apply
                 </Button>
               </div>
@@ -591,15 +751,28 @@ const AdminActivity = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentActivities.map((activity) => (
-                        <tr key={activity.id}>
+                      {currentActivities.map((activity, index) => (
+                        <tr key={activity.id || activity._id || index}>
                           <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">{format(new Date(activity.timestamp), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{format(new Date(activity.timestamp), 'hh:mm a')}</small>
+                            <div className="fw-semibold">
+                              {activity.timestamp || activity.createdAt || activity.date 
+                                ? format(new Date(activity.timestamp || activity.createdAt || activity.date), 'MMM dd, yyyy')
+                                : 'N/A'}
+                            </div>
+                            <small className="text-muted">
+                              {activity.timestamp || activity.createdAt || activity.date
+                                ? format(new Date(activity.timestamp || activity.createdAt || activity.date), 'hh:mm a')
+                                : 'N/A'}
+                            </small>
                             <div className="small text-muted">
-                              {isToday(new Date(activity.timestamp)) ? 'Today' :
-                               isYesterday(new Date(activity.timestamp)) ? 'Yesterday' :
-                               formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
+                              {activity.timestamp || activity.createdAt || activity.date
+                                ? (() => {
+                                    const date = new Date(activity.timestamp || activity.createdAt || activity.date);
+                                    return isToday(date) ? 'Today' :
+                                           isYesterday(date) ? 'Yesterday' :
+                                           formatDistanceToNow(date, { addSuffix: true });
+                                  })()
+                                : 'N/A'}
                             </div>
                           </td>
                           <td style={{ padding: '16px' }}>
@@ -608,25 +781,25 @@ const AdminActivity = () => {
                                 <User size={16} className="text-muted" />
                               </div>
                               <div>
-                                <div className="fw-semibold">{activity.user}</div>
-                                {getUserTypeBadge(activity.userType)}
+                                <div className="fw-semibold">{activity.user || activity.username || activity.email || 'Unknown'}</div>
+                                {getUserTypeBadge(activity.userType || activity.role || activity.type)}
                               </div>
                             </div>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-2">
-                              {getActionIcon(activity.type)}
-                              <span>{activity.action}</span>
+                              {getActionIcon(activity.type || activity.actionType)}
+                              <span>{activity.action || activity.type || 'Unknown'}</span>
                             </div>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <small>{activity.details}</small>
+                            <small>{activity.details || activity.description || activity.message || 'No details'}</small>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <code className="small">{activity.ip}</code>
+                            <code className="small">{activity.ip || activity.ipAddress || activity.clientIp || 'N/A'}</code>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            {getStatusBadge(activity.status)}
+                            {getStatusBadge(activity.status || 'info')}
                           </td>
                           <td style={{ padding: '16px' }}>
                             <Button
@@ -705,19 +878,23 @@ const AdminActivity = () => {
                     <h6 className="fw-bold mb-3">Event Information</h6>
                     <div className="info-item">
                       <Clock size={14} className="text-muted" />
-                      <span><strong>Timestamp:</strong> {format(new Date(selectedActivity.timestamp), 'MMMM dd, yyyy hh:mm a')}</span>
+                      <span><strong>Timestamp:</strong> {
+                        selectedActivity.timestamp || selectedActivity.createdAt || selectedActivity.date
+                          ? format(new Date(selectedActivity.timestamp || selectedActivity.createdAt || selectedActivity.date), 'MMMM dd, yyyy hh:mm a')
+                          : 'N/A'
+                      }</span>
                     </div>
                     <div className="info-item">
                       <User size={14} className="text-muted" />
-                      <span><strong>User:</strong> {selectedActivity.user}</span>
+                      <span><strong>User:</strong> {selectedActivity.user || selectedActivity.username || selectedActivity.email || 'Unknown'}</span>
                     </div>
                     <div className="info-item">
                       <Activity size={14} className="text-muted" />
-                      <span><strong>Action:</strong> {selectedActivity.action}</span>
+                      <span><strong>Action:</strong> {selectedActivity.action || selectedActivity.type || 'Unknown'}</span>
                     </div>
                     <div className="info-item">
                       <FileText size={14} className="text-muted" />
-                      <span><strong>Details:</strong> {selectedActivity.details}</span>
+                      <span><strong>Details:</strong> {selectedActivity.details || selectedActivity.description || selectedActivity.message || 'No details'}</span>
                     </div>
                   </div>
                 </Col>
@@ -730,16 +907,28 @@ const AdminActivity = () => {
                     </div>
                     <div className="info-item">
                       <Link size={14} className="text-muted" />
-                      <span><strong>IP Address:</strong> {selectedActivity.ip}</span>
+                      <span><strong>IP Address:</strong> {selectedActivity.ip || selectedActivity.ipAddress || selectedActivity.clientIp || 'N/A'}</span>
                     </div>
                     <div className="info-item">
                       <Info size={14} className="text-muted" />
-                      <span><strong>Type:</strong> {selectedActivity.type}</span>
+                      <span><strong>Type:</strong> {selectedActivity.type || selectedActivity.actionType || 'Unknown'}</span>
                     </div>
                     <div className="info-item">
                       <Badge size={14} className="text-muted" />
-                      <span><strong>User Type:</strong> {getUserTypeBadge(selectedActivity.userType)}</span>
+                      <span><strong>User Type:</strong> {getUserTypeBadge(selectedActivity.userType || selectedActivity.role)}</span>
                     </div>
+                    {selectedActivity.location && (
+                      <div className="info-item">
+                        <MapPin size={14} className="text-muted" />
+                        <span><strong>Location:</strong> {selectedActivity.location}</span>
+                      </div>
+                    )}
+                    {selectedActivity.device && (
+                      <div className="info-item">
+                        <Monitor size={14} className="text-muted" />
+                        <span><strong>Device:</strong> {selectedActivity.device}</span>
+                      </div>
+                    )}
                   </div>
                 </Col>
               </Row>

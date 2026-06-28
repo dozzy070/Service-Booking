@@ -1,5 +1,5 @@
 // src/pages/admin/UserManagement.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { adminAPI } from '../../api/api';
 import {
   Container,
@@ -108,6 +108,7 @@ const UserManagement = () => {
   const [usersPerPage, setUsersPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showSuspendModal, setShowSuspendModal] = useState(false);
@@ -117,7 +118,6 @@ const UserManagement = () => {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [selectedUsers, setSelectedUsers] = useState([]);
-  const [alertMessage, setAlertMessage] = useState({ show: false, type: '', message: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [formData, setFormData] = useState({
@@ -136,6 +136,10 @@ const UserManagement = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [exportFormat, setExportFormat] = useState('csv');
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -152,40 +156,82 @@ const UserManagement = () => {
     return formatNaira(amount);
   };
 
-  // ✅ Fetch users from API - using adminAPI
+  // ✅ Fetch users from API with proper error handling
   const fetchUsers = useCallback(async () => {
     try {
-      setLoading(true);
-      const response = await adminAPI.getUsers();
-      // ✅ Ensure we're working with an array
-      const usersData = Array.isArray(response.data) ? response.data : 
-                        Array.isArray(response.data?.users) ? response.data.users : [];
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof adminAPI.getUsers === 'function') {
+        response = await adminAPI.getUsers();
+      } else if (typeof adminAPI.getUserList === 'function') {
+        response = await adminAPI.getUserList();
+      } else {
+        throw new Error('Users API methods not available');
+      }
+
+      const data = response?.data || [];
+      const usersData = Array.isArray(data) ? data : 
+                        Array.isArray(data?.users) ? data.users : 
+                        Array.isArray(data?.data) ? data.data : [];
       setUsers(usersData);
       setFilteredUsers(usersData);
     } catch (error) {
       console.error('Error fetching users:', error);
-      toast.error('Failed to load users');
+      setError(error.message || 'Failed to load users');
       setUsers([]);
       setFilteredUsers([]);
-    } finally {
-      setLoading(false);
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load users');
+      }
     }
   }, []);
 
+  // ✅ Refresh data
   const refreshData = async () => {
     setRefreshing(true);
+    setError(null);
     await fetchUsers();
     setRefreshing(false);
     toast.success('Users refreshed');
   };
 
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchUsers().finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
   // ✅ Filter and search users - with safety checks
   useEffect(() => {
-    // Ensure users is an array
     if (!Array.isArray(users)) {
       setFilteredUsers([]);
       return;
@@ -194,23 +240,24 @@ const UserManagement = () => {
     let filtered = [...users];
 
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(user =>
-        user?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user?.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user?.location?.toLowerCase().includes(searchTerm.toLowerCase())
+        user?.name?.toLowerCase().includes(term) ||
+        user?.email?.toLowerCase().includes(term) ||
+        user?.phone?.toLowerCase().includes(term) ||
+        user?.location?.toLowerCase().includes(term)
       );
     }
 
     if (roleFilter !== 'all') {
-      filtered = filtered.filter(user => user?.role === roleFilter);
+      filtered = filtered.filter(user => user?.role?.toLowerCase() === roleFilter.toLowerCase());
     }
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(user => user?.status === statusFilter);
+      filtered = filtered.filter(user => user?.status?.toLowerCase() === statusFilter.toLowerCase());
     }
     if (verificationFilter !== 'all') {
       filtered = filtered.filter(user => 
-        verificationFilter === 'verified' ? user?.verified : !user?.verified
+        verificationFilter === 'verified' ? user?.verified === true : user?.verified !== true
       );
     }
 
@@ -219,9 +266,9 @@ const UserManagement = () => {
       filtered.sort((a, b) => {
         let aVal = a?.[sortField];
         let bVal = b?.[sortField];
-        if (sortField === 'joined' || sortField === 'lastActive' || sortField === 'last_active' || sortField === 'created_at') {
-          aVal = new Date(aVal);
-          bVal = new Date(bVal);
+        if (sortField === 'joined' || sortField === 'lastActive' || sortField === 'last_active' || sortField === 'created_at' || sortField === 'createdAt') {
+          aVal = aVal ? new Date(aVal) : 0;
+          bVal = bVal ? new Date(bVal) : 0;
         }
         if (typeof aVal === 'number' && typeof bVal === 'number') {
           return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
@@ -259,7 +306,7 @@ const UserManagement = () => {
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedUsers(currentUsers.map(user => user.id).filter(id => id));
+      setSelectedUsers(currentUsers.map(user => user.id || user._id).filter(Boolean));
     } else {
       setSelectedUsers([]);
     }
@@ -267,14 +314,12 @@ const UserManagement = () => {
 
   const handleSelectUser = (userId) => {
     if (!userId) return;
-    if (selectedUsers.includes(userId)) {
-      setSelectedUsers(selectedUsers.filter(id => id !== userId));
-    } else {
-      setSelectedUsers([...selectedUsers, userId]);
-    }
+    setSelectedUsers(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
   };
 
-  // CRUD operations
+  // ✅ CRUD operations with real API
   const handleAddUser = () => {
     setIsEditing(false);
     setFormData({ 
@@ -313,18 +358,40 @@ const UserManagement = () => {
     
     setProcessing(true);
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { ...formData };
+      
       if (isEditing && selectedUser) {
-        await adminAPI.updateUser(selectedUser.id, formData);
+        const userId = selectedUser.id || selectedUser._id;
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+        if (typeof adminAPI.updateUser === 'function') {
+          await adminAPI.updateUser(userId, payload);
+        } else if (typeof adminAPI.editUser === 'function') {
+          await adminAPI.editUser(userId, payload);
+        } else {
+          throw new Error('User update API methods not available');
+        }
         toast.success(`${formData.name} updated successfully`);
       } else {
-        await adminAPI.createUser({ ...formData, password: formData.password || 'default123' });
+        if (typeof adminAPI.createUser === 'function') {
+          await adminAPI.createUser(payload);
+        } else if (typeof adminAPI.addUser === 'function') {
+          await adminAPI.addUser(payload);
+        } else {
+          throw new Error('User create API methods not available');
+        }
         toast.success(`${formData.name} created successfully`);
       }
       setShowUserModal(false);
       await fetchUsers();
     } catch (error) {
       console.error('Error saving user:', error);
-      toast.error(error.response?.data?.message || 'Failed to save user');
+      toast.error(error.response?.data?.message || error.message || 'Failed to save user');
     } finally {
       setProcessing(false);
     }
@@ -337,15 +404,29 @@ const UserManagement = () => {
 
   const confirmVerify = async () => {
     if (!selectedUser) return;
+    const userId = selectedUser.id || selectedUser._id;
+    if (!userId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.verifyUser(selectedUser.id);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.verifyUser === 'function') {
+        await adminAPI.verifyUser(userId);
+      } else if (typeof adminAPI.verifyUserEmail === 'function') {
+        await adminAPI.verifyUserEmail(userId);
+      } else {
+        throw new Error('User verify API methods not available');
+      }
+      
       setShowVerifyModal(false);
       toast.success(`${selectedUser.name} verified successfully`);
       await fetchUsers();
     } catch (error) {
       console.error('Error verifying user:', error);
-      toast.error('Failed to verify user');
+      toast.error(error.message || 'Failed to verify user');
     } finally {
       setProcessing(false);
     }
@@ -358,15 +439,29 @@ const UserManagement = () => {
 
   const confirmSuspend = async () => {
     if (!selectedUser) return;
+    const userId = selectedUser.id || selectedUser._id;
+    if (!userId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.suspendUser(selectedUser.id);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.suspendUser === 'function') {
+        await adminAPI.suspendUser(userId);
+      } else if (typeof adminAPI.updateUserStatus === 'function') {
+        await adminAPI.updateUserStatus(userId, { status: 'suspended' });
+      } else {
+        throw new Error('User suspend API methods not available');
+      }
+      
       setShowSuspendModal(false);
       toast.warning(`${selectedUser.name} suspended`);
       await fetchUsers();
     } catch (error) {
       console.error('Error suspending user:', error);
-      toast.error('Failed to suspend user');
+      toast.error(error.message || 'Failed to suspend user');
     } finally {
       setProcessing(false);
     }
@@ -374,14 +469,28 @@ const UserManagement = () => {
 
   const handleActivateUser = async (user) => {
     if (!user) return;
+    const userId = user.id || user._id;
+    if (!userId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.unsuspendUser(user.id);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.unsuspendUser === 'function') {
+        await adminAPI.unsuspendUser(userId);
+      } else if (typeof adminAPI.updateUserStatus === 'function') {
+        await adminAPI.updateUserStatus(userId, { status: 'active' });
+      } else {
+        throw new Error('User activate API methods not available');
+      }
+      
       toast.success(`${user.name} activated`);
       await fetchUsers();
     } catch (error) {
       console.error('Error activating user:', error);
-      toast.error('Failed to activate user');
+      toast.error(error.message || 'Failed to activate user');
     } finally {
       setProcessing(false);
     }
@@ -394,21 +503,35 @@ const UserManagement = () => {
 
   const confirmDelete = async () => {
     if (!selectedUser) return;
+    const userId = selectedUser.id || selectedUser._id;
+    if (!userId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.deleteUser(selectedUser.id);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.deleteUser === 'function') {
+        await adminAPI.deleteUser(userId);
+      } else if (typeof adminAPI.removeUser === 'function') {
+        await adminAPI.removeUser(userId);
+      } else {
+        throw new Error('User delete API methods not available');
+      }
+      
       setShowDeleteModal(false);
       toast.success(`${selectedUser.name} deleted`);
       await fetchUsers();
     } catch (error) {
       console.error('Error deleting user:', error);
-      toast.error('Failed to delete user');
+      toast.error(error.message || 'Failed to delete user');
     } finally {
       setProcessing(false);
     }
   };
 
-  // Bulk actions
+  // ✅ Bulk actions with real API
   const handleBulkAction = async (action) => {
     if (selectedUsers.length === 0) {
       toast.warning('Please select users first');
@@ -417,12 +540,24 @@ const UserManagement = () => {
     
     setProcessing(true);
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
       for (const userId of selectedUsers) {
         switch (action) {
-          case 'verify': await adminAPI.verifyUser(userId); break;
-          case 'suspend': await adminAPI.suspendUser(userId); break;
-          case 'activate': await adminAPI.unsuspendUser(userId); break;
-          case 'delete': await adminAPI.deleteUser(userId); break;
+          case 'verify':
+            if (typeof adminAPI.verifyUser === 'function') await adminAPI.verifyUser(userId);
+            break;
+          case 'suspend':
+            if (typeof adminAPI.suspendUser === 'function') await adminAPI.suspendUser(userId);
+            break;
+          case 'activate':
+            if (typeof adminAPI.unsuspendUser === 'function') await adminAPI.unsuspendUser(userId);
+            break;
+          case 'delete':
+            if (typeof adminAPI.deleteUser === 'function') await adminAPI.deleteUser(userId);
+            break;
           default: break;
         }
       }
@@ -432,50 +567,55 @@ const UserManagement = () => {
       await fetchUsers();
     } catch (error) {
       console.error('Error performing bulk action:', error);
-      toast.error('Failed to perform bulk action');
+      toast.error(error.message || 'Failed to perform bulk action');
     } finally {
       setProcessing(false);
     }
   };
 
-  // Export functions
+  // ✅ Export functions
   const exportToCSV = () => {
     if (!Array.isArray(filteredUsers) || filteredUsers.length === 0) {
       toast.warning('No users to export');
       return;
     }
     
-    const headers = ['ID', 'Name', 'Email', 'Role', 'Status', 'Verified', 'Phone', 'Location', 'Joined', 'Last Active'];
-    const data = filteredUsers.map(user => [
-      user.id || '',
-      user.name || '',
-      user.email || '',
-      user.role || '',
-      user.status || '',
-      user.verified ? 'Yes' : 'No',
-      user.phone || '',
-      user.location || '',
-      user.joined || user.created_at || '',
-      user.lastActive || user.last_active || ''
-    ]);
-    const csvContent = [headers, ...data].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.setAttribute('download', `users_export_${format(new Date(), 'yyyy-MM-dd')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Users exported to CSV');
+    try {
+      const headers = ['ID', 'Name', 'Email', 'Role', 'Status', 'Verified', 'Phone', 'Location', 'Joined', 'Last Active'];
+      const data = filteredUsers.map(user => [
+        user.id || user._id || '',
+        user.name || '',
+        user.email || '',
+        user.role || '',
+        user.status || '',
+        user.verified ? 'Yes' : 'No',
+        user.phone || '',
+        user.location || '',
+        user.joined || user.created_at || user.createdAt || '',
+        user.lastActive || user.last_active || user.updatedAt || ''
+      ]);
+      const csvContent = [headers, ...data].map(row => row.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.setAttribute('download', `users_export_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Users exported to CSV');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export users');
+    }
   };
 
   const exportToPDF = () => {
     toast.info('PDF export feature coming soon');
   };
 
-  // Send email
+  // ✅ Send email with real API
   const handleSendEmail = async () => {
     if (!emailData.subject || !emailData.message) {
       toast.warning('Please fill in subject and message');
@@ -484,8 +624,12 @@ const UserManagement = () => {
     
     setProcessing(true);
     try {
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
       const recipients = selectedUsers.length > 0 
-        ? users.filter(u => selectedUsers.includes(u.id)).map(u => u.email).filter(Boolean)
+        ? users.filter(u => selectedUsers.includes(u.id || u._id)).map(u => u.email).filter(Boolean)
         : selectedUser?.email ? [selectedUser.email] : [];
       
       if (recipients.length === 0) {
@@ -493,18 +637,28 @@ const UserManagement = () => {
         return;
       }
       
-      await adminAPI.sendBulkEmail({
-        recipients,
-        subject: emailData.subject,
-        message: emailData.message
-      });
+      if (typeof adminAPI.sendBulkEmail === 'function') {
+        await adminAPI.sendBulkEmail({
+          recipients,
+          subject: emailData.subject,
+          message: emailData.message
+        });
+      } else if (typeof adminAPI.sendEmail === 'function') {
+        await adminAPI.sendEmail({
+          to: recipients,
+          subject: emailData.subject,
+          body: emailData.message
+        });
+      } else {
+        throw new Error('Email API methods not available');
+      }
       
       toast.success(`Email sent to ${recipients.length} recipient(s)`);
       setShowEmailModal(false);
       setEmailData({ subject: '', message: '' });
     } catch (error) {
       console.error('Error sending email:', error);
-      toast.error('Failed to send email');
+      toast.error(error.message || 'Failed to send email');
     } finally {
       setProcessing(false);
     }
@@ -516,22 +670,32 @@ const UserManagement = () => {
   };
 
   const getRoleBadge = (role) => {
+    if (!role) {
+      return { bg: 'secondary', icon: <FaUserCircle />, label: 'Unknown' };
+    }
+    const lowerRole = role.toLowerCase();
     const badges = {
-      admin: { bg: 'danger', icon: <FaUserShield />, label: 'Admin', className: 'bg-danger' },
-      provider: { bg: 'success', icon: <FaUserTie />, label: 'Provider', className: 'bg-success' },
-      customer: { bg: 'primary', icon: <FaUserCircle />, label: 'Customer', className: 'bg-primary' }
+      admin: { bg: 'danger', icon: <FaUserShield />, label: 'Admin' },
+      provider: { bg: 'success', icon: <FaUserTie />, label: 'Provider' },
+      customer: { bg: 'primary', icon: <FaUserCircle />, label: 'Customer' },
+      user: { bg: 'primary', icon: <FaUserCircle />, label: 'User' }
     };
-    return badges[role] || badges.customer;
+    return badges[lowerRole] || badges.customer;
   };
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return { bg: 'secondary', icon: <FaTimesCircle />, label: 'Unknown' };
+    }
+    const lowerStatus = status.toLowerCase();
     const badges = {
       active: { bg: 'success', icon: <FaCheckCircle />, label: 'Active' },
       inactive: { bg: 'secondary', icon: <FaTimesCircle />, label: 'Inactive' },
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
-      suspended: { bg: 'danger', icon: <FaBan />, label: 'Suspended' }
+      suspended: { bg: 'danger', icon: <FaBan />, label: 'Suspended' },
+      verified: { bg: 'success', icon: <FaCheckCircle />, label: 'Verified' }
     };
-    return badges[status] || badges.inactive;
+    return badges[lowerStatus] || badges.inactive;
   };
 
   const getRatingStars = (rating) => {
@@ -550,31 +714,36 @@ const UserManagement = () => {
     const userArray = Array.isArray(users) ? users : [];
     return {
       total: userArray.length,
-      active: userArray.filter(u => u?.status === 'active').length,
-      pending: userArray.filter(u => u?.status === 'pending').length,
-      suspended: userArray.filter(u => u?.status === 'suspended').length,
-      providers: userArray.filter(u => u?.role === 'provider').length,
-      customers: userArray.filter(u => u?.role === 'customer').length,
-      admins: userArray.filter(u => u?.role === 'admin').length,
-      verified: userArray.filter(u => u?.verified).length,
-      unverified: userArray.filter(u => !u?.verified).length
+      active: userArray.filter(u => u?.status?.toLowerCase() === 'active').length,
+      pending: userArray.filter(u => u?.status?.toLowerCase() === 'pending').length,
+      suspended: userArray.filter(u => u?.status?.toLowerCase() === 'suspended').length,
+      providers: userArray.filter(u => u?.role?.toLowerCase() === 'provider').length,
+      customers: userArray.filter(u => u?.role?.toLowerCase() === 'customer' || u?.role?.toLowerCase() === 'user').length,
+      admins: userArray.filter(u => u?.role?.toLowerCase() === 'admin').length,
+      verified: userArray.filter(u => u?.verified === true).length,
+      unverified: userArray.filter(u => u?.verified !== true).length
     };
   }, [users]);
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading users...</p>
-        </div>
-      </div>
-    );
-  }
+  // Get user ID safely
+  const getUserId = (user) => {
+    return user?.id || user?._id || null;
+  };
+
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -627,7 +796,7 @@ const UserManagement = () => {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="d-flex gap-2">
+                  <div className="d-flex gap-2 flex-wrap">
                     <Badge bg="success" className="rounded-pill">{stats.active} Active</Badge>
                     <Badge bg="warning" className="rounded-pill">{stats.pending} Pending</Badge>
                     <Badge bg="danger" className="rounded-pill">{stats.suspended} Suspended</Badge>
@@ -805,32 +974,38 @@ const UserManagement = () => {
                     <tbody>
                       {currentUsers.map(user => {
                         if (!user) return null;
+                        const userId = getUserId(user);
                         const roleBadge = getRoleBadge(user.role);
                         const statusBadge = getStatusBadge(user.status);
                         const userJoined = user.joined || user.created_at || user.createdAt;
+                        const userName = user.name || user.fullName || user.username || 'Unknown';
+                        const userEmail = user.email || '';
+                        const userPhone = user.phone || user.phoneNumber || '';
+                        const userLocation = user.location || user.address || '';
+                        
                         return (
-                          <tr key={user.id || Math.random()} className={selectedUsers.includes(user.id) ? 'table-active' : ''}>
+                          <tr key={userId} className={selectedUsers.includes(userId) ? 'table-active' : ''}>
                             <td style={{ padding: '16px' }}>
                               <Form.Check 
                                 type="checkbox" 
-                                checked={selectedUsers.includes(user.id)} 
-                                onChange={() => handleSelectUser(user.id)} 
+                                checked={selectedUsers.includes(userId)} 
+                                onChange={() => handleSelectUser(userId)} 
                               />
                             </td>
                             <td style={{ padding: '16px' }}>
                               <div className="d-flex align-items-center gap-3">
                                 <Image 
-                                  src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}&background=667eea&color=fff&size=60`} 
-                                  alt={user.name || 'User'} 
+                                  src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=667eea&color=fff&size=60`} 
+                                  alt={userName} 
                                   roundedCircle 
                                   width={45} 
                                   height={45} 
                                   style={{ objectFit: 'cover' }}
                                 />
                                 <div>
-                                  <div className="fw-semibold">{user.name || 'Unknown'}</div>
-                                  <div className="small text-muted">{user.email || ''}</div>
-                                  {!user.verified && user.role !== 'admin' && (
+                                  <div className="fw-semibold">{userName}</div>
+                                  <div className="small text-muted">{userEmail}</div>
+                                  {!user.verified && user.role?.toLowerCase() !== 'admin' && (
                                     <Badge bg="warning" className="mt-1 rounded-pill">Unverified</Badge>
                                   )}
                                 </div>
@@ -861,12 +1036,12 @@ const UserManagement = () => {
                                 >
                                   <FaEnvelope />
                                 </Button>
-                                {user.phone && (
+                                {userPhone && (
                                   <Button variant="link" className="p-0 text-success">
                                     <FaPhone />
                                   </Button>
                                 )}
-                                {user.location && (
+                                {userLocation && (
                                   <Button variant="link" className="p-0 text-info">
                                     <FaMapMarkerAlt />
                                   </Button>
@@ -889,7 +1064,7 @@ const UserManagement = () => {
                                 >
                                   <FaEdit size={14} />
                                 </Button>
-                                {!user.verified && user.role !== 'admin' && (
+                                {!user.verified && user.role?.toLowerCase() !== 'admin' && (
                                   <Button 
                                     variant="link" 
                                     className="p-1 text-success" 
@@ -898,7 +1073,7 @@ const UserManagement = () => {
                                     <FaUserCheck size={14} />
                                   </Button>
                                 )}
-                                {user.status !== 'suspended' && user.role !== 'admin' && (
+                                {user.status?.toLowerCase() !== 'suspended' && user.role?.toLowerCase() !== 'admin' && (
                                   <Button 
                                     variant="link" 
                                     className="p-1 text-warning" 
@@ -907,7 +1082,7 @@ const UserManagement = () => {
                                     <FaBan size={14} />
                                   </Button>
                                 )}
-                                {user.status === 'suspended' && (
+                                {user.status?.toLowerCase() === 'suspended' && (
                                   <Button 
                                     variant="link" 
                                     className="p-1 text-success" 
@@ -916,7 +1091,7 @@ const UserManagement = () => {
                                     <FaUnlockAlt size={14} />
                                   </Button>
                                 )}
-                                {user.role !== 'admin' && (
+                                {user.role?.toLowerCase() !== 'admin' && (
                                   <Button 
                                     variant="link" 
                                     className="p-1 text-danger" 
@@ -974,8 +1149,332 @@ const UserManagement = () => {
         </Card>
       </Container>
 
-      {/* Modals - Same as before, just using toast instead of showAlert */}
-      {/* ... (modals remain the same but use toast instead of showAlert) ... */}
+      {/* User Modal */}
+      <Modal show={showUserModal} onHide={() => setShowUserModal(false)} centered size="lg">
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">
+            {isEditing ? <FaUserEdit className="me-2" /> : <FaUserPlus className="me-2" />}
+            {isEditing ? 'Edit User' : 'Add New User'}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Form>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Full Name *</Form.Label>
+                  <Form.Control
+                    type="text"
+                    placeholder="Enter full name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Email Address *</Form.Label>
+                  <Form.Control
+                    type="email"
+                    placeholder="Enter email address"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Phone Number</Form.Label>
+                  <Form.Control
+                    type="tel"
+                    placeholder="Enter phone number"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Role</Form.Label>
+                  <Form.Select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  >
+                    <option value="customer">Customer</option>
+                    <option value="provider">Provider</option>
+                    <option value="admin">Admin</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Status</Form.Label>
+                  <Form.Select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="pending">Pending</option>
+                    <option value="suspended">Suspended</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="fw-semibold">Location</Form.Label>
+                  <Form.Control
+                    type="text"
+                    placeholder="Enter location"
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  />
+                </Form.Group>
+              </Col>
+              {!isEditing && (
+                <Col md={12}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="fw-semibold">Password</Form.Label>
+                    <Form.Control
+                      type="password"
+                      placeholder="Enter password (leave blank for auto-generated)"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    />
+                    <Form.Text className="text-muted">
+                      If left blank, a default password will be generated
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+              )}
+            </Row>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-0">
+          <Button variant="secondary" onClick={() => setShowUserModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleSaveUser} disabled={processing}>
+            {processing ? 'Saving...' : (isEditing ? 'Update User' : 'Create User')}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Delete Modal */}
+      <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold text-danger">
+            <FaExclamationTriangle className="me-2" /> Delete User
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
+            Are you sure you want to delete <strong>{selectedUser?.name}</strong>?
+            <p className="mb-0 mt-2 small text-danger">This action cannot be undone.</p>
+          </Alert>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={confirmDelete} disabled={processing}>
+            {processing ? 'Deleting...' : 'Delete'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Suspend Modal */}
+      <Modal show={showSuspendModal} onHide={() => setShowSuspendModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold text-warning">
+            <FaBan className="me-2" /> Suspend User
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Alert variant="warning" className="mb-0" style={{ borderRadius: '12px' }}>
+            Are you sure you want to suspend <strong>{selectedUser?.name}</strong>?
+            <p className="mb-0 mt-2 small text-warning">The user will not be able to access the platform.</p>
+          </Alert>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowSuspendModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="warning" onClick={confirmSuspend} disabled={processing}>
+            {processing ? 'Suspending...' : 'Suspend'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Verify Modal */}
+      <Modal show={showVerifyModal} onHide={() => setShowVerifyModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold text-success">
+            <FaUserCheck className="me-2" /> Verify User
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Alert variant="success" className="mb-0" style={{ borderRadius: '12px' }}>
+            Are you sure you want to verify <strong>{selectedUser?.name}</strong>?
+            <p className="mb-0 mt-2 small text-success">The user will be marked as verified.</p>
+          </Alert>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowVerifyModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="success" onClick={confirmVerify} disabled={processing}>
+            {processing ? 'Verifying...' : 'Verify'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Bulk Actions Modal */}
+      <Modal show={showBulkModal} onHide={() => setShowBulkModal(false)} centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">Bulk Actions</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <p className="mb-4">Selected users: <strong className="text-primary">{selectedUsers.length}</strong></p>
+          <div className="d-grid gap-2">
+            <Button variant="success" onClick={() => handleBulkAction('verify')} disabled={processing}>
+              <FaUserCheck className="me-2" /> Verify Selected
+            </Button>
+            <Button variant="warning" onClick={() => handleBulkAction('suspend')} disabled={processing}>
+              <FaBan className="me-2" /> Suspend Selected
+            </Button>
+            <Button variant="info" onClick={() => handleBulkAction('activate')} disabled={processing}>
+              <FaUnlockAlt className="me-2" /> Activate Selected
+            </Button>
+            <Button variant="danger" onClick={() => handleBulkAction('delete')} disabled={processing}>
+              <FaTrash className="me-2" /> Delete Selected
+            </Button>
+          </div>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowBulkModal(false)}>
+            Cancel
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* User Details Modal */}
+      <Modal show={showDetailsModal} onHide={() => setShowDetailsModal(false)} size="lg" centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">
+            <FaUserCircle className="me-2" /> User Details
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          {selectedUser && (
+            <Row className="g-4">
+              <Col md={4} className="text-center">
+                <Image 
+                  src={selectedUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=667eea&color=fff&size=150`} 
+                  roundedCircle 
+                  width={120} 
+                  height={120} 
+                  style={{ objectFit: 'cover' }}
+                />
+                <h5 className="mt-3 mb-1">{selectedUser.name}</h5>
+                <div>{getRoleBadge(selectedUser.role)}</div>
+                <div className="mt-2">{getStatusBadge(selectedUser.status)}</div>
+              </Col>
+              <Col md={8}>
+                <h6 className="fw-bold mb-3">Profile Information</h6>
+                <div className="d-flex flex-column gap-2">
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Email</span>
+                    <span>{selectedUser.email}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Phone</span>
+                    <span>{selectedUser.phone || 'N/A'}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Location</span>
+                    <span>{selectedUser.location || 'N/A'}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Joined</span>
+                    <span>{selectedUser.joined || selectedUser.created_at ? format(new Date(selectedUser.joined || selectedUser.created_at), 'MMM dd, yyyy') : 'N/A'}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Last Active</span>
+                    <span>{selectedUser.lastActive || selectedUser.last_active ? formatDistanceToNow(new Date(selectedUser.lastActive || selectedUser.last_active), { addSuffix: true }) : 'N/A'}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Verified</span>
+                    <span>{selectedUser.verified ? <Badge bg="success">Yes</Badge> : <Badge bg="warning">No</Badge>}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-bottom pb-2">
+                    <span className="text-muted">Bio</span>
+                    <span>{selectedUser.bio || 'N/A'}</span>
+                  </div>
+                </div>
+              </Col>
+            </Row>
+          )}
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-0">
+          <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>
+            Close
+          </Button>
+          {selectedUser && (
+            <Button variant="primary" onClick={() => { setShowDetailsModal(false); handleEditUser(selectedUser); }}>
+              <FaEdit className="me-2" /> Edit User
+            </Button>
+          )}
+        </Modal.Footer>
+      </Modal>
+
+      {/* Email Modal */}
+      <Modal show={showEmailModal} onHide={() => setShowEmailModal(false)} centered size="lg">
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">
+            <FaEnvelope className="me-2" /> Send Email
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="pt-4">
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Subject</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Enter email subject"
+                value={emailData.subject}
+                onChange={(e) => setEmailData({ ...emailData, subject: e.target.value })}
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Message</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={6}
+                placeholder="Enter your message here..."
+                value={emailData.message}
+                onChange={(e) => setEmailData({ ...emailData, message: e.target.value })}
+              />
+            </Form.Group>
+            <Alert variant="info" className="mb-0" style={{ borderRadius: '12px' }}>
+              <FaInfoCircle className="me-2" />
+              {selectedUsers.length > 0 
+                ? `Email will be sent to ${selectedUsers.length} selected users.` 
+                : selectedUser 
+                  ? `Email will be sent to ${selectedUser.email}` 
+                  : 'No recipient selected.'}
+            </Alert>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer className="border-0 pt-3">
+          <Button variant="secondary" onClick={() => setShowEmailModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleSendEmail} disabled={processing}>
+            {processing ? 'Sending...' : 'Send Email'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       <style>{`
         @keyframes spin {
@@ -1000,6 +1499,21 @@ const UserManagement = () => {
         }
         .btn-link:hover {
           opacity: 0.7;
+        }
+        .nav-tabs .nav-link {
+          color: #4b5563;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 12px 12px 0 0;
+        }
+        .nav-tabs .nav-link.active {
+          color: #6366f1;
+          font-weight: 600;
+          border-bottom: 3px solid #6366f1;
+          background: none;
+        }
+        .nav-tabs .nav-link:hover {
+          background: #f8fafc;
         }
       `}</style>
     </div>

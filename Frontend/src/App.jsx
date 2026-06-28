@@ -1,4 +1,4 @@
-// src/App.jsx - ✅ FIXED VERSION
+// src/App.jsx - ✅ UPDATED WITH HELP CENTER ROUTES
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -39,6 +39,7 @@ import Favorites from './components/customer/Favorites';
 import Wallet from './components/customer/Wallet';
 import BookingHistory from './components/customer/BookingHistory';
 import CustomerSettings from './components/customer/CustomerSettings';
+import CustomerHelpCenter from './components/customer/CustomerHelpCenter';
 
 // Provider Pages
 import ProviderDashboard from './components/provider/ProviderDashboard';
@@ -62,6 +63,7 @@ const AnalyticsLazy = React.lazy(() => import('./components/admin/Analytics'));
 const AdminPaymentsLazy = React.lazy(() => import('./components/admin/AdminPayments'));
 const AdminReportsLazy = React.lazy(() => import('./components/admin/AdminReports'));
 const SettingsLazy = React.lazy(() => import('./components/admin/AdminSettings'));
+const AdminHelpCenterLazy = React.lazy(() => import('./components/admin/AdminHelpCenter'));
 
 // Payment Pages
 import PaymentMethods from './pages/PaymentMethods';
@@ -258,7 +260,7 @@ function AppContent() {
             <Route path="reviews" element={<Reviews />} />
             <Route path="wallet" element={<Wallet />} />
             <Route path="booking-history" element={<BookingHistory />} />
-            <Route path="help" element={<HelpCenter />} />
+            <Route path="help" element={<CustomerHelpCenter />} />
             <Route path="profile" element={<Profile />} />
             <Route path="profile/:section" element={<Profile />} />
             <Route path="notifications" element={<Notifications />} />
@@ -363,6 +365,12 @@ function AppContent() {
             <Route path="settings" element={
               <React.Suspense fallback={<div className="text-center p-5">Loading...</div>}>
                 <SettingsLazy />
+              </React.Suspense>
+            } />
+            {/* ✅ NEW: Admin Help Center Route */}
+            <Route path="help" element={
+              <React.Suspense fallback={<div className="text-center p-5">Loading Help Center...</div>}>
+                <AdminHelpCenterLazy />
               </React.Suspense>
             } />
           </Route>

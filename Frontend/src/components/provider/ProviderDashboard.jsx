@@ -1,5 +1,5 @@
 // src/pages/dashboard/ProviderDashboard.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FaDollarSign,
@@ -35,7 +35,7 @@ import {
   FaUserTie,
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../api';
+import { providerAPI } from '../../api/api';
 import toast from 'react-hot-toast';
 import { format, formatDistanceToNow, isToday, isTomorrow, differenceInDays } from 'date-fns';
 
@@ -50,7 +50,6 @@ const styles = {
     padding: '24px',
   },
 
-  // Welcome Card
   welcomeCard: {
     background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
     borderRadius: '24px',
@@ -144,7 +143,6 @@ const styles = {
     gap: '8px',
   },
 
-  // Stats Grid
   statsGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -220,7 +218,6 @@ const styles = {
     transition: 'width 0.6s ease',
   }),
 
-  // Main Grid
   mainGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 380px',
@@ -237,7 +234,6 @@ const styles = {
     gap: '24px',
   },
 
-  // Cards
   card: {
     background: 'white',
     borderRadius: '16px',
@@ -274,7 +270,6 @@ const styles = {
     fontWeight: '500',
   },
 
-  // Schedule Item
   scheduleItem: {
     padding: '16px 0',
     borderBottom: '1px solid #f0f4f8',
@@ -341,7 +336,6 @@ const styles = {
     gap: '8px',
   },
 
-  // Table
   table: {
     width: '100%',
     borderCollapse: 'collapse',
@@ -365,7 +359,6 @@ const styles = {
     borderBottom: 'none',
   },
 
-  // Badge
   badge: (bg, color) => ({
     display: 'inline-flex',
     alignItems: 'center',
@@ -378,7 +371,6 @@ const styles = {
     color: color,
   }),
 
-  // Empty State
   emptyState: {
     textAlign: 'center',
     padding: '40px 20px',
@@ -399,7 +391,6 @@ const styles = {
     marginBottom: '16px',
   },
 
-  // Performance Card
   performanceCard: {
     background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
     color: 'white',
@@ -429,7 +420,6 @@ const styles = {
     transition: 'width 0.6s ease',
   }),
 
-  // Quick Actions
   quickActions: {
     display: 'grid',
     gridTemplateColumns: '1fr',
@@ -453,7 +443,6 @@ const styles = {
     width: '100%',
   }),
 
-  // Notification Item
   notificationItem: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -484,7 +473,6 @@ const styles = {
     color: '#a0aec0',
   },
 
-  // Service Item
   serviceItem: {
     padding: '12px',
     borderRadius: '12px',
@@ -497,7 +485,6 @@ const styles = {
     background: '#f1f5f9',
   },
 
-  // Responsive
   '@media (max-width: 1024px)': {
     mainGrid: {
       gridTemplateColumns: '1fr',
@@ -544,8 +531,13 @@ const ProviderDashboard = () => {
   const [greeting, setGreeting] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredService, setHoveredService] = useState(null);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const [stats, setStats] = useState({
     todayEarnings: 0,
@@ -581,7 +573,7 @@ const ProviderDashboard = () => {
   const [deleting, setDeleting] = useState(false);
 
   // ============================================================
-  // ✅ FORMATTING HELPERS - FIXED
+  // ✅ FORMATTING HELPERS
   // ============================================================
 
   const formatRating = (rating) => {
@@ -618,49 +610,107 @@ const ProviderDashboard = () => {
     return isNaN(num) ? '0%' : `${Math.round(num)}%`;
   };
 
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
   // ============================================================
-  // FETCH DATA
+  // FETCH DATA - REAL API
   // ============================================================
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const [statsRes, bookingsRes, servicesRes, scheduleRes, notifsRes] = await Promise.all([
-        api.get('/provider/dashboard/stats'),
-        api.get('/provider/dashboard/recent-bookings'),
-        api.get('/provider/services'),
-        api.get('/provider/dashboard/today-schedule'),
-        api.get('/provider/notifications?limit=5'),
-      ]);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
 
-      setStats(statsRes.data);
-      setRecentBookings(bookingsRes.data || []);
-      setServices(servicesRes.data || []);
-      setUpcomingSchedule(scheduleRes.data || []);
-      setNotifications(notifsRes.data || []);
+      // Fetch stats
+      if (typeof providerAPI.getDashboardStats === 'function') {
+        const statsRes = await providerAPI.getDashboardStats();
+        setStats(statsRes?.data || stats);
+      }
+
+      // Fetch recent bookings
+      if (typeof providerAPI.getRecentBookings === 'function') {
+        const bookingsRes = await providerAPI.getRecentBookings();
+        setRecentBookings(bookingsRes?.data || []);
+      }
+
+      // Fetch services
+      if (typeof providerAPI.getServices === 'function') {
+        const servicesRes = await providerAPI.getServices({ limit: 3 });
+        setServices(servicesRes?.data || []);
+      }
+
+      // Fetch today's schedule
+      if (typeof providerAPI.getTodaySchedule === 'function') {
+        const scheduleRes = await providerAPI.getTodaySchedule();
+        setUpcomingSchedule(scheduleRes?.data || []);
+      }
+
+      // Fetch notifications
+      if (typeof providerAPI.getNotifications === 'function') {
+        const notifsRes = await providerAPI.getNotifications({ limit: 5 });
+        setNotifications(notifsRes?.data || []);
+      }
+
     } catch (error) {
       console.error('Dashboard fetch error:', error);
+      setError(error.message || 'Failed to load dashboard data');
       if (error.response?.status === 401) {
         toast.error('Session expired. Please login again.');
       } else if (error.response?.status !== 404) {
         toast.error('Failed to load dashboard data');
       }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchDashboardData();
-    setRefreshing(false);
+    await fetchDashboardData(false);
     toast.success('Dashboard updated');
   };
 
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchDashboardData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchDashboardData]);
+    fetchDashboardData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -670,32 +720,60 @@ const ProviderDashboard = () => {
   }, []);
 
   // ============================================================
-  // HANDLERS
+  // HANDLERS - REAL API
   // ============================================================
 
   const handleStart = async (scheduleItem) => {
+    const bookingId = scheduleItem.bookingId || scheduleItem.id;
+    if (!bookingId) return;
+    
     try {
-      await api.post(`/provider/bookings/${scheduleItem.bookingId}/start`);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.startService === 'function') {
+        await providerAPI.startService(bookingId);
+      } else if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, 'in_progress');
+      } else {
+        throw new Error('Start service API methods not available');
+      }
+      
       toast.success('Service started successfully');
-      fetchDashboardData();
+      fetchDashboardData(false);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to start service');
+      toast.error(err.response?.data?.message || err.message || 'Failed to start service');
     }
   };
 
   const handleComplete = async (bookingId) => {
+    if (!bookingId) return;
+    
     try {
-      await api.put(`/provider/bookings/${bookingId}/complete`);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.completeService === 'function') {
+        await providerAPI.completeService(bookingId);
+      } else if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, 'completed');
+      } else {
+        throw new Error('Complete service API methods not available');
+      }
+      
       toast.success('Service completed successfully');
-      fetchDashboardData();
+      fetchDashboardData(false);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to complete service');
+      toast.error(err.response?.data?.message || err.message || 'Failed to complete service');
     }
   };
 
   const handleRescheduleClick = (scheduleItem) => {
     setSelectedSchedule(scheduleItem);
-    const dt = new Date(scheduleItem.bookingDate);
+    const bookingDate = scheduleItem.bookingDate || scheduleItem.date;
+    const dt = bookingDate ? new Date(bookingDate) : new Date();
     const localDateTime = dt.toISOString().slice(0, 16);
     setNewDateTime(localDateTime);
     setShowRescheduleModal(true);
@@ -704,30 +782,57 @@ const ProviderDashboard = () => {
   const handleRescheduleConfirm = async () => {
     if (!selectedSchedule || !newDateTime) return;
 
+    const bookingId = selectedSchedule.bookingId || selectedSchedule.id;
+    if (!bookingId) return;
+
     try {
-      await api.put(`/provider/bookings/${selectedSchedule.bookingId}/reschedule`, {
-        new_date: newDateTime,
-      });
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { new_date: newDateTime };
+
+      if (typeof providerAPI.rescheduleBooking === 'function') {
+        await providerAPI.rescheduleBooking(bookingId, payload);
+      } else if (typeof providerAPI.updateBooking === 'function') {
+        await providerAPI.updateBooking(bookingId, payload);
+      } else {
+        throw new Error('Reschedule API methods not available');
+      }
+      
       toast.success('Booking rescheduled successfully');
       setShowRescheduleModal(false);
-      fetchDashboardData();
+      fetchDashboardData(false);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Reschedule failed');
+      toast.error(err.response?.data?.message || err.message || 'Reschedule failed');
     }
   };
 
   const handleDeleteService = async () => {
     if (!serviceToDelete) return;
+    const serviceId = serviceToDelete.id || serviceToDelete._id;
+    if (!serviceId) return;
 
     setDeleting(true);
     try {
-      await api.delete(`/provider/services/${serviceToDelete.id}`);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.deleteService === 'function') {
+        await providerAPI.deleteService(serviceId);
+      } else if (typeof providerAPI.removeService === 'function') {
+        await providerAPI.removeService(serviceId);
+      } else {
+        throw new Error('Delete service API methods not available');
+      }
+      
       toast.success('Service deleted successfully');
       setShowDeleteModal(false);
       setServiceToDelete(null);
-      fetchDashboardData();
+      fetchDashboardData(false);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete service');
+      toast.error(err.response?.data?.message || err.message || 'Failed to delete service');
     } finally {
       setDeleting(false);
     }
@@ -738,15 +843,26 @@ const ProviderDashboard = () => {
   // ============================================================
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <span style={styles.badge('#e2e8f0', '#4a5568')}>
+          <FaClock size={10} /> Unknown
+        </span>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const map = {
       pending: { bg: '#fef3c7', color: '#b45309', label: 'Pending', icon: FaClock },
       confirmed: { bg: '#dbeafe', color: '#1d4ed8', label: 'Confirmed', icon: FaCheckCircle },
+      accepted: { bg: '#dbeafe', color: '#1d4ed8', label: 'Accepted', icon: FaCheckCircle },
       in_progress: { bg: '#e0e7ff', color: '#4338ca', label: 'In Progress', icon: FaRegClock },
       started: { bg: '#dbeafe', color: '#1d4ed8', label: 'Started', icon: FaCheckCircle },
       completed: { bg: '#d1fae5', color: '#065f46', label: 'Completed', icon: FaCheckCircle },
       cancelled: { bg: '#fee2e2', color: '#991b1b', label: 'Cancelled', icon: FaExclamationCircle },
+      rejected: { bg: '#fee2e2', color: '#991b1b', label: 'Rejected', icon: FaExclamationCircle },
     };
-    const item = map[status] || map.pending;
+    const item = map[lowerStatus] || map.pending;
     const Icon = item.icon;
     return (
       <span style={styles.badge(item.bg, item.color)}>
@@ -756,6 +872,7 @@ const ProviderDashboard = () => {
   };
 
   const getScheduleTimeBadge = (bookingDate) => {
+    if (!bookingDate) return null;
     const date = new Date(bookingDate);
     if (isToday(date)) {
       return <span style={styles.scheduleBadge('#d1fae5', '#065f46')}>Today</span>;
@@ -768,19 +885,11 @@ const ProviderDashboard = () => {
   };
 
   // ============================================================
-  // LOADING STATE
+  // LOADING STATE REMOVED - Component renders immediately
   // ============================================================
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
-          <p style={{ color: '#718096' }}>Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   // ============================================================
   // RENDER
@@ -788,9 +897,29 @@ const ProviderDashboard = () => {
 
   return (
     <div style={styles.container}>
-      {/* ============================================================
-          WELCOME CARD
-          ============================================================ */}
+      {/* Error Alert */}
+      {error && (
+        <div style={{
+          background: '#fee2e2',
+          color: '#991b1b',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <span><FaExclamationCircle style={{ marginRight: '10px' }} />{error}</span>
+          <button 
+            onClick={() => fetchDashboardData(false)}
+            style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: '600' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* WELCOME CARD */}
       <div style={styles.welcomeCard}>
         <div style={styles.welcomeCardBg}></div>
         <div style={styles.welcomeCardBg2}></div>
@@ -843,9 +972,7 @@ const ProviderDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          STATS CARDS - ✅ FIXED with formatting helpers
-          ============================================================ */}
+      {/* STATS CARDS */}
       <div style={styles.statsGrid}>
         {[
           { 
@@ -932,9 +1059,7 @@ const ProviderDashboard = () => {
         })}
       </div>
 
-      {/* ============================================================
-          MAIN GRID
-          ============================================================ */}
+      {/* MAIN GRID */}
       <div style={styles.mainGrid}>
         {/* LEFT COLUMN */}
         <div style={styles.leftColumn}>
@@ -959,69 +1084,78 @@ const ProviderDashboard = () => {
                   </Link>
                 </div>
               ) : (
-                upcomingSchedule.map((item, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      ...styles.scheduleItem,
-                      ...(idx === upcomingSchedule.length - 1 ? styles.scheduleItemLast : {}),
-                    }}
-                  >
-                    <div style={styles.scheduleTime}>
-                      <span style={styles.scheduleTimeText}>{item.time}</span>
-                      {getScheduleTimeBadge(item.bookingDate)}
-                    </div>
-                    <div style={styles.scheduleInfo}>
-                      <div style={styles.scheduleDot}></div>
-                      <div>
-                        <p style={styles.scheduleService}>{item.service}</p>
-                        <p style={styles.scheduleCustomer}>
-                          <FaUserTie size={12} /> {item.customer}
-                          {item.address && (
-                            <><FaMapMarkerAlt size={10} style={{ marginLeft: '8px' }} /> {item.address}</>
-                          )}
-                        </p>
+                upcomingSchedule.map((item, idx) => {
+                  const time = getField(item, ['time', 'start_time', 'booking_time'], 'N/A');
+                  const service = getField(item, ['service', 'service_name', 'serviceTitle'], 'Unknown Service');
+                  const customer = getField(item, ['customer', 'customer_name', 'customerName'], 'Unknown');
+                  const address = getField(item, ['address', 'location', 'customer_address'], '');
+                  const bookingDate = item.bookingDate || item.date;
+                  const status = getField(item, ['status', 'booking_status'], 'pending');
+                  
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        ...styles.scheduleItem,
+                        ...(idx === upcomingSchedule.length - 1 ? styles.scheduleItemLast : {}),
+                      }}
+                    >
+                      <div style={styles.scheduleTime}>
+                        <span style={styles.scheduleTimeText}>{time}</span>
+                        {getScheduleTimeBadge(bookingDate)}
+                      </div>
+                      <div style={styles.scheduleInfo}>
+                        <div style={styles.scheduleDot}></div>
+                        <div>
+                          <p style={styles.scheduleService}>{service}</p>
+                          <p style={styles.scheduleCustomer}>
+                            <FaUserTie size={12} /> {customer}
+                            {address && (
+                              <><FaMapMarkerAlt size={10} style={{ marginLeft: '8px' }} /> {address}</>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div style={styles.scheduleActions}>
+                        <button
+                          style={{
+                            padding: '6px 16px',
+                            borderRadius: '50px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            border: 'none',
+                            background: '#10b981',
+                            color: 'white',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onClick={() => handleStart(item)}
+                          disabled={status === 'started' || status === 'completed' || status === 'in_progress'}
+                        >
+                          <FaCheckCircle size={12} style={{ marginRight: '4px' }} />
+                          Start
+                        </button>
+                        <button
+                          style={{
+                            padding: '6px 16px',
+                            borderRadius: '50px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            border: '1px solid #e2e8f0',
+                            background: 'white',
+                            color: '#4a5568',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onClick={() => handleRescheduleClick(item)}
+                        >
+                          <FaClock size={12} style={{ marginRight: '4px' }} />
+                          Reschedule
+                        </button>
                       </div>
                     </div>
-                    <div style={styles.scheduleActions}>
-                      <button
-                        style={{
-                          padding: '6px 16px',
-                          borderRadius: '50px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                          border: 'none',
-                          background: '#10b981',
-                          color: 'white',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                        }}
-                        onClick={() => handleStart(item)}
-                        disabled={item.status === 'started' || item.status === 'completed'}
-                      >
-                        <FaCheckCircle size={12} style={{ marginRight: '4px' }} />
-                        Start
-                      </button>
-                      <button
-                        style={{
-                          padding: '6px 16px',
-                          borderRadius: '50px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                          border: '1px solid #e2e8f0',
-                          background: 'white',
-                          color: '#4a5568',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                        }}
-                        onClick={() => handleRescheduleClick(item)}
-                      >
-                        <FaClock size={12} style={{ marginRight: '4px' }} />
-                        Reschedule
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1057,55 +1191,66 @@ const ProviderDashboard = () => {
                         </td>
                       </tr>
                     ) : (
-                      recentBookings.map((booking, idx) => (
-                        <tr key={booking.id}>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <img
-                                src={booking.customerAvatar || `https://ui-avatars.com/api/?name=${booking.customer}&background=10b981&color=fff&size=32`}
-                                alt={booking.customer}
-                                style={{ width: 32, height: 32, borderRadius: '50%' }}
-                              />
-                              <span style={{ fontWeight: '500' }}>{booking.customer}</span>
-                            </div>
-                          </td>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
-                            {booking.service}
-                          </td>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
-                            <div>{format(new Date(booking.date), 'MMM dd, yyyy')}</div>
-                            <div style={{ fontSize: '12px', color: '#a0aec0' }}>{booking.time}</div>
-                          </td>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}), fontWeight: '600', color: '#10b981' }}>
-                            {formatNaira(booking.amount)}
-                          </td>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
-                            {getStatusBadge(booking.status)}
-                          </td>
-                          <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <Link to={`/provider/bookings/${booking.id}`} style={{ color: '#10b981', padding: '4px' }}>
-                                <FaEye size={14} />
-                              </Link>
-                              {booking.status === 'pending' && (
-                                <>
-                                  <button onClick={() => handleStart(booking)} style={{ color: '#10b981', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                      recentBookings.map((booking, idx) => {
+                        const bookingId = booking.id || booking._id;
+                        const customer = getField(booking, ['customer', 'customer_name', 'customerName'], 'Unknown');
+                        const service = getField(booking, ['service', 'service_name', 'serviceTitle'], 'Unknown Service');
+                        const amount = parseFloat(booking.amount) || 0;
+                        const status = getField(booking, ['status', 'booking_status'], 'pending');
+                        const bookingDate = booking.date || booking.booking_date || booking.createdAt;
+                        const bookingTime = booking.time || booking.booking_time || booking.start_time || '';
+                        const customerAvatar = booking.customerAvatar || booking.customer_avatar;
+
+                        return (
+                          <tr key={bookingId}>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <img
+                                  src={customerAvatar || `https://ui-avatars.com/api/?name=${customer}&background=10b981&color=fff&size=32`}
+                                  alt={customer}
+                                  style={{ width: 32, height: 32, borderRadius: '50%' }}
+                                />
+                                <span style={{ fontWeight: '500' }}>{customer}</span>
+                              </div>
+                            </td>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
+                              {service}
+                            </td>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
+                              <div>{bookingDate ? format(new Date(bookingDate), 'MMM dd, yyyy') : 'N/A'}</div>
+                              <div style={{ fontSize: '12px', color: '#a0aec0' }}>{bookingTime}</div>
+                            </td>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}), fontWeight: '600', color: '#10b981' }}>
+                              {formatNaira(amount)}
+                            </td>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
+                              {getStatusBadge(status)}
+                            </td>
+                            <td style={{ ...styles.td, ...(idx === recentBookings.length - 1 ? styles.tdLast : {}) }}>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <Link to={`/provider/bookings/${bookingId}`} style={{ color: '#10b981', padding: '4px' }}>
+                                  <FaEye size={14} />
+                                </Link>
+                                {status === 'pending' && (
+                                  <>
+                                    <button onClick={() => handleStart(booking)} style={{ color: '#10b981', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                      <FaCheckCircle size={14} />
+                                    </button>
+                                    <button onClick={() => handleRescheduleClick(booking)} style={{ color: '#ef4444', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                      <FaExclamationCircle size={14} />
+                                    </button>
+                                  </>
+                                )}
+                                {status === 'in_progress' && (
+                                  <button onClick={() => handleComplete(bookingId)} style={{ color: '#10b981', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
                                     <FaCheckCircle size={14} />
                                   </button>
-                                  <button onClick={() => handleRescheduleClick(booking)} style={{ color: '#ef4444', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                    <FaExclamationCircle size={14} />
-                                  </button>
-                                </>
-                              )}
-                              {booking.status === 'in_progress' && (
-                                <button onClick={() => handleComplete(booking.id)} style={{ color: '#10b981', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                  <FaCheckCircle size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1198,22 +1343,27 @@ const ProviderDashboard = () => {
                 </div>
               ) : (
                 notifications.map((notif) => {
+                  const notifId = notif.id || notif._id;
                   const iconMap = {
                     booking: { icon: FaCalendarCheck, bg: '#3b82f620', color: '#3b82f6' },
                     payment: { icon: FaDollarSign, bg: '#10b98120', color: '#10b981' },
                     review: { icon: FaStar, bg: '#f59e0b20', color: '#f59e0b' },
                     alert: { icon: FaExclamationCircle, bg: '#ef444420', color: '#ef4444' },
                   };
-                  const { icon: Icon, bg, color } = iconMap[notif.type] || iconMap.booking;
+                  const type = getField(notif, ['type', 'notification_type'], 'booking');
+                  const { icon: Icon, bg, color } = iconMap[type] || iconMap.booking;
+                  const message = getField(notif, ['message', 'content', 'text'], 'Notification');
+                  const createdAt = notif.created_at || notif.timestamp || notif.date || new Date().toISOString();
+                  
                   return (
-                    <div key={notif.id} style={styles.notificationItem}>
+                    <div key={notifId} style={styles.notificationItem}>
                       <div style={styles.notificationIcon(bg)}>
                         <Icon style={{ color }} size={14} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={styles.notificationMessage}>{notif.message}</p>
+                        <p style={styles.notificationMessage}>{message}</p>
                         <span style={styles.notificationTime}>
-                          {formatDistanceToNow(new Date(notif.created_at), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
                         </span>
                       </div>
                     </div>
@@ -1244,10 +1394,18 @@ const ProviderDashboard = () => {
                 </div>
               ) : (
                 services.slice(0, 3).map((service, idx) => {
+                  const serviceId = service.id || service._id;
+                  const title = getField(service, ['title', 'name', 'service_name'], 'Untitled');
+                  const category = getField(service, ['category', 'categoryName'], 'Uncategorized');
+                  const price = parseFloat(service.price) || 0;
+                  const rating = parseFloat(service.rating) || 0;
+                  const bookings = parseInt(service.bookings) || parseInt(service.total_bookings) || 0;
+                  const status = getField(service, ['status', 'service_status'], 'inactive');
                   const isHovered = hoveredService === idx;
+                  
                   return (
                     <div
-                      key={service.id}
+                      key={serviceId}
                       style={{
                         ...styles.serviceItem,
                         ...(isHovered ? styles.serviceItemHover : {}),
@@ -1257,25 +1415,25 @@ const ProviderDashboard = () => {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <div>
-                          <h6 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>{service.title}</h6>
-                          <span style={{ fontSize: '12px', color: '#718096' }}>{service.category}</span>
+                          <h6 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>{title}</h6>
+                          <span style={{ fontSize: '12px', color: '#718096' }}>{category}</span>
                         </div>
                         <span style={styles.badge(
-                          service.status === 'active' ? '#d1fae5' : '#fef3c7',
-                          service.status === 'active' ? '#065f46' : '#b45309'
+                          status === 'active' ? '#d1fae5' : '#fef3c7',
+                          status === 'active' ? '#065f46' : '#b45309'
                         )}>
-                          {service.status}
+                          {status}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <span style={{ fontWeight: '700', color: '#10b981' }}>{formatNaira(service.price)}</span>
+                          <span style={{ fontWeight: '700', color: '#10b981' }}>{formatNaira(price)}</span>
                           <span style={{ margin: '0 8px', color: '#e2e8f0' }}>•</span>
-                          <span><FaStar style={{ color: '#f59e0b' }} size={12} /> {service.rating || 'New'}</span>
-                          <span style={{ color: '#a0aec0', fontSize: '12px', marginLeft: '4px' }}>({service.bookings || 0} bookings)</span>
+                          <span><FaStar style={{ color: '#f59e0b' }} size={12} /> {rating || 'New'}</span>
+                          <span style={{ color: '#a0aec0', fontSize: '12px', marginLeft: '4px' }}>({bookings} bookings)</span>
                         </div>
                         <div>
-                          <Link to={`/provider/edit-service/${service.id}`} style={{ color: '#10b981', padding: '4px' }}>
+                          <Link to={`/provider/edit-service/${serviceId}`} style={{ color: '#10b981', padding: '4px' }}>
                             <FaEdit size={14} />
                           </Link>
                           <button
@@ -1298,9 +1456,7 @@ const ProviderDashboard = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          MODALS (Inline simplified)
-          ============================================================ */}
+      {/* MODALS */}
       {showRescheduleModal && (
         <div style={{
           position: 'fixed',
@@ -1407,7 +1563,7 @@ const ProviderDashboard = () => {
               <h3 style={{ margin: 0, fontWeight: '700' }}>Delete Service</h3>
             </div>
             <p style={{ color: '#4a5568', marginBottom: '20px' }}>
-              Are you sure you want to delete "<strong>{serviceToDelete?.title}</strong>"? This action cannot be undone.
+              Are you sure you want to delete "<strong>{serviceToDelete ? getField(serviceToDelete, ['title', 'name', 'service_name'], 'this service') : ''}</strong>"? This action cannot be undone.
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button
@@ -1445,9 +1601,7 @@ const ProviderDashboard = () => {
         </div>
       )}
 
-      {/* ============================================================
-          GLOBAL STYLES
-          ============================================================ */}
+      {/* GLOBAL STYLES */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }

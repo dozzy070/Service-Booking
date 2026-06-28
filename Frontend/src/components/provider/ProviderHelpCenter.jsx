@@ -1,58 +1,46 @@
 // src/components/provider/ProviderHelpCenter.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
   Col,
   Card,
   Button,
-  Accordion,
-  Form,
   Badge,
+  Form,
+  Modal,
   Alert,
   Spinner,
-  Modal,
-  Pagination
+  Table,
+  Pagination,
+  Tabs,
+  Tab,
+  InputGroup
 } from 'react-bootstrap';
 import {
-  Search,
   HelpCircle,
-  Mail,
-  Phone,
-  MessageCircle,
   FileText,
-  BookOpen,
-  Video,
-  ChevronRight,
-  Send,
-  ThumbsUp,
-  ThumbsDown,
+  MessageCircle,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
-  Download,
-  Paperclip,
-  User,
+  Send,
+  BookOpen,
+  ExternalLink,
+  Search,
+  Plus,
+  Filter,
   Calendar,
-  Star,
-  Users,
-  Globe,
-  Shield,
-  Award,
+  User,
+  ChevronRight,
+  ChevronDown,
+  LifeBuoy,
+  Sparkles,
   Zap,
-  Headphones,
-  ExternalLink
+  Shield,
+  Award
 } from 'lucide-react';
-import {
-  FaFacebook,
-  FaTwitter,
-  FaInstagram,
-  FaLinkedin,
-  FaYoutube,
-  FaWhatsapp
-} from 'react-icons/fa';
-
 import { useAuth } from '../../context/AuthContext';
 import { providerAPI } from '../../api/api';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -60,227 +48,218 @@ import toast from 'react-hot-toast';
 
 const ProviderHelpCenter = () => {
   const { user } = useAuth();
-  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [feedbackGiven, setFeedbackGiven] = useState({});
-  const [faqs, setFaqs] = useState([]);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('tickets');
   const [tickets, setTickets] = useState([]);
+  const [knowledgeBase, setKnowledgeBase] = useState([]);
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketReply, setTicketReply] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [newTicket, setNewTicket] = useState({
     subject: '',
     category: '',
     priority: 'medium',
-    message: '',
-    attachments: []
-  });
-  const [ticketReply, setTicketReply] = useState('');
-  const [knowledgeBase, setKnowledgeBase] = useState([]);
-  const [announcements, setAnnouncements] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [contactForm, setContactForm] = useState({
-    name: '',
-    email: '',
-    subject: '',
     message: ''
   });
-  const [liveChatStatus, setLiveChatStatus] = useState({
-    available: true,
-    agents: 3,
-    waitTime: '< 2 minutes'
-  });
 
-  const itemsPerPage = 10;
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
-  // ✅ DEFAULT FAQ DATA (no API call)
-  const defaultFaqs = [
-    {
-      id: 1,
-      category: 'Getting Started',
-      question: 'How do I create my service profile?',
-      answer: 'To create your service profile, go to Settings > Profile. Fill in your business information, upload photos, set your service areas, and define your pricing.',
-      helpful_count: 45,
-      views: 234
-    },
-    {
-      id: 2,
-      category: 'Payments',
-      question: 'When do I get paid?',
-      answer: 'Payments are processed within 2-3 business days after job completion. Funds are transferred to your connected bank account.',
-      helpful_count: 128,
-      views: 567
-    },
-    {
-      id: 3,
-      category: 'Bookings',
-      question: 'How do I manage my bookings?',
-      answer: 'You can view and manage all your bookings from the Bookings page. You can accept, decline, or reschedule bookings as needed.',
-      helpful_count: 89,
-      views: 412
-    },
-    {
-      id: 4,
-      category: 'Profile',
-      question: 'How do I update my availability?',
-      answer: 'Go to Settings > Schedule to set your working hours and days. You can also set vacation mode if you are unavailable.',
-      helpful_count: 67,
-      views: 301
-    },
-    {
-      id: 5,
-      category: 'Support',
-      question: 'How do I contact support?',
-      answer: 'You can contact support via the Help Center. You can create a support ticket, use live chat, or email us at support@servicehub.com',
-      helpful_count: 112,
-      views: 489
+  const itemsPerPage = 5;
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
     }
-  ];
-
-  // ✅ DEFAULT ANNOUNCEMENTS
-  const defaultAnnouncements = [
-    {
-      id: 1,
-      title: 'New Payout System',
-      content: 'We are upgrading our payout system for faster transfers. The new system will reduce payout time from 5 days to 2 business days.',
-      date: '2024-12-01',
-      type: 'info'
-    },
-    {
-      id: 2,
-      title: 'Service Categories Update',
-      content: 'We have added 10 new service categories. Update your services to reach more customers.',
-      date: '2024-11-15',
-      type: 'success'
-    }
-  ];
-
-  // ✅ DEFAULT KNOWLEDGE BASE
-  const defaultKnowledgeBase = [
-    { id: 1, title: 'Getting Started Guide' },
-    { id: 2, title: 'Video Tutorials' },
-    { id: 3, title: 'API Documentation' },
-    { id: 4, title: 'Community Forum' },
-    { id: 5, title: 'Payment FAQ' },
-    { id: 6, title: 'Booking Best Practices' }
-  ];
-
-  // ✅ DEFAULT TICKETS
-  const defaultTickets = [
-    {
-      id: 'TKT-001',
-      subject: 'Payment delay issue',
-      status: 'resolved',
-      priority: 'high',
-      date: '2024-12-10',
-      lastUpdate: '2024-12-12',
-      messages: [
-        { sender: 'user', message: 'My payment is delayed by 5 days', date: '2024-12-10' },
-        { sender: 'support', message: 'We are looking into this issue', date: '2024-12-11' },
-        { sender: 'support', message: 'This has been resolved. Your payment will reflect in 24 hours.', date: '2024-12-12' }
-      ]
-    },
-    {
-      id: 'TKT-002',
-      subject: 'Unable to accept bookings',
-      status: 'in_progress',
-      priority: 'urgent',
-      date: '2024-12-12',
-      lastUpdate: '2024-12-13',
-      messages: [
-        { sender: 'user', message: 'I cannot accept new bookings, the button is disabled', date: '2024-12-12' },
-        { sender: 'support', message: 'We are investigating this issue', date: '2024-12-13' }
-      ]
-    }
-  ];
-
-  // ✅ Fetch FAQs - using default data
-  const fetchFAQs = useCallback(async () => {
-    try {
-      // Try to get from API if available
-      if (typeof providerAPI.getFAQs === 'function') {
-        const response = await providerAPI.getFAQs({
-          search: searchTerm,
-          page: currentPage,
-          limit: itemsPerPage
-        });
-        const data = response.data || response;
-        setFaqs(data.faqs || data || defaultFaqs);
-        setTotalPages(Math.ceil((data.total || data.length || defaultFaqs.length) / itemsPerPage));
-        return;
-      }
-    } catch (error) {
-      console.error('Error fetching FAQs:', error);
-    }
-    // ✅ Use default data
-    const filtered = defaultFaqs.filter(faq =>
-      faq.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      faq.category.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFaqs(filtered);
-    setTotalPages(Math.ceil(filtered.length / itemsPerPage));
-  }, [searchTerm, currentPage]);
-
-  // ✅ Fetch support tickets - using default data
-  const fetchTickets = useCallback(async () => {
-    try {
-      if (typeof providerAPI.getSupportTickets === 'function') {
-        const response = await providerAPI.getSupportTickets();
-        setTickets(response.data || defaultTickets);
-        return;
-      }
-    } catch (error) {
-      console.error('Error fetching tickets:', error);
-    }
-    setTickets(defaultTickets);
-  }, []);
-
-  // ✅ Fetch announcements - using default data
-  const fetchAnnouncements = useCallback(async () => {
-    try {
-      if (typeof providerAPI.getAnnouncements === 'function') {
-        const response = await providerAPI.getAnnouncements();
-        setAnnouncements(response.data || defaultAnnouncements);
-        return;
-      }
-    } catch (error) {
-      console.error('Error fetching announcements:', error);
-    }
-    setAnnouncements(defaultAnnouncements);
-  }, []);
-
-  // ✅ Fetch knowledge base - using default data
-  const fetchKnowledgeBase = useCallback(async () => {
-    try {
-      if (typeof providerAPI.getKnowledgeBase === 'function') {
-        const response = await providerAPI.getKnowledgeBase();
-        setKnowledgeBase(response.data || defaultKnowledgeBase);
-        return;
-      }
-    } catch (error) {
-      console.error('Error fetching knowledge base:', error);
-    }
-    setKnowledgeBase(defaultKnowledgeBase);
-  }, []);
-
-  // ✅ Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchFAQs(),
-      fetchTickets(),
-      fetchAnnouncements(),
-      fetchKnowledgeBase()
-    ]);
-    setLoading(false);
+    return fallback;
   };
 
-  useEffect(() => {
-    loadAllData();
-  }, [searchTerm, currentPage]);
+  // Fetch tickets from API
+  const fetchTickets = useCallback(async () => {
+    try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
 
-  // ✅ Create support ticket - with fallback
+      // Build query params
+      const params = {
+        page: currentPage,
+        limit: itemsPerPage,
+        status: filterStatus !== 'all' ? filterStatus : undefined
+      };
+
+      let response = null;
+      
+      if (typeof providerAPI.getSupportTickets === 'function') {
+        response = await providerAPI.getSupportTickets(params);
+      } else if (typeof providerAPI.getTickets === 'function') {
+        response = await providerAPI.getTickets(params);
+      } else {
+        throw new Error('Tickets API methods not available');
+      }
+
+      // Handle different response formats
+      let data = [];
+      let total = 0;
+      
+      if (response?.data) {
+        // Check if response is array
+        if (Array.isArray(response.data)) {
+          data = response.data;
+          total = data.length;
+        } 
+        // Check if response has tickets property
+        else if (response.data.tickets && Array.isArray(response.data.tickets)) {
+          data = response.data.tickets;
+          total = response.data.total || data.length;
+        } 
+        // Check if response has data property with array
+        else if (response.data.data && Array.isArray(response.data.data)) {
+          data = response.data.data;
+          total = response.data.total || data.length;
+        }
+        // If response has items array
+        else if (response.data.items && Array.isArray(response.data.items)) {
+          data = response.data.items;
+          total = response.data.total || data.length;
+        }
+        // If response has results array
+        else if (response.data.results && Array.isArray(response.data.results)) {
+          data = response.data.results;
+          total = response.data.count || data.length;
+        }
+        else {
+          data = [];
+          total = 0;
+        }
+      }
+      
+      setTickets(Array.isArray(data) ? data : []);
+      setTotalCount(total || data.length || 0);
+      
+    } catch (error) {
+      console.error('Error fetching tickets:', error);
+      // Don't throw, just set empty state
+      setTickets([]);
+      setTotalCount(0);
+    }
+  }, [currentPage, itemsPerPage, filterStatus]);
+
+  // Fetch knowledge base from API
+  const fetchKnowledgeBase = useCallback(async () => {
+    try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const params = {
+        limit: 10,
+        page: 1
+      };
+
+      let response = null;
+      
+      if (typeof providerAPI.getKnowledgeBase === 'function') {
+        response = await providerAPI.getKnowledgeBase(params);
+      } else if (typeof providerAPI.getHelpArticles === 'function') {
+        response = await providerAPI.getHelpArticles(params);
+      } else {
+        throw new Error('Knowledge base API methods not available');
+      }
+
+      // Handle different response formats
+      let data = [];
+      if (response?.data) {
+        if (Array.isArray(response.data)) {
+          data = response.data;
+        } else if (response.data.articles && Array.isArray(response.data.articles)) {
+          data = response.data.articles;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          data = response.data.data;
+        } else if (response.data.items && Array.isArray(response.data.items)) {
+          data = response.data.items;
+        } else if (response.data.results && Array.isArray(response.data.results)) {
+          data = response.data.results;
+        } else {
+          data = [];
+        }
+      }
+      
+      setKnowledgeBase(Array.isArray(data) ? data : []);
+      
+    } catch (error) {
+      console.error('Error fetching knowledge base:', error);
+      setKnowledgeBase([]);
+    }
+  }, []);
+
+  // Load all data
+  const loadData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchTickets(),
+        fetchKnowledgeBase()
+      ]);
+    } catch (error) {
+      console.error('Error loading help center data:', error);
+      setError(error.message || 'Failed to load help center data');
+      toast.error('Failed to load help center data');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [fetchTickets, fetchKnowledgeBase]);
+
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    loadData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, [currentPage, filterStatus]);
+
+  // Reload tickets when pagination or filter changes
+  useEffect(() => {
+    if (!loading) {
+      fetchTickets();
+    }
+  }, [currentPage, filterStatus]);
+
+  // Create ticket with API
   const createTicket = async () => {
     if (!newTicket.subject || !newTicket.message) {
       toast.error('Please fill in all required fields');
@@ -289,44 +268,40 @@ const ProviderHelpCenter = () => {
 
     setSubmitting(true);
     try {
-      if (typeof providerAPI.createSupportTicket === 'function') {
-        await providerAPI.createSupportTicket(newTicket);
-        toast.success('Support ticket created successfully');
-      } else {
-        // Simulate creation
-        const newTicketObj = {
-          id: `TKT-${String(tickets.length + 1).padStart(3, '0')}`,
-          subject: newTicket.subject,
-          status: 'open',
-          priority: newTicket.priority,
-          date: new Date().toISOString(),
-          lastUpdate: new Date().toISOString(),
-          messages: [
-            { sender: 'user', message: newTicket.message, date: new Date().toISOString() }
-          ]
-        };
-        setTickets([newTicketObj, ...tickets]);
-        toast.success('Support ticket created successfully (demo)');
+      if (!providerAPI) {
+        throw new Error('API service not available');
       }
+
+      const payload = {
+        subject: newTicket.subject,
+        category: newTicket.category || 'general',
+        priority: newTicket.priority,
+        message: newTicket.message
+      };
+
+      if (typeof providerAPI.createSupportTicket === 'function') {
+        await providerAPI.createSupportTicket(payload);
+      } else if (typeof providerAPI.createTicket === 'function') {
+        await providerAPI.createTicket(payload);
+      } else {
+        throw new Error('Create ticket API methods not available');
+      }
+      
+      toast.success('Support ticket created successfully');
       setShowTicketModal(false);
-      setNewTicket({
-        subject: '',
-        category: '',
-        priority: 'medium',
-        message: '',
-        attachments: []
-      });
+      setNewTicket({ subject: '', category: '', priority: 'medium', message: '' });
       await fetchTickets();
     } catch (error) {
       console.error('Error creating ticket:', error);
-      toast.error('Failed to create support ticket');
+      toast.error(error.message || 'Failed to create support ticket');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ✅ Reply to ticket - with fallback
+  // Reply to ticket with API
   const replyToTicket = async (ticketId) => {
+    if (!ticketId) return;
     if (!ticketReply.trim()) {
       toast.error('Please enter a reply');
       return;
@@ -334,542 +309,442 @@ const ProviderHelpCenter = () => {
 
     setSubmitting(true);
     try {
-      if (typeof providerAPI.replyToTicket === 'function') {
-        await providerAPI.replyToTicket(ticketId, ticketReply);
-      } else {
-        // Simulate reply
-        const updatedTickets = tickets.map(ticket =>
-          ticket.id === ticketId
-            ? {
-                ...ticket,
-                messages: [
-                  ...ticket.messages,
-                  { sender: 'user', message: ticketReply, date: new Date().toISOString() }
-                ],
-                lastUpdate: new Date().toISOString()
-              }
-            : ticket
-        );
-        setTickets(updatedTickets);
+      if (!providerAPI) {
+        throw new Error('API service not available');
       }
+
+      const payload = { message: ticketReply };
+
+      if (typeof providerAPI.replyToTicket === 'function') {
+        await providerAPI.replyToTicket(ticketId, payload);
+      } else if (typeof providerAPI.addTicketReply === 'function') {
+        await providerAPI.addTicketReply(ticketId, payload);
+      } else {
+        throw new Error('Reply to ticket API methods not available');
+      }
+      
       toast.success('Reply sent successfully');
       setTicketReply('');
       await fetchTickets();
+      // Refresh selected ticket
+      const updatedTicket = tickets.find(t => (t.id || t._id) === ticketId);
+      if (updatedTicket) setSelectedTicket(updatedTicket);
     } catch (error) {
       console.error('Error replying to ticket:', error);
-      toast.error('Failed to send reply');
+      toast.error(error.message || 'Failed to send reply');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ✅ Submit contact form - with fallback
-  const submitContactForm = async () => {
-    if (!contactForm.name || !contactForm.email || !contactForm.message) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      if (typeof providerAPI.submitContactForm === 'function') {
-        await providerAPI.submitContactForm(contactForm);
-      } else {
-        console.log('Contact form submitted:', contactForm);
-      }
-      toast.success('Message sent successfully. We will get back to you soon.');
-      setContactForm({
-        name: '',
-        email: '',
-        subject: '',
-        message: ''
-      });
-    } catch (error) {
-      console.error('Error submitting contact form:', error);
-      toast.error('Failed to send message');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ✅ Handle FAQ feedback - with fallback
-  const handleFeedback = async (faqId, isHelpful) => {
-    setFeedbackGiven({ ...feedbackGiven, [faqId]: isHelpful });
-    try {
-      if (typeof providerAPI.submitFAQFeedback === 'function') {
-        await providerAPI.submitFAQFeedback(faqId, isHelpful);
-      }
-      toast.success('Thank you for your feedback!');
-      await fetchFAQs();
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-    }
-  };
-
-  // Get ticket status badge
   const getStatusBadge = (status) => {
-    const statusConfig = {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <AlertCircle size={14} />
+          <span>Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
+    const configs = {
       open: { variant: 'warning', icon: AlertCircle, text: 'Open' },
       in_progress: { variant: 'info', icon: Clock, text: 'In Progress' },
       resolved: { variant: 'success', icon: CheckCircle, text: 'Resolved' },
-      closed: { variant: 'secondary', icon: XCircle, text: 'Closed' }
+      closed: { variant: 'secondary', icon: XCircle, text: 'Closed' },
+      pending: { variant: 'warning', icon: Clock, text: 'Pending' }
     };
-    const config = statusConfig[status] || statusConfig.open;
+    const config = configs[lowerStatus] || configs.open;
     const Icon = config.icon;
     return (
-      <Badge bg={config.variant} className="d-flex align-items-center gap-1">
-        <Icon size={12} />
-        <span className="ms-1">{config.text}</span>
+      <Badge bg={config.variant} className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+        <Icon size={14} />
+        <span>{config.text}</span>
       </Badge>
     );
   };
 
-  // Get priority badge
   const getPriorityBadge = (priority) => {
-    const priorityConfig = {
+    if (!priority) {
+      return <Badge bg="secondary">Unknown</Badge>;
+    }
+    
+    const lowerPriority = priority.toLowerCase();
+    const configs = {
       low: { variant: 'secondary', text: 'Low' },
       medium: { variant: 'info', text: 'Medium' },
       high: { variant: 'warning', text: 'High' },
       urgent: { variant: 'danger', text: 'Urgent' }
     };
-    const config = priorityConfig[priority] || priorityConfig.medium;
+    const config = configs[lowerPriority] || configs.medium;
     return <Badge bg={config.variant}>{config.text}</Badge>;
   };
 
+  // Filter tickets locally
+  const filteredTickets = tickets.filter(ticket => {
+    const subject = getField(ticket, ['subject', 'title', 'issue'], '');
+    const matchesSearch = searchTerm === '' ||
+      subject.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesSearch;
+  });
+
+  const totalPages = Math.ceil(filteredTickets.length / itemsPerPage) || 1;
+
+  const paginatedTickets = filteredTickets.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
+      <Container fluid className="py-5">
+        <div className="text-center py-5">
           <Spinner animation="border" variant="primary" />
           <p className="mt-3 text-muted">Loading help center...</p>
         </div>
-      </div>
+      </Container>
     );
   }
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={styles.container}>
       <Container fluid className="py-4">
-        {/* Hero Section */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-          <div 
-            style={{ 
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              padding: '60px 40px',
-              textAlign: 'center',
-              color: 'white'
-            }}
-          >
-            <HelpCircle size={56} className="mb-3" style={{ opacity: 0.9 }} />
-            <h2 className="mb-3 fw-bold">How can we help you?</h2>
-            <p className="mb-4" style={{ fontSize: '18px', opacity: 0.95 }}>
-              Find answers to common questions or connect with our support team
-            </p>
-            <div className="position-relative" style={{ maxWidth: '600px', margin: '0 auto' }}>
-              <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-              <Form.Control
-                type="text"
-                placeholder="Search for help articles, guides, and FAQs..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ 
-                  paddingLeft: '48px', 
-                  borderRadius: '50px', 
-                  height: '56px',
-                  fontSize: '16px',
-                  border: 'none',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                }}
-              />
-            </div>
-          </div>
-        </Card>
-
-        {/* Live Chat Status */}
-        {liveChatStatus.available && (
-          <Alert variant="success" className="mb-4 d-flex justify-content-between align-items-center" style={{ borderRadius: '12px' }}>
-            <div className="d-flex align-items-center gap-3">
-              <div className="rounded-circle bg-success p-2">
-                <MessageCircle size={20} color="white" />
-              </div>
-              <div>
-                <strong>Live Chat Available</strong>
-                <div className="small">
-                  {liveChatStatus.agents} agents online • Wait time: {liveChatStatus.waitTime}
-                </div>
-              </div>
-            </div>
-            <Button variant="success" size="sm" onClick={() => toast.info('Live chat coming soon!')}>
-              Start Chat
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={styles.alert}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => loadData(false)} className="ms-3">
+              Retry
             </Button>
           </Alert>
         )}
 
-        {/* Quick Actions */}
-        <Row className="mb-5 g-4">
+        {/* Header */}
+        <div style={styles.header}>
+          <div>
+            <h2 style={styles.headerTitle}>
+              <LifeBuoy size={28} style={styles.headerIcon} />
+              Help Center
+            </h2>
+            <p style={styles.headerSubtitle}>Get support and find answers to your questions</p>
+          </div>
+          <Button 
+            variant="primary" 
+            onClick={() => setShowTicketModal(true)} 
+            style={styles.newTicketBtn}
+            className="d-flex align-items-center gap-2"
+          >
+            <Plus size={18} />
+            New Ticket
+          </Button>
+        </div>
+
+        {/* Quick Stats */}
+        <Row style={styles.statsRow}>
           <Col md={3} sm={6}>
-            <Card className="border-0 shadow-sm text-center h-100" style={{ borderRadius: '16px', cursor: 'pointer' }}>
-              <Card.Body className="p-4">
-                <div className="rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '56px', height: '56px', background: '#3b82f620' }}>
-                  <Mail size={28} color="#3b82f6" />
+            <Card style={styles.statCard}>
+              <Card.Body style={styles.statCardBody}>
+                <div style={styles.statIconWrapper('#6366f1', '#eef2ff')}>
+                  <FileText size={20} color="#6366f1" />
                 </div>
-                <h6 className="fw-bold mb-1">Email Support</h6>
-                <small className="text-muted">support@servicehub.com</small>
-                <p className="small text-muted mt-2 mb-0">Response within 24h</p>
+                <div>
+                  <p style={styles.statLabel}>Total Tickets</p>
+                  <h4 style={styles.statValue}>{tickets.length}</h4>
+                </div>
               </Card.Body>
             </Card>
           </Col>
           <Col md={3} sm={6}>
-            <Card className="border-0 shadow-sm text-center h-100" style={{ borderRadius: '16px', cursor: 'pointer' }}>
-              <Card.Body className="p-4">
-                <div className="rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '56px', height: '56px', background: '#10b98120' }}>
-                  <Phone size={28} color="#10b981" />
+            <Card style={styles.statCard}>
+              <Card.Body style={styles.statCardBody}>
+                <div style={styles.statIconWrapper('#f59e0b', '#fffbeb')}>
+                  <Clock size={20} color="#f59e0b" />
                 </div>
-                <h6 className="fw-bold mb-1">Phone Support</h6>
-                <small className="text-muted">+234 (0) 123 456 7890</small>
-                <p className="small text-muted mt-2 mb-0">Mon-Fri, 9AM-6PM</p>
+                <div>
+                  <p style={styles.statLabel}>Open Tickets</p>
+                  <h4 style={styles.statValue}>
+                    {tickets.filter(t => {
+                      const status = getField(t, ['status', 'ticket_status'], '');
+                      return status.toLowerCase() === 'open' || status.toLowerCase() === 'pending';
+                    }).length}
+                  </h4>
+                </div>
               </Card.Body>
             </Card>
           </Col>
           <Col md={3} sm={6}>
-            <Card className="border-0 shadow-sm text-center h-100" style={{ borderRadius: '16px', cursor: 'pointer' }}>
-              <Card.Body className="p-4">
-                <div className="rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '56px', height: '56px', background: '#f59e0b20' }}>
-                  <MessageCircle size={28} color="#f59e0b" />
+            <Card style={styles.statCard}>
+              <Card.Body style={styles.statCardBody}>
+                <div style={styles.statIconWrapper('#10b981', '#ecfdf5')}>
+                  <CheckCircle size={20} color="#10b981" />
                 </div>
-                <h6 className="fw-bold mb-1">Live Chat</h6>
-                <small className="text-muted">Available 24/7</small>
-                <p className="small text-muted mt-2 mb-0">Instant response</p>
+                <div>
+                  <p style={styles.statLabel}>Resolved</p>
+                  <h4 style={styles.statValue}>
+                    {tickets.filter(t => {
+                      const status = getField(t, ['status', 'ticket_status'], '');
+                      return status.toLowerCase() === 'resolved' || status.toLowerCase() === 'closed';
+                    }).length}
+                  </h4>
+                </div>
               </Card.Body>
             </Card>
           </Col>
           <Col md={3} sm={6}>
-            <Card 
-              className="border-0 shadow-sm text-center h-100" 
-              style={{ borderRadius: '16px', cursor: 'pointer' }}
-              onClick={() => setShowTicketModal(true)}
+            <Card style={styles.statCard}>
+              <Card.Body style={styles.statCardBody}>
+                <div style={styles.statIconWrapper('#8b5cf6', '#f3e8ff')}>
+                  <Zap size={20} color="#8b5cf6" />
+                </div>
+                <div>
+                  <p style={styles.statLabel}>Avg Response Time</p>
+                  <h4 style={styles.statValue}>
+                    {tickets.filter(t => t.messages && t.messages.length > 1).length > 0
+                      ? '< 24h'
+                      : 'N/A'}
+                  </h4>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Tabs */}
+        <Card style={styles.tabsCard}>
+          <Card.Body style={styles.tabsCardBody}>
+            <Tabs
+              activeKey={activeTab}
+              onSelect={(k) => setActiveTab(k)}
+              className="custom-tabs"
+              style={styles.tabs}
             >
-              <Card.Body className="p-4">
-                <div className="rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '56px', height: '56px', background: '#ef444420' }}>
-                  <FileText size={28} color="#ef4444" />
-                </div>
-                <h6 className="fw-bold mb-1">Create Ticket</h6>
-                <small className="text-muted">Submit a request</small>
-                <p className="small text-muted mt-2 mb-0">Get dedicated support</p>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-
-        <Row className="g-4">
-          {/* Main Content */}
-          <Col lg={8}>
-            {/* Announcements */}
-            {announcements.length > 0 && (
-              <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-                <Card.Header className="bg-white border-0 pt-4">
-                  <h6 className="fw-bold mb-0 d-flex align-items-center gap-2">
-                    <Zap size={18} className="text-warning" />
-                    Latest Announcements
-                  </h6>
-                </Card.Header>
-                <Card.Body>
-                  {announcements.map(announcement => (
-                    <Alert key={announcement.id} variant={announcement.type || 'info'} className="mb-2" style={{ borderRadius: '12px' }}>
-                      <div className="d-flex justify-content-between align-items-start">
-                        <div>
-                          <strong>{announcement.title}</strong>
-                          <p className="mb-0 small">{announcement.content}</p>
-                        </div>
-                        <small className="text-muted">
-                          {formatDistanceToNow(new Date(announcement.date), { addSuffix: true })}
-                        </small>
-                      </div>
-                    </Alert>
-                  ))}
-                </Card.Body>
-              </Card>
-            )}
-
-            {/* FAQs */}
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="fw-bold mb-0">Frequently Asked Questions</h5>
-              <small className="text-muted">{faqs.length} articles found</small>
-            </div>
-
-            {faqs.length === 0 ? (
-              <Card className="border-0 shadow-sm text-center py-5" style={{ borderRadius: '16px' }}>
-                <Card.Body>
-                  <HelpCircle size={48} className="text-muted mb-3 opacity-50" />
-                  <h6 className="text-muted">No results found</h6>
-                  <p className="text-muted small">Try different keywords or browse our categories</p>
-                </Card.Body>
-              </Card>
-            ) : (
-              faqs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((faq) => (
-                <Card key={faq.id} className="border-0 shadow-sm mb-3" style={{ borderRadius: '16px' }}>
-                  <Accordion>
-                    <Accordion.Item eventKey={faq.id.toString()} style={{ border: 'none' }}>
-                      <Accordion.Header className="bg-white">
-                        <div className="d-flex justify-content-between align-items-center w-100 me-3">
-                          <div>
-                            <span className="fw-semibold">{faq.question}</span>
-                            <div className="small text-muted mt-1">
-                              <Badge bg="light" text="dark" className="me-2">{faq.category}</Badge>
-                              <span>{faq.views} views</span>
-                            </div>
-                          </div>
-                        </div>
-                      </Accordion.Header>
-                      <Accordion.Body>
-                        <p>{faq.answer}</p>
-                        <div className="d-flex align-items-center justify-content-between mt-3 pt-2 border-top flex-wrap gap-2">
-                          <div className="d-flex align-items-center gap-3">
-                            <small className="text-muted">Was this helpful?</small>
-                            <Button 
-                              variant="link" 
-                              size="sm" 
-                              className="p-0 text-success d-flex align-items-center gap-1"
-                              onClick={() => handleFeedback(faq.id, true)}
-                            >
-                              <ThumbsUp size={14} />
-                              Yes ({faq.helpful_count || 0})
-                            </Button>
-                            <Button 
-                              variant="link" 
-                              size="sm" 
-                              className="p-0 text-danger d-flex align-items-center gap-1"
-                              onClick={() => handleFeedback(faq.id, false)}
-                            >
-                              <ThumbsDown size={14} />
-                              No
-                            </Button>
-                          </div>
-                          {feedbackGiven[faq.id] && (
-                            <Badge bg="success" className="d-flex align-items-center gap-1">
-                              <CheckCircle size={12} />
-                              Thanks for your feedback!
-                            </Badge>
-                          )}
-                        </div>
-                      </Accordion.Body>
-                    </Accordion.Item>
-                  </Accordion>
-                </Card>
-              ))
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="d-flex justify-content-center mt-4">
-                <Pagination>
-                  <Pagination.Prev 
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                  />
-                  {[...Array(Math.min(totalPages, 5))].map((_, idx) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = idx + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = idx + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + idx;
-                    } else {
-                      pageNum = currentPage - 2 + idx;
-                    }
-                    return (
-                      <Pagination.Item
-                        key={pageNum}
-                        active={pageNum === currentPage}
-                        onClick={() => setCurrentPage(pageNum)}
+              <Tab eventKey="tickets" title={
+                <span style={styles.tabTitle}>
+                  <FileText size={16} style={styles.tabIcon} /> Support Tickets
+                </span>
+              }>
+                <div style={styles.tabContent}>
+                  {/* Filters */}
+                  <Row style={styles.filtersRow}>
+                    <Col md={6}>
+                      <InputGroup style={styles.searchInput}>
+                        <InputGroup.Text style={styles.searchInputText}>
+                          <Search size={16} />
+                        </InputGroup.Text>
+                        <Form.Control
+                          placeholder="Search tickets..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          style={styles.searchInputControl}
+                        />
+                      </InputGroup>
+                    </Col>
+                    <Col md={3}>
+                      <Form.Select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        style={styles.filterSelect}
                       >
-                        {pageNum}
-                      </Pagination.Item>
-                    );
-                  })}
-                  <Pagination.Next 
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                  />
-                </Pagination>
-              </div>
-            )}
-          </Col>
+                        <option value="all">All Status</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                      </Form.Select>
+                    </Col>
+                    <Col md={3}>
+                      <Button variant="outline-secondary" style={styles.filterBtn}>
+                        <Filter size={16} style={styles.filterBtnIcon} />
+                        More Filters
+                      </Button>
+                    </Col>
+                  </Row>
 
-          {/* Sidebar */}
-          <Col lg={4}>
-            {/* Support Tickets */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4 d-flex justify-content-between align-items-center">
-                <h6 className="fw-bold mb-0">Support Tickets</h6>
-                <Button 
-                  size="sm" 
-                  variant="primary" 
-                  onClick={() => setShowTicketModal(true)}
-                  style={{ borderRadius: '10px' }}
-                >
-                  New Ticket
-                </Button>
-              </Card.Header>
-              <Card.Body className="p-0">
-                {tickets.length === 0 ? (
-                  <div className="text-center py-4">
-                    <FileText size={32} className="text-muted mb-2 opacity-50" />
-                    <p className="text-muted small mb-0">No support tickets</p>
-                  </div>
-                ) : (
-                  tickets.map((ticket) => (
-                    <div 
-                      key={ticket.id} 
-                      className="p-3 border-bottom"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setSelectedTicket(ticket)}
-                    >
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <div className="flex-grow-1">
-                          <div className="d-flex align-items-center gap-2 mb-1 flex-wrap">
-                            <strong className="small">{ticket.subject}</strong>
-                            {getPriorityBadge(ticket.priority)}
-                          </div>
-                          <div className="d-flex gap-3 align-items-center">
-                            <small className="text-muted">ID: {ticket.id}</small>
-                            <small className="text-muted">
-                              <Calendar size={10} className="me-1" />
-                              {format(new Date(ticket.date), 'MMM dd')}
-                            </small>
-                          </div>
-                        </div>
-                        {getStatusBadge(ticket.status)}
+                  {/* Tickets Table */}
+                  {paginatedTickets.length === 0 ? (
+                    <div style={styles.emptyState}>
+                      <FileText size={48} style={styles.emptyIcon} />
+                      <h6 style={styles.emptyTitle}>No tickets found</h6>
+                      <p style={styles.emptyText}>Create a support ticket to get help</p>
+                      <Button variant="link" onClick={() => setShowTicketModal(true)} style={styles.emptyBtn}>
+                        Create a ticket
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.tableWrapper}>
+                        <Table hover style={styles.table}>
+                          <thead style={styles.tableHead}>
+                            <tr>
+                              <th style={styles.tableHeader}>Ticket ID</th>
+                              <th style={styles.tableHeader}>Subject</th>
+                              <th style={styles.tableHeader}>Category</th>
+                              <th style={styles.tableHeader}>Priority</th>
+                              <th style={styles.tableHeader}>Status</th>
+                              <th style={styles.tableHeader}>Date</th>
+                              <th style={styles.tableHeader}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedTickets.map(ticket => {
+                              const ticketId = ticket.id || ticket._id;
+                              const subject = getField(ticket, ['subject', 'title', 'issue'], 'Untitled');
+                              const category = getField(ticket, ['category', 'type', 'category_name'], 'general');
+                              const priority = getField(ticket, ['priority', 'level'], 'medium');
+                              const status = getField(ticket, ['status', 'ticket_status'], 'open');
+                              const createdAt = ticket.created_at || ticket.createdAt || ticket.date || new Date().toISOString();
+
+                              return (
+                                <tr key={ticketId} style={styles.tableRow}>
+                                  <td style={styles.tableCellPrimary}>#{ticketId?.slice(-8) || 'N/A'}</td>
+                                  <td style={styles.tableCell}>{subject}</td>
+                                  <td style={styles.tableCell}>
+                                    <Badge bg="light" text="dark" style={styles.categoryBadge}>
+                                      {category}
+                                    </Badge>
+                                  </td>
+                                  <td style={styles.tableCell}>{getPriorityBadge(priority)}</td>
+                                  <td style={styles.tableCell}>{getStatusBadge(status)}</td>
+                                  <td style={styles.tableCell}>
+                                    <small>{format(new Date(createdAt), 'MMM dd, yyyy')}</small>
+                                  </td>
+                                  <td style={styles.tableCell}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline-primary"
+                                      onClick={() => setSelectedTicket(ticket)}
+                                      style={styles.viewBtn}
+                                    >
+                                      View
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </Table>
                       </div>
-                    </div>
-                  ))
-                )}
-              </Card.Body>
-            </Card>
 
-            {/* Knowledge Base */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <h6 className="fw-bold mb-0 d-flex align-items-center gap-2">
-                  <BookOpen size={18} />
-                  Knowledge Base
-                </h6>
-              </Card.Header>
-              <Card.Body>
-                <div className="mb-3">
-                  {knowledgeBase.slice(0, 4).map((item) => (
-                    <div key={item.id} className="d-flex justify-content-between align-items-center mb-2">
-                      <span className="small fw-semibold">{item.title}</span>
-                      <ExternalLink size={14} className="text-muted" />
-                    </div>
-                  ))}
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={styles.paginationWrapper}>
+                          <Pagination style={styles.pagination}>
+                            <Pagination.Prev
+                              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                              disabled={currentPage === 1}
+                            />
+                            {[...Array(Math.min(5, totalPages))].map((_, idx) => {
+                              let pageNum;
+                              if (totalPages <= 5) {
+                                pageNum = idx + 1;
+                              } else if (currentPage <= 3) {
+                                pageNum = idx + 1;
+                              } else if (currentPage >= totalPages - 2) {
+                                pageNum = totalPages - 4 + idx;
+                              } else {
+                                pageNum = currentPage - 2 + idx;
+                              }
+                              return (
+                                <Pagination.Item
+                                  key={pageNum}
+                                  active={pageNum === currentPage}
+                                  onClick={() => setCurrentPage(pageNum)}
+                                >
+                                  {pageNum}
+                                </Pagination.Item>
+                              );
+                            })}
+                            <Pagination.Next
+                              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                              disabled={currentPage === totalPages}
+                            />
+                          </Pagination>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                <hr />
-                <div className="mt-3">
-                  <h6 className="small fw-bold mb-2">Popular Guides</h6>
-                  {knowledgeBase.slice(4, 7).map((item, idx) => (
-                    <div key={idx} className="d-flex justify-content-between align-items-center mb-2">
-                      <span className="small">{item.title}</span>
-                      <ChevronRight size={14} className="text-muted" />
-                    </div>
-                  ))}
-                </div>
-              </Card.Body>
-            </Card>
+              </Tab>
 
-            {/* Contact Form */}
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <h6 className="fw-bold mb-0">Still need help?</h6>
-              </Card.Header>
-              <Card.Body>
-                <Form>
-                  <Form.Group className="mb-3">
-                    <Form.Label className="small fw-semibold">Your Name</Form.Label>
-                    <Form.Control
-                      type="text"
-                      placeholder="Enter your name"
-                      value={contactForm.name}
-                      onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
-                    />
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label className="small fw-semibold">Your Email</Form.Label>
-                    <Form.Control
-                      type="email"
-                      placeholder="Enter your email"
-                      value={contactForm.email}
-                      onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
-                    />
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label className="small fw-semibold">Subject</Form.Label>
-                    <Form.Control
-                      type="text"
-                      placeholder="What is your issue about?"
-                      value={contactForm.subject}
-                      onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
-                    />
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label className="small fw-semibold">Message</Form.Label>
-                    <Form.Control
-                      as="textarea"
-                      rows={3}
-                      placeholder="Describe your issue in detail..."
-                      value={contactForm.message}
-                      onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
-                    />
-                  </Form.Group>
-                  <Button 
-                    variant="primary" 
-                    onClick={submitContactForm}
-                    disabled={submitting}
-                    className="w-100 d-flex align-items-center justify-content-center gap-2"
-                    style={{ borderRadius: '10px' }}
-                  >
-                    {submitting ? (
-                      <Spinner as="span" animation="border" size="sm" />
-                    ) : (
-                      <Send size={16} />
-                    )}
-                    {submitting ? 'Sending...' : 'Send Message'}
-                  </Button>
-                </Form>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
+              <Tab eventKey="knowledge" title={
+                <span style={styles.tabTitle}>
+                  <BookOpen size={16} style={styles.tabIcon} /> Knowledge Base
+                </span>
+              }>
+                <div style={styles.tabContent}>
+                  <Row style={styles.knowledgeGrid}>
+                    {knowledgeBase.map(article => {
+                      const articleId = article.id || article._id;
+                      const title = getField(article, ['title', 'name', 'subject'], 'Untitled Article');
+                      const category = getField(article, ['category', 'topic', 'section'], 'General');
+                      const content = getField(article, ['content', 'description', 'body'], '');
+                      const readTime = article.read_time || Math.ceil((content || '').length / 1000) + 1;
+                      
+                      return (
+                        <Col md={6} key={articleId}>
+                          <Card style={styles.knowledgeCard}>
+                            <Card.Body style={styles.knowledgeCardBody}>
+                              <div style={styles.knowledgeCardHeader}>
+                                <h6 style={styles.knowledgeCardTitle}>{title}</h6>
+                                <Badge bg="light" text="dark" style={styles.knowledgeCardBadge}>
+                                  {category}
+                                </Badge>
+                              </div>
+                              <p style={styles.knowledgeCardMeta}>Read time: {readTime} mins</p>
+                              <Button variant="link" style={styles.knowledgeCardBtn}>
+                                Read Article <ExternalLink size={14} style={styles.knowledgeCardIcon} />
+                              </Button>
+                            </Card.Body>
+                          </Card>
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                  {knowledgeBase.length === 0 && (
+                    <div style={styles.emptyState}>
+                      <BookOpen size={48} style={styles.emptyIcon} />
+                      <h6 style={styles.emptyTitle}>No articles found</h6>
+                      <p style={styles.emptyText}>Check back later for new articles</p>
+                    </div>
+                  )}
+                </div>
+              </Tab>
+            </Tabs>
+          </Card.Body>
+        </Card>
       </Container>
 
       {/* Create Ticket Modal */}
       <Modal show={showTicketModal} onHide={() => setShowTicketModal(false)} centered size="lg">
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
-            <FileText size={18} className="me-2" />
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>
+            <Plus size={20} style={styles.modalTitleIcon} />
             Create Support Ticket
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Body style={styles.modalBody}>
           <Form>
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Subject</Form.Label>
+            <Form.Group style={styles.formGroup}>
+              <Form.Label style={styles.formLabel}>Subject <span style={styles.required}>*</span></Form.Label>
               <Form.Control
                 type="text"
                 placeholder="Brief summary of your issue"
                 value={newTicket.subject}
                 onChange={(e) => setNewTicket({ ...newTicket, subject: e.target.value })}
+                style={styles.formControl}
               />
             </Form.Group>
 
-            <Row className="mb-3">
+            <Row style={styles.formRow}>
               <Col md={6}>
-                <Form.Group>
-                  <Form.Label className="fw-semibold">Category</Form.Label>
+                <Form.Group style={styles.formGroup}>
+                  <Form.Label style={styles.formLabel}>Category</Form.Label>
                   <Form.Select
                     value={newTicket.category}
                     onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value })}
+                    style={styles.formSelect}
                   >
                     <option value="">Select category</option>
                     <option value="payment">Payments & Payouts</option>
@@ -881,11 +756,12 @@ const ProviderHelpCenter = () => {
                 </Form.Group>
               </Col>
               <Col md={6}>
-                <Form.Group>
-                  <Form.Label className="fw-semibold">Priority</Form.Label>
+                <Form.Group style={styles.formGroup}>
+                  <Form.Label style={styles.formLabel}>Priority</Form.Label>
                   <Form.Select
                     value={newTicket.priority}
                     onChange={(e) => setNewTicket({ ...newTicket, priority: e.target.value })}
+                    style={styles.formSelect}
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -896,37 +772,24 @@ const ProviderHelpCenter = () => {
               </Col>
             </Row>
 
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Description</Form.Label>
+            <Form.Group style={styles.formGroup}>
+              <Form.Label style={styles.formLabel}>Description <span style={styles.required}>*</span></Form.Label>
               <Form.Control
                 as="textarea"
                 rows={5}
                 placeholder="Please provide detailed information about your issue..."
                 value={newTicket.message}
                 onChange={(e) => setNewTicket({ ...newTicket, message: e.target.value })}
+                style={styles.formTextarea}
               />
-            </Form.Group>
-
-            <Form.Group>
-              <Form.Label className="fw-semibold">Attachments (Optional)</Form.Label>
-              <Form.Control
-                type="file"
-                multiple
-                onChange={(e) => setNewTicket({ ...newTicket, attachments: Array.from(e.target.files) })}
-              />
-              <Form.Text className="text-muted">Upload screenshots or documents (Max 5MB)</Form.Text>
             </Form.Group>
           </Form>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-0">
-          <Button variant="light" onClick={() => setShowTicketModal(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowTicketModal(false)} style={styles.modalCancelBtn}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={createTicket}
-            disabled={submitting}
-          >
+          <Button variant="primary" onClick={createTicket} disabled={submitting} style={styles.modalSubmitBtn}>
             {submitting ? 'Creating...' : 'Create Ticket'}
           </Button>
         </Modal.Footer>
@@ -934,70 +797,85 @@ const ProviderHelpCenter = () => {
 
       {/* Ticket Detail Modal */}
       <Modal show={!!selectedTicket} onHide={() => setSelectedTicket(null)} centered size="lg">
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
-            Ticket #{selectedTicket?.id}
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>
+            <FileText size={20} style={styles.modalTitleIcon} />
+            Ticket #{selectedTicket?.id || selectedTicket?._id ? (selectedTicket.id || selectedTicket._id).slice(-8) : 'N/A'}
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Body style={styles.modalBody}>
           {selectedTicket && (
             <>
-              <div className="d-flex justify-content-between align-items-start mb-4">
+              <div style={styles.ticketDetailHeader}>
                 <div>
-                  <h6 className="mb-1">{selectedTicket.subject}</h6>
-                  <div className="d-flex gap-2">
+                  <h6 style={styles.ticketDetailSubject}>
+                    {getField(selectedTicket, ['subject', 'title', 'issue'], 'Untitled')}
+                  </h6>
+                  <div style={styles.ticketDetailBadges}>
                     {getStatusBadge(selectedTicket.status)}
                     {getPriorityBadge(selectedTicket.priority)}
                   </div>
                 </div>
-                <small className="text-muted">
-                  Created {format(new Date(selectedTicket.date), 'MMM dd, yyyy')}
+                <small style={styles.ticketDetailDate}>
+                  Created {format(new Date(selectedTicket.created_at || selectedTicket.createdAt || selectedTicket.date || new Date()), 'MMM dd, yyyy')}
                 </small>
               </div>
 
-              <div className="mb-4" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                {selectedTicket.messages?.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`mb-3 d-flex ${msg.sender === 'user' ? 'justify-content-end' : 'justify-content-start'}`}
-                  >
-                    <div
-                      className={`p-3 rounded-3 ${msg.sender === 'user' ? 'bg-primary text-white' : 'bg-light'}`}
-                      style={{ maxWidth: '70%' }}
-                    >
-                      <div className="small mb-1">
-                        {msg.sender === 'user' ? 'You' : 'Support Agent'}
-                      </div>
-                      <div className="small">{msg.message}</div>
-                      <div className={`small mt-1 ${msg.sender === 'user' ? 'text-white-50' : 'text-muted'}`}>
-                        {format(new Date(msg.date), 'hh:mm a, MMM dd')}
+              <div style={styles.ticketMessages}>
+                {(selectedTicket.messages || []).map((msg, idx) => {
+                  const sender = getField(msg, ['sender', 'author', 'user_type', 'sender_type'], 'user');
+                  const isUser = sender === 'user' || sender === 'customer' || sender === 'provider';
+                  const message = getField(msg, ['message', 'content', 'body', 'text'], '');
+                  const date = msg.created_at || msg.createdAt || msg.timestamp || new Date().toISOString();
+                  
+                  return (
+                    <div key={idx} style={{
+                      ...styles.messageWrapper,
+                      justifyContent: isUser ? 'flex-end' : 'flex-start'
+                    }}>
+                      <div style={{
+                        ...styles.messageBubble,
+                        ...(isUser ? styles.messageBubbleUser : styles.messageBubbleSupport)
+                      }}>
+                        <div style={styles.messageSender}>
+                          {isUser ? 'You' : 'Support Agent'}
+                        </div>
+                        <div style={styles.messageText}>{message}</div>
+                        <div style={{
+                          ...styles.messageTime,
+                          ...(isUser ? styles.messageTimeUser : styles.messageTimeSupport)
+                        }}>
+                          {format(new Date(date), 'hh:mm a, MMM dd')}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              {selectedTicket.status !== 'closed' && (
-                <div>
-                  <Form.Group className="mb-3">
+              {selectedTicket.status !== 'closed' && selectedTicket.status !== 'resolved' && (
+                <div style={styles.ticketReplySection}>
+                  <Form.Group style={styles.formGroup}>
                     <Form.Control
                       as="textarea"
                       rows={3}
                       placeholder="Type your reply..."
                       value={ticketReply}
                       onChange={(e) => setTicketReply(e.target.value)}
+                      style={styles.replyTextarea}
                     />
                   </Form.Group>
-                  <div className="d-flex justify-content-end gap-2">
-                    <Button variant="secondary" onClick={() => setSelectedTicket(null)}>
+                  <div style={styles.replyActions}>
+                    <Button variant="secondary" onClick={() => setSelectedTicket(null)} style={styles.replyCancelBtn}>
                       Close
                     </Button>
-                    <Button
-                      variant="primary"
-                      onClick={() => replyToTicket(selectedTicket.id)}
+                    <Button 
+                      variant="primary" 
+                      onClick={() => replyToTicket(selectedTicket.id || selectedTicket._id)} 
                       disabled={submitting}
+                      style={styles.replySendBtn}
                     >
-                      {submitting ? 'Sending...' : 'Send Reply'}
+                      {submitting ? 'Sending...' : <><Send size={16} style={styles.replySendIcon} />Send Reply</>}
                     </Button>
                   </div>
                 </div>
@@ -1008,17 +886,479 @@ const ProviderHelpCenter = () => {
       </Modal>
 
       <style>{`
-        .accordion-button:not(.collapsed) {
-          background-color: white;
-          box-shadow: none;
+        .custom-tabs .nav-link {
+          color: #4b5563;
+          border: none;
+          padding: 0.75rem 1.5rem;
+          border-radius: 12px 12px 0 0;
+          transition: all 0.2s;
         }
-        .accordion-button:focus {
-          box-shadow: none;
-          border-color: rgba(0,0,0,0.125);
+        .custom-tabs .nav-link.active {
+          color: #6366f1;
+          font-weight: 600;
+          border-bottom: 3px solid #6366f1;
+          background: none;
+        }
+        .custom-tabs .nav-link:hover {
+          background: #f8fafc;
+        }
+        .custom-tabs .nav-link .d-flex {
+          gap: 8px;
+        }
+        .modal-content {
+          border-radius: 20px;
+          overflow: hidden;
+        }
+        .modal-header .btn-close {
+          padding: 8px;
+        }
+        .table > :not(caption) > * > * {
+          padding: 12px 16px;
+          vertical-align: middle;
+        }
+        .table tbody tr:hover {
+          background-color: #f8fafc;
+        }
+        .form-control:focus, .form-select:focus {
+          border-color: #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        .stat-card-hover:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+        }
+        .knowledge-card-hover:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 768px) {
+          .custom-tabs .nav-link {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+          }
+          .modal-dialog {
+            margin: 16px;
+          }
         }
       `}</style>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    background: '#f8f9fa',
+    minHeight: '100vh'
+  },
+  alert: {
+    borderRadius: '12px'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  headerTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '4px',
+    fontWeight: '700',
+    fontSize: '28px',
+    color: '#1a202c'
+  },
+  headerIcon: {
+    color: '#6366f1'
+  },
+  headerSubtitle: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '16px'
+  },
+  newTicketBtn: {
+    borderRadius: '12px',
+    padding: '10px 24px',
+    fontWeight: '600',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  statsRow: {
+    marginBottom: '28px',
+    gap: '16px'
+  },
+  statCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    transition: 'all 0.3s ease',
+    cursor: 'pointer'
+  },
+  statCardBody: {
+    padding: '20px 24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px'
+  },
+  statIconWrapper: (color, bg) => ({
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    background: bg,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  }),
+  statLabel: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  statValue: {
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: 0,
+    fontSize: '24px'
+  },
+  tabsCard: {
+    border: 'none',
+    borderRadius: '20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  tabsCardBody: {
+    padding: 0
+  },
+  tabs: {
+    borderBottom: 'none',
+    padding: '0 24px',
+    paddingTop: '16px'
+  },
+  tabTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontWeight: '500'
+  },
+  tabIcon: {
+    opacity: 0.7
+  },
+  tabContent: {
+    padding: '24px'
+  },
+  filtersRow: {
+    marginBottom: '24px',
+    gap: '12px'
+  },
+  searchInput: {
+    borderRadius: '12px',
+    overflow: 'hidden'
+  },
+  searchInputText: {
+    background: 'white',
+    border: '1px solid #e2e8f0',
+    borderRight: 'none'
+  },
+  searchInputControl: {
+    border: '1px solid #e2e8f0',
+    borderLeft: 'none',
+    borderRadius: '0 12px 12px 0',
+    padding: '10px 16px'
+  },
+  filterSelect: {
+    borderRadius: '12px',
+    padding: '10px 16px'
+  },
+  filterBtn: {
+    borderRadius: '12px',
+    padding: '10px 16px',
+    width: '100%',
+    border: '1px solid #e2e8f0'
+  },
+  filterBtnIcon: {
+    marginRight: '8px'
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '60px 20px'
+  },
+  emptyIcon: {
+    color: '#cbd5e0',
+    marginBottom: '16px',
+    opacity: 0.5
+  },
+  emptyTitle: {
+    color: '#4a5568',
+    marginBottom: '8px',
+    fontWeight: '500'
+  },
+  emptyText: {
+    color: '#a0aec0',
+    marginBottom: '16px'
+  },
+  emptyBtn: {
+    color: '#6366f1',
+    fontWeight: '500'
+  },
+  tableWrapper: {
+    overflowX: 'auto'
+  },
+  table: {
+    minWidth: '700px',
+    marginBottom: 0
+  },
+  tableHead: {
+    background: '#f8fafc'
+  },
+  tableHeader: {
+    padding: '12px 16px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4a5568',
+    borderBottom: '2px solid #e2e8f0'
+  },
+  tableRow: {
+    transition: 'background 0.2s'
+  },
+  tableCell: {
+    padding: '12px 16px',
+    verticalAlign: 'middle',
+    fontSize: '14px'
+  },
+  tableCellPrimary: {
+    padding: '12px 16px',
+    verticalAlign: 'middle',
+    fontWeight: '600',
+    color: '#6366f1'
+  },
+  categoryBadge: {
+    borderRadius: '20px',
+    padding: '4px 12px',
+    fontSize: '12px'
+  },
+  viewBtn: {
+    borderRadius: '8px',
+    padding: '4px 14px',
+    fontSize: '13px'
+  },
+  paginationWrapper: {
+    display: 'flex',
+    justifyContent: 'center',
+    marginTop: '24px',
+    paddingTop: '20px',
+    borderTop: '1px solid #e2e8f0'
+  },
+  pagination: {
+    marginBottom: 0
+  },
+  knowledgeGrid: {
+    gap: '16px'
+  },
+  knowledgeCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%',
+    transition: 'all 0.3s ease'
+  },
+  knowledgeCardBody: {
+    padding: '20px'
+  },
+  knowledgeCardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '12px'
+  },
+  knowledgeCardTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '15px',
+    color: '#1a202c',
+    flex: 1
+  },
+  knowledgeCardBadge: {
+    borderRadius: '20px',
+    padding: '4px 12px',
+    fontSize: '11px',
+    marginLeft: '8px',
+    flexShrink: 0
+  },
+  knowledgeCardMeta: {
+    color: '#a0aec0',
+    fontSize: '13px',
+    marginBottom: '16px'
+  },
+  knowledgeCardBtn: {
+    padding: 0,
+    color: '#6366f1',
+    fontWeight: '500',
+    textDecoration: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  knowledgeCardIcon: {
+    marginLeft: '4px'
+  },
+  modalHeader: {
+    borderBottom: 'none',
+    padding: '24px 28px 0'
+  },
+  modalTitle: {
+    fontWeight: '700',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+  },
+  modalTitleIcon: {
+    color: '#6366f1'
+  },
+  modalBody: {
+    padding: '20px 28px'
+  },
+  modalFooter: {
+    borderTop: 'none',
+    padding: '0 28px 24px'
+  },
+  formGroup: {
+    marginBottom: '16px'
+  },
+  formLabel: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  required: {
+    color: '#ef4444'
+  },
+  formControl: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  formRow: {
+    marginBottom: '0'
+  },
+  formSelect: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  formTextarea: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    resize: 'vertical'
+  },
+  modalCancelBtn: {
+    borderRadius: '10px',
+    padding: '8px 24px'
+  },
+  modalSubmitBtn: {
+    borderRadius: '10px',
+    padding: '8px 24px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  ticketDetailHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '24px',
+    flexWrap: 'wrap',
+    gap: '12px'
+  },
+  ticketDetailSubject: {
+    fontWeight: '600',
+    marginBottom: '8px',
+    fontSize: '18px'
+  },
+  ticketDetailBadges: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap'
+  },
+  ticketDetailDate: {
+    color: '#a0aec0'
+  },
+  ticketMessages: {
+    maxHeight: '400px',
+    overflowY: 'auto',
+    marginBottom: '20px',
+    padding: '4px 0'
+  },
+  messageWrapper: {
+    display: 'flex',
+    marginBottom: '16px'
+  },
+  messageBubble: {
+    maxWidth: '70%',
+    padding: '12px 16px',
+    borderRadius: '16px'
+  },
+  messageBubbleUser: {
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    color: 'white',
+    borderBottomRightRadius: '4px'
+  },
+  messageBubbleSupport: {
+    background: '#f1f5f9',
+    color: '#1a202c',
+    borderBottomLeftRadius: '4px'
+  },
+  messageSender: {
+    fontSize: '12px',
+    fontWeight: '600',
+    marginBottom: '4px',
+    opacity: 0.8
+  },
+  messageText: {
+    fontSize: '14px',
+    lineHeight: 1.5
+  },
+  messageTime: {
+    fontSize: '10px',
+    marginTop: '6px',
+    opacity: 0.7
+  },
+  messageTimeUser: {
+    color: 'rgba(255,255,255,0.7)'
+  },
+  messageTimeSupport: {
+    color: '#94a3b8'
+  },
+  ticketReplySection: {
+    borderTop: '1px solid #e2e8f0',
+    paddingTop: '20px'
+  },
+  replyTextarea: {
+    borderRadius: '10px',
+    resize: 'vertical',
+    padding: '10px 14px'
+  },
+  replyActions: {
+    display: 'flex',
+    gap: '12px',
+    justifyContent: 'flex-end'
+  },
+  replyCancelBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  replySendBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  replySendIcon: {
+    marginRight: '4px'
+  }
 };
 
 export default ProviderHelpCenter;

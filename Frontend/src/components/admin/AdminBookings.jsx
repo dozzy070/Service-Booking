@@ -1,5 +1,5 @@
 // src/pages/admin/AdminBookings.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { adminAPI } from '../../api/api';
 import {
   Container,
@@ -16,10 +16,10 @@ import {
   Alert,
   Pagination,
   Nav,
-  Spinner,
   Image,
   OverlayTrigger,
-  Tooltip
+  Tooltip,
+  Spinner
 } from 'react-bootstrap';
 import {
   FaSearch,
@@ -56,7 +56,7 @@ import {
   FaCheck,
   FaTimes
 } from 'react-icons/fa';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow, subDays, subMonths } from 'date-fns';
 import toast from 'react-hot-toast';
 
 const AdminBookings = () => {
@@ -71,8 +71,9 @@ const AdminBookings = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showFilters, setShowFilters] = useState(false);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Data State
   const [bookings, setBookings] = useState([]);
@@ -88,6 +89,7 @@ const AdminBookings = () => {
     totalRevenue: 0,
     averageValue: 0
   });
+  const [totalCount, setTotalCount] = useState(0);
 
   // Modal State
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -103,6 +105,10 @@ const AdminBookings = () => {
   const [newStatus, setNewStatus] = useState('');
   const [processing, setProcessing] = useState(false);
   const [selectedBookings, setSelectedBookings] = useState([]);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Format currency to NGN
   const formatNaira = (amount) => {
@@ -120,9 +126,16 @@ const AdminBookings = () => {
     return formatNaira(amount);
   };
 
-  // ✅ Fetch bookings with proper data extraction
-  const fetchBookings = useCallback(async () => {
+  // ✅ Fetch bookings from real API
+  const fetchBookings = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!adminAPI || typeof adminAPI.getBookings !== 'function') {
+        throw new Error('API service not available');
+      }
+
       const params = {
         startDate: dateRange.start || undefined,
         endDate: dateRange.end || undefined,
@@ -131,30 +144,70 @@ const AdminBookings = () => {
         customerId: filterCustomer !== 'all' ? filterCustomer : undefined,
         search: searchTerm || undefined,
         sortBy: sortConfig.key,
-        sortOrder: sortConfig.direction
+        sortOrder: sortConfig.direction,
+        limit: itemsPerPage,
+        page: currentPage
       };
+
       const response = await adminAPI.getBookings(params);
-      // ✅ Extract bookings array safely
-      const bookingList = Array.isArray(response.data) ? response.data :
-                          Array.isArray(response.data?.bookings) ? response.data.bookings :
-                          Array.isArray(response.data?.data) ? response.data.data : [];
-      setBookings(bookingList);
-      calculateStats(bookingList);
+      
+      // Handle different response formats
+      let data = response?.data || [];
+      let total = 0;
+      
+      if (Array.isArray(data)) {
+        setBookings(data);
+        total = data.length;
+      } else if (data.bookings) {
+        setBookings(data.bookings);
+        total = data.total || data.bookings.length;
+      } else if (data.data) {
+        setBookings(data.data);
+        total = data.total || data.data.length;
+      } else {
+        setBookings([]);
+        total = 0;
+      }
+      
+      setTotalCount(total);
+      calculateStats(data.bookings || data.data || data || []);
+      
     } catch (error) {
       console.error('Error fetching bookings:', error);
-      toast.error('Failed to load bookings');
+      setError(error.message || 'Failed to load bookings');
       setBookings([]);
+      setTotalCount(0);
+      setStats({
+        total: 0,
+        pending: 0,
+        confirmed: 0,
+        inProgress: 0,
+        completed: 0,
+        cancelled: 0,
+        totalRevenue: 0,
+        averageValue: 0
+      });
+      
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load bookings');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
-  }, [dateRange, filterStatus, filterProvider, filterCustomer, searchTerm, sortConfig]);
+  }, [dateRange, filterStatus, filterProvider, filterCustomer, searchTerm, sortConfig, itemsPerPage, currentPage]);
 
-  // ✅ Fetch providers
+  // ✅ Fetch providers from real API
   const fetchProviders = useCallback(async () => {
     try {
-      const response = await adminAPI.getProviders();
-      const providerList = Array.isArray(response.data) ? response.data :
-                           Array.isArray(response.data?.providers) ? response.data.providers : [];
+      if (!adminAPI || typeof adminAPI.getProviders !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      const response = await adminAPI.getProviders({ limit: 100 });
+      const data = response?.data || [];
+      const providerList = Array.isArray(data) ? data : 
+                          data.providers || data.data || [];
       setProviders(providerList);
     } catch (error) {
       console.error('Error fetching providers:', error);
@@ -162,12 +215,20 @@ const AdminBookings = () => {
     }
   }, []);
 
-  // ✅ Fetch customers
+  // ✅ Fetch customers from real API
   const fetchCustomers = useCallback(async () => {
     try {
-      const response = await adminAPI.getUsers({ role: 'customer' });
-      const customerList = Array.isArray(response.data) ? response.data :
-                           Array.isArray(response.data?.users) ? response.data.users : [];
+      if (!adminAPI || typeof adminAPI.getUsers !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      const response = await adminAPI.getUsers({ 
+        role: 'customer',
+        limit: 100 
+      });
+      const data = response?.data || [];
+      const customerList = Array.isArray(data) ? data : 
+                          data.users || data.data || [];
       setCustomers(customerList);
     } catch (error) {
       console.error('Error fetching customers:', error);
@@ -178,73 +239,150 @@ const AdminBookings = () => {
   // ✅ Calculate stats with safety checks
   const calculateStats = (bookingList) => {
     const list = Array.isArray(bookingList) ? bookingList : [];
+    
+    if (list.length === 0) {
+      setStats({
+        total: 0,
+        pending: 0,
+        confirmed: 0,
+        inProgress: 0,
+        completed: 0,
+        cancelled: 0,
+        totalRevenue: 0,
+        averageValue: 0
+      });
+      return;
+    }
+    
     const newStats = {
       total: list.length,
-      pending: list.filter(b => b?.status === 'pending').length,
-      confirmed: list.filter(b => b?.status === 'confirmed' || b?.status === 'accepted').length,
-      inProgress: list.filter(b => b?.status === 'in_progress').length,
-      completed: list.filter(b => b?.status === 'completed').length,
-      cancelled: list.filter(b => b?.status === 'cancelled').length,
-      totalRevenue: list.reduce((sum, b) => sum + (b?.totalAmount || b?.total_amount || b?.amount || 0), 0),
-      averageValue: list.length > 0 ? list.reduce((sum, b) => sum + (b?.totalAmount || b?.total_amount || b?.amount || 0), 0) / list.length : 0
+      pending: list.filter(b => b?.status?.toLowerCase() === 'pending').length,
+      confirmed: list.filter(b => ['confirmed', 'accepted'].includes(b?.status?.toLowerCase())).length,
+      inProgress: list.filter(b => b?.status?.toLowerCase() === 'in_progress').length,
+      completed: list.filter(b => b?.status?.toLowerCase() === 'completed').length,
+      cancelled: list.filter(b => b?.status?.toLowerCase() === 'cancelled').length,
+      totalRevenue: list.reduce((sum, b) => sum + (parseFloat(b?.totalAmount || b?.total_amount || b?.amount) || 0), 0),
+      averageValue: list.length > 0 ? 
+        list.reduce((sum, b) => sum + (parseFloat(b?.totalAmount || b?.total_amount || b?.amount) || 0), 0) / list.length : 0
     };
     setStats(newStats);
   };
 
   // ✅ Fetch all data
   const fetchAllData = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([fetchBookings(), fetchProviders(), fetchCustomers()]);
-    setLoading(false);
+    await Promise.all([fetchBookings(true), fetchProviders(), fetchCustomers()]);
   }, [fetchBookings, fetchProviders, fetchCustomers]);
 
+  // ✅ Initial data load
+  useEffect(() => {
+    fetchAllData();
+    
+    // Set up real-time polling
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // ✅ Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchBookings(false);
+    }
+  }, [dateRange, filterStatus, filterProvider, filterCustomer, searchTerm, sortConfig, itemsPerPage, currentPage]);
+
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchBookings(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData();
-    setRefreshing(false);
     toast.success('Data refreshed');
   };
-
-  useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
-
-  // Refetch when filters change
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus, filterProvider, filterCustomer, dateRange, activeTab]);
 
-  // ✅ Booking actions with adminAPI
+  // ✅ Booking actions with real API
   const handleStatusChange = async (bookingId, status) => {
+    if (!bookingId) return;
     setProcessing(true);
     try {
+      if (!adminAPI || typeof adminAPI.updateBookingStatus !== 'function') {
+        throw new Error('API service not available');
+      }
+      
       await adminAPI.updateBookingStatus(bookingId, { status });
-      await fetchBookings();
+      
+      // Update local state
+      setBookings(prev => prev.map(b => 
+        b.id === bookingId || b._id === bookingId ? { ...b, status: status } : b
+      ));
+      
+      // Recalculate stats
+      const updatedBookings = bookings.map(b => 
+        b.id === bookingId || b._id === bookingId ? { ...b, status: status } : b
+      );
+      calculateStats(updatedBookings);
+      
       toast.success(`Booking status updated to ${status}`);
+      setShowStatusModal(false);
     } catch (error) {
-      toast.error('Failed to update booking status');
+      console.error('Error updating status:', error);
+      toast.error(error.message || 'Failed to update booking status');
     } finally {
       setProcessing(false);
-      setShowStatusModal(false);
     }
   };
 
   const handleDeleteBooking = async () => {
     if (!selectedBooking) return;
+    const bookingId = selectedBooking.id || selectedBooking._id;
+    if (!bookingId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.deleteBooking(selectedBooking.id);
-      await fetchBookings();
+      if (!adminAPI || typeof adminAPI.deleteBooking !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      await adminAPI.deleteBooking(bookingId);
+      
+      // Remove from local state
+      const updatedBookings = bookings.filter(b => 
+        (b.id || b._id) !== bookingId
+      );
+      setBookings(updatedBookings);
+      calculateStats(updatedBookings);
+      
       setShowDeleteModal(false);
       setSelectedBooking(null);
-      toast.success('Booking deleted');
+      toast.success('Booking deleted successfully');
     } catch (error) {
-      toast.error('Failed to delete booking');
+      console.error('Error deleting booking:', error);
+      toast.error(error.message || 'Failed to delete booking');
     } finally {
       setProcessing(false);
     }
@@ -252,15 +390,33 @@ const AdminBookings = () => {
 
   const handleUpdateBooking = async () => {
     if (!selectedBooking) return;
+    const bookingId = selectedBooking.id || selectedBooking._id;
+    if (!bookingId) return;
+    
     setProcessing(true);
     try {
-      await adminAPI.updateBooking(selectedBooking.id, editFormData);
-      await fetchBookings();
+      if (!adminAPI || typeof adminAPI.updateBooking !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      await adminAPI.updateBooking(bookingId, editFormData);
+      
+      // Update local state
+      setBookings(prev => prev.map(b => 
+        (b.id || b._id) === bookingId ? { ...b, ...editFormData } : b
+      ));
+      
+      const updatedBookings = bookings.map(b => 
+        (b.id || b._id) === bookingId ? { ...b, ...editFormData } : b
+      );
+      calculateStats(updatedBookings);
+      
       setShowEditModal(false);
       setSelectedBooking(null);
-      toast.success('Booking updated');
+      toast.success('Booking updated successfully');
     } catch (error) {
-      toast.error('Failed to update booking');
+      console.error('Error updating booking:', error);
+      toast.error(error.message || 'Failed to update booking');
     } finally {
       setProcessing(false);
     }
@@ -270,12 +426,30 @@ const AdminBookings = () => {
     if (selectedBookings.length === 0) return;
     setProcessing(true);
     try {
-      await adminAPI.bulkBookingAction({ bookingIds: selectedBookings, action: status });
-      await fetchBookings();
+      if (!adminAPI || typeof adminAPI.bulkBookingAction !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      await adminAPI.bulkBookingAction({ 
+        bookingIds: selectedBookings, 
+        action: status 
+      });
+      
+      // Update local state
+      setBookings(prev => prev.map(b => 
+        selectedBookings.includes(b.id || b._id) ? { ...b, status: status } : b
+      ));
+      
+      const updatedBookings = bookings.map(b => 
+        selectedBookings.includes(b.id || b._id) ? { ...b, status: status } : b
+      );
+      calculateStats(updatedBookings);
+      
       setSelectedBookings([]);
       toast.success(`${selectedBookings.length} bookings updated to ${status}`);
     } catch (error) {
-      toast.error('Bulk update failed');
+      console.error('Error in bulk update:', error);
+      toast.error(error.message || 'Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -286,11 +460,12 @@ const AdminBookings = () => {
     if (selectedBookings.length === filteredBookings.length) {
       setSelectedBookings([]);
     } else {
-      setSelectedBookings(filteredBookings.map(b => b.id).filter(Boolean));
+      setSelectedBookings(filteredBookings.map(b => b.id || b._id).filter(Boolean));
     }
   };
 
   const handleSelectBooking = (bookingId) => {
+    if (!bookingId) return;
     setSelectedBookings(prev =>
       prev.includes(bookingId) ? prev.filter(id => id !== bookingId) : [...prev, bookingId]
     );
@@ -312,11 +487,19 @@ const AdminBookings = () => {
   const filteredBookings = useMemo(() => {
     const list = Array.isArray(bookings) ? bookings : [];
     let filtered = [...list];
-    if (activeTab === 'pending') filtered = filtered.filter(b => b?.status === 'pending');
-    if (activeTab === 'confirmed') filtered = filtered.filter(b => b?.status === 'confirmed' || b?.status === 'accepted');
-    if (activeTab === 'inProgress') filtered = filtered.filter(b => b?.status === 'in_progress');
-    if (activeTab === 'completed') filtered = filtered.filter(b => b?.status === 'completed');
-    if (activeTab === 'cancelled') filtered = filtered.filter(b => b?.status === 'cancelled');
+    
+    if (activeTab === 'pending') {
+      filtered = filtered.filter(b => b?.status?.toLowerCase() === 'pending');
+    } else if (activeTab === 'confirmed') {
+      filtered = filtered.filter(b => ['confirmed', 'accepted'].includes(b?.status?.toLowerCase()));
+    } else if (activeTab === 'inProgress') {
+      filtered = filtered.filter(b => b?.status?.toLowerCase() === 'in_progress');
+    } else if (activeTab === 'completed') {
+      filtered = filtered.filter(b => b?.status?.toLowerCase() === 'completed');
+    } else if (activeTab === 'cancelled') {
+      filtered = filtered.filter(b => b?.status?.toLowerCase() === 'cancelled');
+    }
+    
     return filtered;
   }, [bookings, activeTab]);
 
@@ -328,6 +511,16 @@ const AdminBookings = () => {
 
   // Get status badge
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaInfoCircle />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const badges = {
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
       confirmed: { bg: 'info', icon: <FaCheckCircle />, label: 'Confirmed' },
@@ -336,7 +529,7 @@ const AdminBookings = () => {
       completed: { bg: 'success', icon: <FaCheckCircle />, label: 'Completed' },
       cancelled: { bg: 'danger', icon: <FaTimesCircle />, label: 'Cancelled' }
     };
-    const b = badges[status] || badges.pending;
+    const b = badges[lowerStatus] || badges.pending;
     return (
       <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
         {b.icon}
@@ -345,13 +538,31 @@ const AdminBookings = () => {
     );
   };
 
+  // Get booking ID
+  const getBookingId = (booking) => {
+    return booking?.bookingNumber || booking?.id?.slice(-8) || booking?._id?.slice(-8) || 'N/A';
+  };
+
+  // Get field with fallback
+  const getField = (obj, fields, fallback = 'N/A') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // ✅ Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading bookings...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading bookings...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -380,6 +591,14 @@ const AdminBookings = () => {
             </Button>
           </div>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
 
         {/* Stats Cards */}
         <Row className="g-4 mb-4">
@@ -575,7 +794,9 @@ const AdminBookings = () => {
                 >
                   <option value="all">All Providers</option>
                   {providers.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id || p._id} value={p.id || p._id}>
+                      {p.name || p.providerName || p.fullName || 'Unknown'}
+                    </option>
                   ))}
                 </Form.Select>
                 <Form.Select 
@@ -585,7 +806,9 @@ const AdminBookings = () => {
                 >
                   <option value="all">All Customers</option>
                   {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.id || c._id} value={c.id || c._id}>
+                      {c.name || c.fullName || c.username || 'Unknown'}
+                    </option>
                   ))}
                 </Form.Select>
                 <Form.Select 
@@ -642,6 +865,14 @@ const AdminBookings = () => {
                 <FaCalendarAlt size={48} className="text-muted mb-3 opacity-50" />
                 <h6 className="text-muted">No bookings found</h6>
                 <p className="text-muted small">Try adjusting your search or filter criteria</p>
+                <Button variant="link" onClick={() => {
+                  setSearchTerm('');
+                  setFilterStatus('all');
+                  setFilterProvider('all');
+                  setFilterCustomer('all');
+                  setDateRange({ start: '', end: '' });
+                  setActiveTab('all');
+                }}>Reset all filters</Button>
               </div>
             ) : (
               <>
@@ -679,139 +910,154 @@ const AdminBookings = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentItems.map(booking => booking && (
-                        <tr key={booking.id} className={selectedBookings.includes(booking.id) ? 'table-active' : ''}>
-                          <td style={{ padding: '16px' }}>
-                            <Form.Check 
-                              type="checkbox" 
-                              checked={selectedBookings.includes(booking.id)} 
-                              onChange={() => handleSelectBooking(booking.id)} 
-                            />
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <span className="fw-semibold">#{booking.bookingNumber || booking.id?.slice(-8) || 'N/A'}</span>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <Image 
-                                src={booking.customerAvatar || `https://ui-avatars.com/api/?name=${booking.customerName || 'U'}&background=6366f1&color=fff&size=32`} 
-                                roundedCircle 
-                                width={32} 
-                                height={32} 
-                                style={{ objectFit: 'cover' }}
+                      {currentItems.map(booking => {
+                        const bookingId = booking.id || booking._id;
+                        const customerName = getField(booking, ['customerName', 'customer.name', 'user.name', 'customer.username'], 'Unknown');
+                        const providerName = getField(booking, ['providerName', 'provider.name', 'provider.username'], 'Unknown');
+                        const serviceTitle = getField(booking, ['serviceTitle', 'service.title', 'service.name', 'title'], 'Unknown Service');
+                        const bookingNumber = getField(booking, ['bookingNumber', 'bookingId', 'reference', 'id'], 'N/A');
+                        const customerEmail = getField(booking, ['customerEmail', 'customer.email', 'user.email'], '');
+                        const providerEmail = getField(booking, ['providerEmail', 'provider.email', 'provider.contactEmail'], '');
+                        const customerPhone = getField(booking, ['customerPhone', 'customer.phone', 'user.phone'], '');
+                        const serviceCategory = getField(booking, ['serviceCategory', 'category', 'service.category'], '');
+                        const location = getField(booking, ['location', 'serviceLocation', 'address'], '');
+                        const notes = getField(booking, ['notes', 'description', 'remarks'], '');
+                        const bookingDate = booking.bookingDate || booking.createdAt || booking.date;
+                        
+                        return (
+                          <tr key={bookingId} className={selectedBookings.includes(bookingId) ? 'table-active' : ''}>
+                            <td style={{ padding: '16px' }}>
+                              <Form.Check 
+                                type="checkbox" 
+                                checked={selectedBookings.includes(bookingId)} 
+                                onChange={() => handleSelectBooking(bookingId)} 
                               />
-                              <div>
-                                <div className="fw-semibold">{booking.customerName || 'Unknown'}</div>
-                                <small className="text-muted">{booking.customerEmail || ''}</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span className="fw-semibold">#{bookingNumber}</span>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-2">
+                                <Image 
+                                  src={booking.customerAvatar || `https://ui-avatars.com/api/?name=${customerName}&background=6366f1&color=fff&size=32`} 
+                                  roundedCircle 
+                                  width={32} 
+                                  height={32} 
+                                  style={{ objectFit: 'cover' }}
+                                />
+                                <div>
+                                  <div className="fw-semibold">{customerName}</div>
+                                  {customerEmail && <small className="text-muted">{customerEmail}</small>}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <Image 
-                                src={booking.providerAvatar || `https://ui-avatars.com/api/?name=${booking.providerName || 'U'}&background=10b981&color=fff&size=32`} 
-                                roundedCircle 
-                                width={32} 
-                                height={32} 
-                                style={{ objectFit: 'cover' }}
-                              />
-                              <div>
-                                <div className="fw-semibold">{booking.providerName || 'Unknown'}</div>
-                                <small className="text-muted">{booking.providerEmail || ''}</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-2">
+                                <Image 
+                                  src={booking.providerAvatar || `https://ui-avatars.com/api/?name=${providerName}&background=10b981&color=fff&size=32`} 
+                                  roundedCircle 
+                                  width={32} 
+                                  height={32} 
+                                  style={{ objectFit: 'cover' }}
+                                />
+                                <div>
+                                  <div className="fw-semibold">{providerName}</div>
+                                  {providerEmail && <small className="text-muted">{providerEmail}</small>}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div>
-                              <div className="fw-semibold">{booking.serviceTitle || 'Unknown Service'}</div>
-                              <small className="text-muted">{booking.serviceCategory || ''}</small>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">
-                              {booking.bookingDate ? format(new Date(booking.bookingDate), 'MMM dd, yyyy') : 'N/A'}
-                            </div>
-                            <small className="text-muted">
-                              {booking.bookingDate ? formatDistanceToNow(new Date(booking.bookingDate), { addSuffix: true }) : ''}
-                            </small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-bold text-primary">
-                              {formatNaira(booking.totalAmount || booking.total_amount || booking.amount || 0)}
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>{getStatusBadge(booking.status)}</td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex gap-1">
-                              <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-primary" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedBooking(booking); 
-                                    setShowDetailsModal(true); 
-                                  }}
-                                >
-                                  <FaEye size={14} />
-                                </Button>
-                              </OverlayTrigger>
-                              
-                              <OverlayTrigger placement="top" overlay={<Tooltip>Edit Booking</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-info" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedBooking(booking); 
-                                    setEditFormData({
-                                      status: booking.status || '',
-                                      notes: booking.notes || '',
-                                      totalAmount: booking.totalAmount || booking.total_amount || booking.amount || ''
-                                    });
-                                    setShowEditModal(true); 
-                                  }}
-                                >
-                                  <FaEdit size={14} />
-                                </Button>
-                              </OverlayTrigger>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div>
+                                <div className="fw-semibold">{serviceTitle}</div>
+                                {serviceCategory && <small className="text-muted">{serviceCategory}</small>}
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-semibold">
+                                {bookingDate ? format(new Date(bookingDate), 'MMM dd, yyyy') : 'N/A'}
+                              </div>
+                              <small className="text-muted">
+                                {bookingDate ? formatDistanceToNow(new Date(bookingDate), { addSuffix: true }) : ''}
+                              </small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-bold text-primary">
+                                {formatNaira(booking.totalAmount || booking.total_amount || booking.amount || 0)}
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px' }}>{getStatusBadge(booking.status)}</td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex gap-1">
+                                <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-primary" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                    onClick={() => { 
+                                      setSelectedBooking(booking); 
+                                      setShowDetailsModal(true); 
+                                    }}
+                                  >
+                                    <FaEye size={14} />
+                                  </Button>
+                                </OverlayTrigger>
+                                
+                                <OverlayTrigger placement="top" overlay={<Tooltip>Edit Booking</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-info" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                    onClick={() => { 
+                                      setSelectedBooking(booking); 
+                                      setEditFormData({
+                                        status: booking.status || '',
+                                        notes: notes || '',
+                                        totalAmount: booking.totalAmount || booking.total_amount || booking.amount || ''
+                                      });
+                                      setShowEditModal(true); 
+                                    }}
+                                  >
+                                    <FaEdit size={14} />
+                                  </Button>
+                                </OverlayTrigger>
 
-                              <OverlayTrigger placement="top" overlay={<Tooltip>Change Status</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-secondary" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedBooking(booking); 
-                                    setNewStatus(booking.status || '');
-                                    setShowStatusModal(true); 
-                                  }}
-                                >
-                                  <FaCheckCircle size={14} />
-                                </Button>
-                              </OverlayTrigger>
+                                <OverlayTrigger placement="top" overlay={<Tooltip>Change Status</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-secondary" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                    onClick={() => { 
+                                      setSelectedBooking(booking); 
+                                      setNewStatus(booking.status || 'pending');
+                                      setShowStatusModal(true); 
+                                    }}
+                                  >
+                                    <FaCheckCircle size={14} />
+                                  </Button>
+                                </OverlayTrigger>
 
-                              <OverlayTrigger placement="top" overlay={<Tooltip>Delete</Tooltip>}>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline-danger" 
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => { 
-                                    setSelectedBooking(booking); 
-                                    setShowDeleteModal(true); 
-                                  }}
-                                >
-                                  <FaTrash size={14} />
-                                </Button>
-                              </OverlayTrigger>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                                <OverlayTrigger placement="top" overlay={<Tooltip>Delete</Tooltip>}>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-danger" 
+                                    className="rounded-circle p-1"
+                                    style={{ width: '32px', height: '32px' }}
+                                    onClick={() => { 
+                                      setSelectedBooking(booking); 
+                                      setShowDeleteModal(true); 
+                                    }}
+                                  >
+                                    <FaTrash size={14} />
+                                  </Button>
+                                </OverlayTrigger>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -866,13 +1112,17 @@ const AdminBookings = () => {
             <>
               <div className="d-flex justify-content-between align-items-start mb-4">
                 <div>
-                  <h5 className="mb-1">#{selectedBooking.bookingNumber || selectedBooking.id?.slice(-8) || 'N/A'}</h5>
+                  <h5 className="mb-1">#{getBookingId(selectedBooking)}</h5>
                   <div>{getStatusBadge(selectedBooking.status)}</div>
                 </div>
                 <div className="text-end">
-                  <div className="fw-bold text-primary h4">{formatNaira(selectedBooking.totalAmount || selectedBooking.total_amount || selectedBooking.amount || 0)}</div>
+                  <div className="fw-bold text-primary h4">
+                    {formatNaira(selectedBooking.totalAmount || selectedBooking.total_amount || selectedBooking.amount || 0)}
+                  </div>
                   <small className="text-muted">
-                    {selectedBooking.bookingDate ? format(new Date(selectedBooking.bookingDate), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                    {selectedBooking.bookingDate || selectedBooking.createdAt ? 
+                      format(new Date(selectedBooking.bookingDate || selectedBooking.createdAt), 'MMM dd, yyyy hh:mm a') : 
+                      'N/A'}
                   </small>
                 </div>
               </div>
@@ -882,9 +1132,9 @@ const AdminBookings = () => {
                   <Card className="border-0 bg-light">
                     <Card.Body>
                       <h6 className="fw-bold mb-3"><FaUser className="me-2" /> Customer</h6>
-                      <p className="mb-1"><strong>Name:</strong> {selectedBooking.customerName || 'N/A'}</p>
-                      <p className="mb-1"><strong>Email:</strong> {selectedBooking.customerEmail || 'N/A'}</p>
-                      <p className="mb-0"><strong>Phone:</strong> {selectedBooking.customerPhone || 'N/A'}</p>
+                      <p className="mb-1"><strong>Name:</strong> {getField(selectedBooking, ['customerName', 'customer.name', 'user.name'], 'N/A')}</p>
+                      <p className="mb-1"><strong>Email:</strong> {getField(selectedBooking, ['customerEmail', 'customer.email', 'user.email'], 'N/A')}</p>
+                      <p className="mb-0"><strong>Phone:</strong> {getField(selectedBooking, ['customerPhone', 'customer.phone', 'user.phone'], 'N/A')}</p>
                     </Card.Body>
                   </Card>
                 </Col>
@@ -892,10 +1142,10 @@ const AdminBookings = () => {
                   <Card className="border-0 bg-light">
                     <Card.Body>
                       <h6 className="fw-bold mb-3"><FaServicestack className="me-2" /> Service</h6>
-                      <p className="mb-1"><strong>Name:</strong> {selectedBooking.serviceTitle || 'N/A'}</p>
-                      <p className="mb-1"><strong>Category:</strong> {selectedBooking.serviceCategory || 'N/A'}</p>
-                      <p className="mb-1"><strong>Provider:</strong> {selectedBooking.providerName || 'N/A'}</p>
-                      <p className="mb-0"><strong>Location:</strong> {selectedBooking.location || 'N/A'}</p>
+                      <p className="mb-1"><strong>Name:</strong> {getField(selectedBooking, ['serviceTitle', 'service.title', 'title'], 'N/A')}</p>
+                      <p className="mb-1"><strong>Category:</strong> {getField(selectedBooking, ['serviceCategory', 'category', 'service.category'], 'N/A')}</p>
+                      <p className="mb-1"><strong>Provider:</strong> {getField(selectedBooking, ['providerName', 'provider.name'], 'N/A')}</p>
+                      <p className="mb-0"><strong>Location:</strong> {getField(selectedBooking, ['location', 'serviceLocation', 'address'], 'N/A')}</p>
                     </Card.Body>
                   </Card>
                 </Col>
@@ -903,7 +1153,7 @@ const AdminBookings = () => {
                   <Card className="border-0 bg-light">
                     <Card.Body>
                       <h6 className="fw-bold mb-3"><FaInfoCircle className="me-2" /> Notes</h6>
-                      <p className="mb-0">{selectedBooking.notes || 'No notes provided'}</p>
+                      <p className="mb-0">{getField(selectedBooking, ['notes', 'description', 'remarks'], 'No notes provided')}</p>
                     </Card.Body>
                   </Card>
                 </Col>
@@ -915,7 +1165,10 @@ const AdminBookings = () => {
           <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>
             Close
           </Button>
-          <Button variant="primary" onClick={() => { setShowDetailsModal(false); setShowEditModal(true); }}>
+          <Button variant="primary" onClick={() => { 
+            setShowDetailsModal(false); 
+            setShowEditModal(true); 
+          }}>
             <FaEdit className="me-2" /> Edit
           </Button>
         </Modal.Footer>
@@ -967,7 +1220,7 @@ const AdminBookings = () => {
             Cancel
           </Button>
           <Button variant="primary" onClick={handleUpdateBooking} disabled={processing}>
-            {processing ? 'Saving...' : 'Save Changes'}
+            {processing ? <><Spinner animation="border" size="sm" /> Saving...</> : 'Save Changes'}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -1000,12 +1253,12 @@ const AdminBookings = () => {
             variant="primary" 
             onClick={() => {
               if (selectedBooking) {
-                handleStatusChange(selectedBooking.id, newStatus);
+                handleStatusChange(selectedBooking.id || selectedBooking._id, newStatus);
               }
             }} 
             disabled={processing}
           >
-            {processing ? 'Updating...' : 'Update Status'}
+            {processing ? <><Spinner animation="border" size="sm" /> Updating...</> : 'Update Status'}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -1018,7 +1271,7 @@ const AdminBookings = () => {
         <Modal.Body className="pt-4">
           <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
             <FaExclamationTriangle className="me-2" />
-            Are you sure you want to delete booking #{selectedBooking?.bookingNumber || selectedBooking?.id?.slice(-8) || 'N/A'}?
+            Are you sure you want to delete booking #{selectedBooking ? getBookingId(selectedBooking) : 'N/A'}?
             <p className="mb-0 mt-2 small text-danger">This action cannot be undone.</p>
           </Alert>
         </Modal.Body>
@@ -1027,7 +1280,7 @@ const AdminBookings = () => {
             Cancel
           </Button>
           <Button variant="danger" onClick={handleDeleteBooking} disabled={processing}>
-            {processing ? 'Deleting...' : 'Delete'}
+            {processing ? <><Spinner animation="border" size="sm" /> Deleting...</> : 'Delete'}
           </Button>
         </Modal.Footer>
       </Modal>

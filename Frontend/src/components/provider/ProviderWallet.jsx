@@ -1,5 +1,5 @@
 // src/components/provider/ProviderWallet.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -40,8 +40,8 @@ import {
   ArrowUp,
   ArrowDown,
   Shield,
-  TrendingUp,        // ✅ ADD THIS
-  TrendingDown        // ✅ ADD THIS
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -49,12 +49,11 @@ import { providerAPI } from '../../api/api';
 import { format, subDays } from 'date-fns';
 import toast from 'react-hot-toast';
 
-// ... rest of your component
-
 const ProviderWallet = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [walletData, setWalletData] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [earningsStats, setEarningsStats] = useState({
@@ -74,35 +73,73 @@ const ProviderWallet = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [dateRange, setDateRange] = useState('all');
   const [processingWithdrawal, setProcessingWithdrawal] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
 
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount || 0);
   };
 
-  // Fetch wallet data
+  // Fetch wallet data from real API
   const fetchWalletData = useCallback(async () => {
     try {
-      const response = await providerAPI.getWallet();
-      setWalletData(response.data);
-      return response.data;
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getWallet === 'function') {
+        response = await providerAPI.getWallet();
+      } else if (typeof providerAPI.getProviderWallet === 'function') {
+        response = await providerAPI.getProviderWallet();
+      } else {
+        throw new Error('Wallet API methods not available');
+      }
+
+      const data = response?.data || {};
+      setWalletData({
+        total_balance: data.total_balance || data.balance || 0,
+        available_balance: data.available_balance || data.available || 0,
+        pending_balance: data.pending_balance || data.pending || 0,
+        currency: data.currency || 'NGN'
+      });
+      
+      return data;
     } catch (error) {
       console.error('Error fetching wallet:', error);
+      setError(error.message || 'Failed to load wallet data');
       toast.error('Failed to load wallet data');
       return null;
     }
   }, []);
 
-  // Fetch transactions
+  // Fetch transactions from real API
   const fetchTransactions = useCallback(async (page = 1, type = 'all', status = 'all', range = 'all') => {
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       let params = {
         page,
         limit: itemsPerPage,
@@ -133,74 +170,167 @@ const ProviderWallet = () => {
         }
       }
 
-      const response = await providerAPI.getTransactions(params);
-      setTransactions(response.data.transactions || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
-      return response.data;
+      let response = null;
+      
+      if (typeof providerAPI.getTransactions === 'function') {
+        response = await providerAPI.getTransactions(params);
+      } else if (typeof providerAPI.getProviderTransactions === 'function') {
+        response = await providerAPI.getProviderTransactions(params);
+      } else {
+        throw new Error('Transactions API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const transactionsData = data.transactions || data.data || [];
+      
+      setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
+      setTotalCount(data.total || transactionsData.length || 0);
+      setTotalPages(Math.ceil((data.total || transactionsData.length || 0) / itemsPerPage));
+      
+      return data;
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setTransactions([]);
+      setTotalCount(0);
+      setTotalPages(1);
       toast.error('Failed to load transactions');
       return null;
     }
   }, []);
 
-  // Fetch earnings stats
+  // Fetch earnings stats from real API
   const fetchEarningsStats = useCallback(async () => {
     try {
-      const response = await providerAPI.getStats();
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getStats === 'function') {
+        response = await providerAPI.getStats();
+      } else if (typeof providerAPI.getProviderStats === 'function') {
+        response = await providerAPI.getProviderStats();
+      } else {
+        throw new Error('Stats API methods not available');
+      }
+
+      const data = response?.data || {};
       setEarningsStats({
-        week: response.data.week_earnings || 0,
-        month: response.data.month_earnings || 0,
-        weekChange: response.data.week_change || 0,
-        monthChange: response.data.month_change || 0
+        week: data.week_earnings || data.week || 0,
+        month: data.month_earnings || data.month || 0,
+        weekChange: data.week_change || data.weekGrowth || 0,
+        monthChange: data.month_change || data.monthGrowth || 0
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Keep default stats
     }
   }, []);
 
-  // Fetch withdrawal methods
+  // Fetch withdrawal methods from real API
   const fetchWithdrawalMethods = useCallback(async () => {
     try {
-      const response = await providerAPI.getWithdrawalMethods();
-      setWithdrawalMethods(response.data || []);
-      if (response.data && response.data.length > 0) {
-        setWithdrawMethod(response.data[0].id);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getWithdrawalMethods === 'function') {
+        response = await providerAPI.getWithdrawalMethods();
+      } else if (typeof providerAPI.getPayoutMethods === 'function') {
+        response = await providerAPI.getPayoutMethods();
+      } else {
+        throw new Error('Withdrawal methods API methods not available');
+      }
+
+      const data = response?.data || [];
+      const methods = Array.isArray(data) ? data : [];
+      setWithdrawalMethods(methods);
+      
+      if (methods.length > 0) {
+        const firstMethod = methods[0];
+        setWithdrawMethod(firstMethod.id || firstMethod._id);
       }
     } catch (error) {
       console.error('Error fetching withdrawal methods:', error);
-      // Fallback methods
+      // Set fallback methods
       setWithdrawalMethods([
         { id: 'bank', name: 'Bank Transfer' },
         { id: 'wallet', name: 'Mobile Wallet' }
       ]);
+      setWithdrawMethod('bank');
     }
   }, []);
 
   // Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchWalletData(),
-      fetchTransactions(currentPage, filterType, filterStatus, dateRange),
-      fetchEarningsStats(),
-      fetchWithdrawalMethods()
-    ]);
-    setLoading(false);
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchWalletData(),
+        fetchTransactions(currentPage, filterType, filterStatus, dateRange),
+        fetchEarningsStats(),
+        fetchWithdrawalMethods()
+      ]);
+    } catch (error) {
+      console.error('Error loading wallet data:', error);
+      setError('Failed to load wallet data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [currentPage, filterType, filterStatus, dateRange, fetchWalletData, fetchTransactions, fetchEarningsStats, fetchWithdrawalMethods]);
+
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchTransactions(currentPage, filterType, filterStatus, dateRange);
+    }
+  }, [currentPage, filterType, filterStatus, dateRange]);
+
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await loadAllData(false);
     toast.success('Wallet updated');
   };
 
-  useEffect(() => {
-    loadAllData();
-  }, [currentPage, filterType, filterStatus, dateRange]);
-
-  // Handle withdrawal
+  // Handle withdrawal with real API
   const handleWithdraw = async () => {
     if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
       toast.error('Please enter a valid amount');
@@ -208,7 +338,9 @@ const ProviderWallet = () => {
     }
 
     const amount = parseFloat(withdrawAmount);
-    if (amount > (walletData?.available_balance || 0)) {
+    const availableBalance = walletData?.available_balance || 0;
+    
+    if (amount > availableBalance) {
       toast.error('Insufficient balance');
       return;
     }
@@ -220,7 +352,23 @@ const ProviderWallet = () => {
 
     setProcessingWithdrawal(true);
     try {
-      await providerAPI.withdrawFunds(amount, withdrawMethod);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
+        amount: amount,
+        method: withdrawMethod
+      };
+
+      if (typeof providerAPI.withdrawFunds === 'function') {
+        await providerAPI.withdrawFunds(payload);
+      } else if (typeof providerAPI.requestWithdrawal === 'function') {
+        await providerAPI.requestWithdrawal(payload);
+      } else {
+        throw new Error('Withdrawal API methods not available');
+      }
+      
       setShowWithdrawModal(false);
       setShowSuccessModal(true);
       setWithdrawAmount('');
@@ -229,16 +377,29 @@ const ProviderWallet = () => {
       setTimeout(() => setShowSuccessModal(false), 5000);
     } catch (error) {
       console.error('Withdrawal error:', error);
-      toast.error(error.response?.data?.message || 'Withdrawal failed. Please try again.');
+      toast.error(error.response?.data?.message || error.message || 'Withdrawal failed. Please try again.');
     } finally {
       setProcessingWithdrawal(false);
     }
   };
 
-  // Export transactions
+  // Export transactions with real API
   const exportTransactions = async () => {
     try {
-      const response = await providerAPI.getTransactions({ export: true });
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getTransactions === 'function') {
+        response = await providerAPI.getTransactions({ export: true });
+      } else if (typeof providerAPI.exportTransactions === 'function') {
+        response = await providerAPI.exportTransactions();
+      } else {
+        throw new Error('Export transactions API methods not available');
+      }
+      
       const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -249,19 +410,31 @@ const ProviderWallet = () => {
       toast.success('Transactions exported successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export transactions');
+      toast.error(error.message || 'Failed to export transactions');
     }
   };
 
   // Get status badge
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
+          <Clock size={12} />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const statusConfig = {
       completed: { variant: 'success', icon: CheckCircle, text: 'Completed' },
+      success: { variant: 'success', icon: CheckCircle, text: 'Success' },
       pending: { variant: 'warning', icon: Clock, text: 'Pending' },
       failed: { variant: 'danger', icon: XCircle, text: 'Failed' },
-      processing: { variant: 'info', icon: RefreshCw, text: 'Processing' }
+      processing: { variant: 'info', icon: RefreshCw, text: 'Processing' },
+      cancelled: { variant: 'secondary', icon: XCircle, text: 'Cancelled' }
     };
-    const config = statusConfig[status] || statusConfig.pending;
+    const config = statusConfig[lowerStatus] || statusConfig.pending;
     const Icon = config.icon;
     return (
       <Badge bg={config.variant} className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
@@ -273,7 +446,16 @@ const ProviderWallet = () => {
 
   // Get type badge
   const getTypeBadge = (type) => {
-    if (type === 'credit') {
+    if (!type) {
+      return (
+        <Badge bg="secondary" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerType = type.toLowerCase();
+    if (lowerType === 'credit' || lowerType === 'deposit' || lowerType === 'refund') {
       return (
         <Badge bg="success" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
           <ArrowUpRight size={12} />
@@ -281,28 +463,38 @@ const ProviderWallet = () => {
         </Badge>
       );
     }
+    if (lowerType === 'debit' || lowerType === 'withdrawal' || lowerType === 'payment') {
+      return (
+        <Badge bg="danger" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
+          <ArrowDownRight size={12} />
+          <span className="ms-1">Debit</span>
+        </Badge>
+      );
+    }
     return (
-      <Badge bg="danger" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
-        <ArrowDownRight size={12} />
-        <span className="ms-1">Debit</span>
+      <Badge bg="secondary" className="d-flex align-items-center gap-1" style={{ padding: '6px 12px' }}>
+        <span className="ms-1">{type}</span>
       </Badge>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading wallet data...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => loadAllData(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -513,30 +705,40 @@ const ProviderWallet = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {transactions.map((transaction) => (
-                        <tr key={transaction.id}>
-                          <td style={{ padding: '16px', fontWeight: 500 }} className="text-primary">
-                            {transaction.id}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div>{format(new Date(transaction.date), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{format(new Date(transaction.date), 'hh:mm a')}</small>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div>{transaction.description}</div>
-                            {transaction.booking_id && (
-                              <small className="text-muted">Booking #{transaction.booking_id}</small>
-                            )}
-                          </td>
-                          <td style={{ padding: '16px' }}>{getTypeBadge(transaction.type)}</td>
-                          <td style={{ padding: '16px' }}>
-                            <span className={transaction.type === 'credit' ? 'text-success' : 'text-danger'} style={{ fontWeight: 500 }}>
-                              {transaction.type === 'credit' ? '+' : '-'} {formatNaira(Math.abs(transaction.amount))}
-                            </span>
-                          </td>
-                          <td style={{ padding: '16px' }}>{getStatusBadge(transaction.status)}</td>
-                        </tr>
-                      ))}
+                      {transactions.map((transaction) => {
+                        const transactionId = transaction.id || transaction._id;
+                        const description = getField(transaction, ['description', 'details', 'note', 'reason'], 'Transaction');
+                        const type = getField(transaction, ['type', 'transaction_type', 'txn_type'], 'credit');
+                        const status = getField(transaction, ['status', 'transaction_status', 'txn_status'], 'pending');
+                        const amount = parseFloat(transaction.amount) || 0;
+                        const date = transaction.date || transaction.created_at || transaction.timestamp || new Date().toISOString();
+                        const bookingId = getField(transaction, ['booking_id', 'bookingId', 'service_id'], '');
+
+                        return (
+                          <tr key={transactionId}>
+                            <td style={{ padding: '16px', fontWeight: 500 }} className="text-primary">
+                              {transactionId.slice(-8)}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div>{format(new Date(date), 'MMM dd, yyyy')}</div>
+                              <small className="text-muted">{format(new Date(date), 'hh:mm a')}</small>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div>{description}</div>
+                              {bookingId && (
+                                <small className="text-muted">Booking #{bookingId}</small>
+                              )}
+                            </td>
+                            <td style={{ padding: '16px' }}>{getTypeBadge(type)}</td>
+                            <td style={{ padding: '16px' }}>
+                              <span className={type === 'credit' || type === 'deposit' || type === 'refund' ? 'text-success' : 'text-danger'} style={{ fontWeight: 500 }}>
+                                {type === 'credit' || type === 'deposit' || type === 'refund' ? '+' : '-'} {formatNaira(Math.abs(amount))}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px' }}>{getStatusBadge(status)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -549,15 +751,27 @@ const ProviderWallet = () => {
                         onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                         disabled={currentPage === 1}
                       />
-                      {[...Array(totalPages)].map((_, idx) => (
-                        <Pagination.Item
-                          key={idx + 1}
-                          active={idx + 1 === currentPage}
-                          onClick={() => setCurrentPage(idx + 1)}
-                        >
-                          {idx + 1}
-                        </Pagination.Item>
-                      ))}
+                      {[...Array(Math.min(5, totalPages))].map((_, idx) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = idx + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = idx + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + idx;
+                        } else {
+                          pageNum = currentPage - 2 + idx;
+                        }
+                        return (
+                          <Pagination.Item
+                            key={pageNum}
+                            active={pageNum === currentPage}
+                            onClick={() => setCurrentPage(pageNum)}
+                          >
+                            {pageNum}
+                          </Pagination.Item>
+                        );
+                      })}
                       <Pagination.Next
                         onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                         disabled={currentPage === totalPages}
@@ -613,11 +827,15 @@ const ProviderWallet = () => {
                 onChange={(e) => setWithdrawMethod(e.target.value)}
                 className="py-2"
               >
-                {withdrawalMethods.map((method) => (
-                  <option key={method.id} value={method.id}>
-                    {method.name}
-                  </option>
-                ))}
+                {withdrawalMethods.map((method) => {
+                  const methodId = method.id || method._id;
+                  const methodName = getField(method, ['name', 'method', 'label'], 'Unknown');
+                  return (
+                    <option key={methodId} value={methodId}>
+                      {methodName}
+                    </option>
+                  );
+                })}
               </Form.Select>
             </Form.Group>
 
@@ -664,7 +882,7 @@ const ProviderWallet = () => {
           </div>
           <h5 className="fw-bold mb-2">Withdrawal Request Submitted!</h5>
           <p className="text-muted mb-3">
-            Your withdrawal request of {formatNaira(parseFloat(withdrawAmount))} has been submitted successfully.
+            Your withdrawal request of {formatNaira(parseFloat(withdrawAmount) || 0)} has been submitted successfully.
           </p>
           <p className="text-muted small">
             Funds will be transferred to your selected withdrawal method within 2-3 business days.

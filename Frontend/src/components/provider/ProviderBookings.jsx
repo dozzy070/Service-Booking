@@ -1,5 +1,5 @@
 // src/components/provider/ProviderBookings.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -56,6 +56,7 @@ const ProviderBookings = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -67,11 +68,16 @@ const ProviderBookings = () => {
   const [filterDate, setFilterDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
   const [showFilters, setShowFilters] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
 
   // ============================================================
-  // ✅ HELPER FUNCTIONS - FIXED
+  // ✅ HELPER FUNCTIONS
   // ============================================================
 
   const formatNaira = (amount) => {
@@ -93,12 +99,27 @@ const ProviderBookings = () => {
     return formatNaira(num);
   };
 
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
   // ============================================================
-  // FETCH BOOKINGS
+  // FETCH BOOKINGS - REAL API
   // ============================================================
 
-  const fetchBookings = useCallback(async () => {
+  const fetchBookings = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
@@ -107,54 +128,114 @@ const ProviderBookings = () => {
         sort: sortBy,
         date: filterDate || undefined
       };
+
+      let response = null;
       
-      const response = await providerAPI.getBookings(params);
-      const data = response.data || response;
-      setBookings(data.bookings || []);
-      setTotalPages(Math.ceil((data.total || 0) / itemsPerPage));
+      if (typeof providerAPI.getBookings === 'function') {
+        response = await providerAPI.getBookings(params);
+      } else if (typeof providerAPI.getProviderBookings === 'function') {
+        response = await providerAPI.getProviderBookings(params);
+      } else {
+        throw new Error('Bookings API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const bookingsData = data.bookings || data.data || [];
+      
+      setBookings(Array.isArray(bookingsData) ? bookingsData : []);
+      setTotalCount(data.total || bookingsData.length || 0);
+      setTotalPages(Math.ceil((data.total || bookingsData.length || 0) / itemsPerPage));
+      
     } catch (error) {
       console.error('Error fetching bookings:', error);
-      toast.error('Failed to load bookings');
+      setError(error.message || 'Failed to load bookings');
       setBookings([]);
+      setTotalCount(0);
       setTotalPages(1);
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load bookings');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [currentPage, activeTab, searchTerm, sortBy, filterDate]);
 
+  // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchBookings();
-    setRefreshing(false);
+    await fetchBookings(false);
     toast.success('Bookings updated');
   };
 
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchBookings(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    const interval = setInterval(fetchBookings, 60000);
-    return () => clearInterval(interval);
-  }, [fetchBookings]);
+    fetchBookings(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchBookings(false);
+    }
+  }, [currentPage, activeTab, searchTerm, sortBy, filterDate]);
 
   // ============================================================
-  // BOOKING ACTIONS
+  // BOOKING ACTIONS - REAL API
   // ============================================================
 
   const handleAcceptBooking = async () => {
     if (!selectedBooking) return;
+    const bookingId = selectedBooking.id || selectedBooking._id;
+    if (!bookingId) return;
     
     setProcessingAction(true);
     try {
-      await providerAPI.updateBookingStatus(selectedBooking.id, 'confirmed');
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, 'confirmed');
+      } else if (typeof providerAPI.acceptBooking === 'function') {
+        await providerAPI.acceptBooking(bookingId);
+      } else {
+        throw new Error('Accept booking API methods not available');
+      }
+      
       toast.success('Booking confirmed successfully');
       setShowAcceptModal(false);
       setSelectedBooking(null);
-      fetchBookings();
+      await fetchBookings(false);
     } catch (error) {
       console.error('Error accepting booking:', error);
-      toast.error(error.response?.data?.message || 'Failed to accept booking');
+      toast.error(error.response?.data?.message || error.message || 'Failed to accept booking');
     } finally {
       setProcessingAction(false);
     }
@@ -162,44 +243,87 @@ const ProviderBookings = () => {
 
   const handleDeclineBooking = async () => {
     if (!selectedBooking) return;
+    const bookingId = selectedBooking.id || selectedBooking._id;
+    if (!bookingId) return;
     
     setProcessingAction(true);
     try {
-      await providerAPI.updateBookingStatus(selectedBooking.id, 'cancelled', declineReason);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { 
+        status: 'cancelled', 
+        reason: declineReason || 'Provider declined the booking'
+      };
+
+      if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, payload);
+      } else if (typeof providerAPI.declineBooking === 'function') {
+        await providerAPI.declineBooking(bookingId, declineReason);
+      } else {
+        throw new Error('Decline booking API methods not available');
+      }
+      
       toast.success('Booking declined');
       setShowDeclineModal(false);
       setSelectedBooking(null);
       setDeclineReason('');
-      fetchBookings();
+      await fetchBookings(false);
     } catch (error) {
       console.error('Error declining booking:', error);
-      toast.error(error.response?.data?.message || 'Failed to decline booking');
+      toast.error(error.response?.data?.message || error.message || 'Failed to decline booking');
     } finally {
       setProcessingAction(false);
     }
   };
 
   const handleCompleteBooking = async (bookingId) => {
+    if (!bookingId) return;
     if (!window.confirm('Mark this booking as completed?')) return;
     
     try {
-      await providerAPI.completeBooking(bookingId);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.completeBooking === 'function') {
+        await providerAPI.completeBooking(bookingId);
+      } else if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, 'completed');
+      } else {
+        throw new Error('Complete booking API methods not available');
+      }
+      
       toast.success('Booking marked as completed');
-      fetchBookings();
+      await fetchBookings(false);
     } catch (error) {
       console.error('Error completing booking:', error);
-      toast.error('Failed to complete booking');
+      toast.error(error.message || 'Failed to complete booking');
     }
   };
 
   const handleStartBooking = async (bookingId) => {
+    if (!bookingId) return;
+    
     try {
-      await providerAPI.startBooking(bookingId);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.startBooking === 'function') {
+        await providerAPI.startBooking(bookingId);
+      } else if (typeof providerAPI.updateBookingStatus === 'function') {
+        await providerAPI.updateBookingStatus(bookingId, 'in_progress');
+      } else {
+        throw new Error('Start booking API methods not available');
+      }
+      
       toast.success('Service started');
-      fetchBookings();
+      await fetchBookings(false);
     } catch (error) {
       console.error('Error starting booking:', error);
-      toast.error('Failed to start service');
+      toast.error(error.message || 'Failed to start service');
     }
   };
 
@@ -208,14 +332,26 @@ const ProviderBookings = () => {
   // ============================================================
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill bg-secondary bg-opacity-10 text-secondary">
+          <AlertCircle size={12} />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const variants = {
       pending: { bg: 'warning', text: 'Pending', icon: <Clock size={12} />, className: 'bg-warning bg-opacity-10 text-warning' },
       confirmed: { bg: 'success', text: 'Confirmed', icon: <CheckCircle size={12} />, className: 'bg-success bg-opacity-10 text-success' },
       in_progress: { bg: 'info', text: 'In Progress', icon: <AlertCircle size={12} />, className: 'bg-info bg-opacity-10 text-info' },
       completed: { bg: 'success', text: 'Completed', icon: <CheckCircle size={12} />, className: 'bg-success bg-opacity-10 text-success' },
-      cancelled: { bg: 'danger', text: 'Cancelled', icon: <XCircle size={12} />, className: 'bg-danger bg-opacity-10 text-danger' }
+      cancelled: { bg: 'danger', text: 'Cancelled', icon: <XCircle size={12} />, className: 'bg-danger bg-opacity-10 text-danger' },
+      accepted: { bg: 'success', text: 'Accepted', icon: <CheckCircle size={12} />, className: 'bg-success bg-opacity-10 text-success' },
+      rejected: { bg: 'danger', text: 'Rejected', icon: <XCircle size={12} />, className: 'bg-danger bg-opacity-10 text-danger' }
     };
-    const variant = variants[status] || variants.pending;
+    const variant = variants[lowerStatus] || variants.pending;
     return (
       <Badge className={`d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill ${variant.className}`}>
         {variant.icon}
@@ -238,29 +374,21 @@ const ProviderBookings = () => {
   // Calculate stats - safely handle empty bookings
   const stats = {
     total: bookings.length,
-    pending: bookings.filter(b => b.status === 'pending').length,
-    confirmed: bookings.filter(b => b.status === 'confirmed' || b.status === 'in_progress').length,
-    completed: bookings.filter(b => b.status === 'completed').length,
-    cancelled: bookings.filter(b => b.status === 'cancelled').length,
+    pending: bookings.filter(b => b?.status?.toLowerCase() === 'pending').length,
+    confirmed: bookings.filter(b => ['confirmed', 'accepted', 'in_progress'].includes(b?.status?.toLowerCase())).length,
+    completed: bookings.filter(b => b?.status?.toLowerCase() === 'completed').length,
+    cancelled: bookings.filter(b => b?.status?.toLowerCase() === 'cancelled' || b?.status?.toLowerCase() === 'rejected').length,
     totalEarnings: bookings
-      .filter(b => b.status === 'completed')
-      .reduce((sum, b) => sum + (b.amount || b.price || 0), 0)
+      .filter(b => b?.status?.toLowerCase() === 'completed')
+      .reduce((sum, b) => sum + (parseFloat(b.amount) || parseFloat(b.price) || 0), 0)
   };
 
   // ============================================================
-  // LOADING STATE
+  // LOADING STATE REMOVED
   // ============================================================
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading bookings...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   // ============================================================
   // RENDER
@@ -269,6 +397,17 @@ const ProviderBookings = () => {
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchBookings(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -296,7 +435,7 @@ const ProviderBookings = () => {
           </div>
         </div>
 
-        {/* Stats Cards - ✅ Using formatCompactNaira */}
+        {/* Stats Cards */}
         <Row className="mb-4 g-4">
           <Col xl={2} lg={4} md={4} sm={6}>
             <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
@@ -499,107 +638,119 @@ const ProviderBookings = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {bookings.map((booking) => (
-                      <tr key={booking.id}>
-                        <td style={{ padding: '16px' }}>
-                          <span className="fw-bold text-primary">#{booking.id?.slice(-8) || 'N/A'}</span>
-                        </td>
-                        <td style={{ padding: '16px' }}>
-                          <div className="d-flex align-items-center gap-2">
-                            <div className="rounded-circle bg-primary bg-opacity-10 d-flex align-items-center justify-content-center" style={{ width: '32px', height: '32px' }}>
-                              <User size={14} className="text-primary" />
+                    {bookings.map((booking) => {
+                      const bookingId = booking.id || booking._id;
+                      const customerName = getField(booking, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown');
+                      const customerPhone = getField(booking, ['customer_phone', 'customer.phone', 'customerPhone', 'phone'], '');
+                      const serviceName = getField(booking, ['service_name', 'service.title', 'serviceName', 'title'], 'Unknown Service');
+                      const duration = getField(booking, ['duration', 'estimated_duration', 'time_required'], '');
+                      const amount = parseFloat(booking.amount) || parseFloat(booking.price) || 0;
+                      const status = getField(booking, ['status', 'booking_status'], 'pending');
+                      const bookingDate = booking.date || booking.booking_date || booking.createdAt;
+                      const bookingTime = booking.time || booking.booking_time || booking.start_time || '';
+
+                      return (
+                        <tr key={bookingId}>
+                          <td style={{ padding: '16px' }}>
+                            <span className="fw-bold text-primary">#{bookingId.slice(-8) || 'N/A'}</span>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="d-flex align-items-center gap-2">
+                              <div className="rounded-circle bg-primary bg-opacity-10 d-flex align-items-center justify-content-center" style={{ width: '32px', height: '32px' }}>
+                                <User size={14} className="text-primary" />
+                              </div>
+                              <div>
+                                <div className="fw-medium">{customerName}</div>
+                                {customerPhone && <small className="text-muted">{customerPhone}</small>}
+                              </div>
                             </div>
-                            <div>
-                              <div className="fw-medium">{booking.customer_name || 'Unknown'}</div>
-                              <small className="text-muted">{booking.customer_phone || ''}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '16px' }}>
-                          <div>{booking.service_name || 'Unknown Service'}</div>
-                          <small className="text-muted">{booking.duration || ''}</small>
-                        </td>
-                        <td style={{ padding: '16px' }}>
-                          <div className="fw-medium">{booking.date ? format(new Date(booking.date), 'MMM dd, yyyy') : 'N/A'}</div>
-                          <small className="text-muted">{booking.time || ''}</small>
-                          {getDateBadge(booking.date)}
-                        </td>
-                        <td style={{ padding: '16px' }} className="fw-bold text-primary">
-                          {formatNaira(booking.amount || booking.price || 0)}
-                        </td>
-                        <td style={{ padding: '16px' }}>{getStatusBadge(booking.status)}</td>
-                        <td style={{ padding: '16px' }}>
-                          <div className="d-flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="link"
-                              className="text-primary p-1"
-                              onClick={() => {
-                                setSelectedBooking(booking);
-                                setShowDetailsModal(true);
-                              }}
-                            >
-                              <Eye size={16} />
-                            </Button>
-                            {booking.status === 'pending' && (
-                              <>
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div>{serviceName}</div>
+                            {duration && <small className="text-muted">{duration}</small>}
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="fw-medium">{bookingDate ? format(new Date(bookingDate), 'MMM dd, yyyy') : 'N/A'}</div>
+                            <small className="text-muted">{bookingTime}</small>
+                            {getDateBadge(bookingDate)}
+                          </td>
+                          <td style={{ padding: '16px' }} className="fw-bold text-primary">
+                            {formatNaira(amount)}
+                          </td>
+                          <td style={{ padding: '16px' }}>{getStatusBadge(status)}</td>
+                          <td style={{ padding: '16px' }}>
+                            <div className="d-flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="link"
+                                className="text-primary p-1"
+                                onClick={() => {
+                                  setSelectedBooking(booking);
+                                  setShowDetailsModal(true);
+                                }}
+                              >
+                                <Eye size={16} />
+                              </Button>
+                              {status === 'pending' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="link"
+                                    className="text-success p-1"
+                                    onClick={() => {
+                                      setSelectedBooking(booking);
+                                      setShowAcceptModal(true);
+                                    }}
+                                  >
+                                    <CheckCircle size={16} />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="link"
+                                    className="text-danger p-1"
+                                    onClick={() => {
+                                      setSelectedBooking(booking);
+                                      setShowDeclineModal(true);
+                                    }}
+                                  >
+                                    <XCircle size={16} />
+                                  </Button>
+                                </>
+                              )}
+                              {status === 'confirmed' && (
+                                <Button
+                                  size="sm"
+                                  variant="link"
+                                  className="text-info p-1"
+                                  onClick={() => handleStartBooking(bookingId)}
+                                >
+                                  <Clock size={16} />
+                                </Button>
+                              )}
+                              {status === 'in_progress' && (
                                 <Button
                                   size="sm"
                                   variant="link"
                                   className="text-success p-1"
-                                  onClick={() => {
-                                    setSelectedBooking(booking);
-                                    setShowAcceptModal(true);
-                                  }}
+                                  onClick={() => handleCompleteBooking(bookingId)}
                                 >
                                   <CheckCircle size={16} />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="link"
-                                  className="text-danger p-1"
-                                  onClick={() => {
-                                    setSelectedBooking(booking);
-                                    setShowDeclineModal(true);
-                                  }}
-                                >
-                                  <XCircle size={16} />
-                                </Button>
-                              </>
-                            )}
-                            {booking.status === 'confirmed' && (
+                              )}
                               <Button
                                 size="sm"
                                 variant="link"
-                                className="text-info p-1"
-                                onClick={() => handleStartBooking(booking.id)}
+                                className="text-primary p-1"
+                                as="a"
+                                href={`/provider/chat?booking=${bookingId}`}
                               >
-                                <Clock size={16} />
+                                <MessageCircle size={16} />
                               </Button>
-                            )}
-                            {booking.status === 'in_progress' && (
-                              <Button
-                                size="sm"
-                                variant="link"
-                                className="text-success p-1"
-                                onClick={() => handleCompleteBooking(booking.id)}
-                              >
-                                <CheckCircle size={16} />
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="link"
-                              className="text-primary p-1"
-                              as="a"
-                              href={`/provider/chat?booking=${booking.id}`}
-                            >
-                              <MessageCircle size={16} />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </Table>
               </div>
@@ -656,7 +807,7 @@ const ProviderBookings = () => {
               <div className="d-flex justify-content-between align-items-start mb-4">
                 <div>
                   <h6 className="text-muted mb-1">Booking ID</h6>
-                  <h5 className="fw-bold">#{selectedBooking.id}</h5>
+                  <h5 className="fw-bold">#{selectedBooking.id || selectedBooking._id}</h5>
                 </div>
                 {getStatusBadge(selectedBooking.status)}
               </div>
@@ -667,15 +818,15 @@ const ProviderBookings = () => {
                     <h6 className="fw-bold mb-3">Customer Information</h6>
                     <div className="info-item">
                       <User size={16} className="text-muted" />
-                      <span>{selectedBooking.customer_name || 'Unknown'}</span>
+                      <span>{getField(selectedBooking, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown')}</span>
                     </div>
                     <div className="info-item">
                       <Phone size={16} className="text-muted" />
-                      <span>{selectedBooking.customer_phone || 'Not provided'}</span>
+                      <span>{getField(selectedBooking, ['customer_phone', 'customer.phone', 'customerPhone', 'phone'], 'Not provided')}</span>
                     </div>
                     <div className="info-item">
                       <MapPin size={16} className="text-muted" />
-                      <span>{selectedBooking.customer_address || 'Not specified'}</span>
+                      <span>{getField(selectedBooking, ['customer_address', 'customer.address', 'address', 'location'], 'Not specified')}</span>
                     </div>
                   </div>
                 </Col>
@@ -685,11 +836,11 @@ const ProviderBookings = () => {
                     <h6 className="fw-bold mb-3">Service Details</h6>
                     <div className="info-item">
                       <Briefcase size={16} className="text-muted" />
-                      <span>{selectedBooking.service_name || 'Unknown'}</span>
+                      <span>{getField(selectedBooking, ['service_name', 'service.title', 'serviceName', 'title'], 'Unknown')}</span>
                     </div>
                     <div className="info-item">
                       <Clock size={16} className="text-muted" />
-                      <span>{selectedBooking.duration || 'N/A'}</span>
+                      <span>{getField(selectedBooking, ['duration', 'estimated_duration', 'time_required'], 'N/A')}</span>
                     </div>
                     <div className="info-item">
                       <DollarSign size={16} className="text-muted" />
@@ -707,7 +858,7 @@ const ProviderBookings = () => {
                     </div>
                     <div className="info-item">
                       <Clock size={16} className="text-muted" />
-                      <span>{selectedBooking.time || 'N/A'}</span>
+                      <span>{selectedBooking.time || selectedBooking.start_time || 'N/A'}</span>
                     </div>
                   </div>
                 </Col>
@@ -755,7 +906,7 @@ const ProviderBookings = () => {
           <Button
             variant="primary"
             as="a"
-            href={`/provider/chat?booking=${selectedBooking?.id}`}
+            href={`/provider/chat?booking=${selectedBooking?.id || selectedBooking?._id}`}
           >
             <MessageCircle size={16} className="me-2" />
             Message Customer
@@ -775,8 +926,8 @@ const ProviderBookings = () => {
           <Alert variant="success" className="mb-0" style={{ borderRadius: '12px' }}>
             Are you sure you want to accept this booking?
             <div className="mt-2 small">
-              <strong>Customer:</strong> {selectedBooking?.customer_name || 'Unknown'}<br />
-              <strong>Service:</strong> {selectedBooking?.service_name || 'Unknown'}<br />
+              <strong>Customer:</strong> {getField(selectedBooking, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown')}<br />
+              <strong>Service:</strong> {getField(selectedBooking, ['service_name', 'service.title', 'serviceName', 'title'], 'Unknown')}<br />
               <strong>Date:</strong> {selectedBooking?.date ? format(new Date(selectedBooking.date), 'MMM dd, yyyy') : 'N/A'}
             </div>
           </Alert>

@@ -1,5 +1,5 @@
 // src/pages/customer/Bookings.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -76,6 +76,11 @@ const Bookings = () => {
   const [sortBy, setSortBy] = useState('date_desc');
   const [dateRange, setDateRange] = useState('all');
   const [viewMode, setViewMode] = useState('table');
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
 
@@ -84,8 +89,8 @@ const Bookings = () => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount || 0);
   };
 
@@ -95,12 +100,16 @@ const Bookings = () => {
     return formatNaira(amount);
   };
 
-  // Fetch bookings
-  const fetchBookings = useCallback(async () => {
+  // ✅ Fetch bookings from real API
+  const fetchBookings = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
-      setError(null);
-      
+      if (!api) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
@@ -111,46 +120,90 @@ const Bookings = () => {
       };
       
       const response = await api.get('/bookings', { params });
-      setBookings(response.data.bookings || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+      const data = response?.data || {};
+      const bookingList = data.bookings || data.data || [];
+      
+      setBookings(Array.isArray(bookingList) ? bookingList : []);
+      setTotalPages(Math.ceil((data.total || bookingList.length || 0) / itemsPerPage));
+      setTotalCount(data.total || bookingList.length || 0);
+      
     } catch (err) {
       console.error('Fetch bookings error:', err);
       setError(err.response?.data?.message || 'Failed to load bookings');
-      toast.error('Could not load your bookings');
+      setBookings([]);
+      setTotalCount(0);
+      if (err.response?.status !== 401) {
+        toast.error('Could not load your bookings');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [currentPage, activeTab, searchTerm, sortBy, dateRange]);
 
+  // ✅ Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchBookings();
-    setRefreshing(false);
+    await fetchBookings(false);
     toast.success('Bookings updated');
   };
 
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchBookings(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
 
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(fetchBookings, 30000);
-    return () => clearInterval(interval);
-  }, [fetchBookings]);
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
 
-  // Cancel booking
+  // Initial data load
+  useEffect(() => {
+    fetchBookings(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchBookings(false);
+    }
+  }, [currentPage, activeTab, searchTerm, sortBy, dateRange]);
+
+  // ✅ Cancel booking with real API
   const handleCancelBooking = async () => {
     if (!selectedBooking) return;
+    const bookingId = selectedBooking.id || selectedBooking._id;
+    if (!bookingId) return;
     
     setProcessing(true);
     try {
-      await api.put(`/bookings/${selectedBooking.id}/cancel`, { reason: cancelReason });
+      if (!api) {
+        throw new Error('API service not available');
+      }
+      
+      await api.put(`/bookings/${bookingId}/cancel`, { reason: cancelReason });
       toast.success('Booking cancelled successfully');
       setShowCancelModal(false);
       setSelectedBooking(null);
       setCancelReason('');
-      await fetchBookings();
+      await fetchBookings(false);
     } catch (err) {
       console.error('Cancel booking error:', err);
       toast.error(err.response?.data?.message || 'Failed to cancel booking');
@@ -176,6 +229,7 @@ const Bookings = () => {
 
   // Get date badge
   const getDateBadge = (date) => {
+    if (!date) return null;
     const bookingDate = new Date(date);
     if (isToday(bookingDate)) {
       return <Badge bg="success" className="rounded-pill">Today</Badge>;
@@ -188,44 +242,38 @@ const Bookings = () => {
   // Calculate stats
   const stats = {
     total: bookings.length,
-    pending: bookings.filter(b => b.status === 'pending').length,
-    confirmed: bookings.filter(b => b.status === 'confirmed' || b.status === 'accepted').length,
-    completed: bookings.filter(b => b.status === 'completed').length,
-    cancelled: bookings.filter(b => b.status === 'cancelled').length,
-    totalAmount: bookings.reduce((sum, b) => sum + (b.amount || 0), 0)
+    pending: bookings.filter(b => b.status?.toLowerCase() === 'pending').length,
+    confirmed: bookings.filter(b => ['confirmed', 'accepted'].includes(b.status?.toLowerCase())).length,
+    completed: bookings.filter(b => b.status?.toLowerCase() === 'completed').length,
+    cancelled: bookings.filter(b => b.status?.toLowerCase() === 'cancelled').length,
+    totalAmount: bookings.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0)
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading your bookings...</p>
-        </div>
-      </div>
-    );
-  }
+  // Get field with fallback
+  const getField = (obj, fields, fallback = 'N/A') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
 
-  if (error) {
-    return (
-      <Container className="py-5">
-        <Alert variant="danger" className="d-flex align-items-center gap-3" style={{ borderRadius: '16px' }}>
-          <FaExclamationCircle size={24} />
-          <div>
-            <h6 className="mb-1">Error loading bookings</h6>
-            <p className="mb-0">{error}</p>
-          </div>
-          <Button variant="outline-danger" onClick={refreshData} className="ms-auto">
-            Retry
-          </Button>
-        </Alert>
-      </Container>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationCircle className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchBookings(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -460,148 +508,164 @@ const Bookings = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {bookings.map((booking) => (
-                        <tr key={booking.id}>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-3">
-                              <img
-                                src={booking.service_image || getServiceImage(booking.service_title, booking.id, 60, 60)}
-                                alt={booking.service_title}
-                                style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }}
-                                onError={(e) => handleImageError(e, getServiceImage(booking.service_title, booking.id, 60, 60))}
-                              />
-                              <div>
-                                <div className="fw-semibold">{booking.service_title}</div>
-                                <small className="text-muted">
-                                  <FaUserTie className="me-1" size={10} />
-                                  {booking.provider_name}
-                                </small>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <img
-                                src={booking.provider_avatar || getAvatarUrl(booking.provider_name, 40)}
-                                alt={booking.provider_name}
-                                style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
-                                onError={(e) => handleImageError(e, getAvatarUrl(booking.provider_name, 40))}
-                              />
-                              <div>
-                                <div className="fw-semibold small">{booking.provider_name}</div>
-                                {booking.provider_phone && (
-                                  <small className="text-muted d-block">
-                                    <FaPhone size={10} className="me-1" />
-                                    {booking.provider_phone}
+                      {bookings.map((booking) => {
+                        const bookingId = booking.id || booking._id;
+                        const serviceTitle = getField(booking, ['service_title', 'service.title', 'serviceTitle', 'title'], 'Unknown Service');
+                        const providerName = getField(booking, ['provider_name', 'provider.name', 'providerName', 'provider'], 'Unknown Provider');
+                        const providerPhone = getField(booking, ['provider_phone', 'provider.phone', 'providerPhone'], '');
+                        const serviceImage = getField(booking, ['service_image', 'service.image', 'serviceImage', 'image'], '');
+                        const providerAvatar = getField(booking, ['provider_avatar', 'provider.avatar', 'providerAvatar'], '');
+                        const bookingDate = booking.date || booking.booking_date || booking.createdAt;
+                        const bookingTime = booking.time || booking.booking_time || booking.start_time;
+                        const amount = parseFloat(booking.amount) || 0;
+                        const status = booking.status || 'pending';
+                        const hasReview = booking.has_review || booking.reviewed || false;
+                        const location = getField(booking, ['location', 'service_location', 'address'], '');
+                        const notes = getField(booking, ['notes', 'special_instructions', 'remarks'], '');
+                        
+                        return (
+                          <tr key={bookingId}>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-3">
+                                <img
+                                  src={serviceImage || getServiceImage(serviceTitle, bookingId, 60, 60)}
+                                  alt={serviceTitle}
+                                  style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }}
+                                  onError={(e) => handleImageError(e, getServiceImage(serviceTitle, bookingId, 60, 60))}
+                                />
+                                <div>
+                                  <div className="fw-semibold">{serviceTitle}</div>
+                                  <small className="text-muted">
+                                    <FaUserTie className="me-1" size={10} />
+                                    {providerName}
                                   </small>
-                                )}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">{format(new Date(booking.date), 'MMM dd, yyyy')}</div>
-                            <small className="text-muted">{booking.time}</small>
-                            <div className="mt-1">{getDateBadge(booking.date)}</div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <span className="fw-bold text-primary">{formatNaira(booking.amount)}</span>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {getStatusBadge(booking.status)}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex gap-2">
-                              <OverlayTrigger
-                                placement="top"
-                                overlay={<Tooltip>View Details</Tooltip>}
-                              >
-                                <Button
-                                  size="sm"
-                                  variant="outline-primary"
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  onClick={() => {
-                                    setSelectedBooking(booking);
-                                    setShowDetailsModal(true);
-                                  }}
-                                >
-                                  <FaEye size={12} />
-                                </Button>
-                              </OverlayTrigger>
-                              
-                              <OverlayTrigger
-                                placement="top"
-                                overlay={<Tooltip>Message Provider</Tooltip>}
-                              >
-                                <Button
-                                  size="sm"
-                                  variant="outline-info"
-                                  className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
-                                  as={Link}
-                                  to={`/customer/chat?booking=${booking.id}`}
-                                >
-                                  <FaComment size={12} />
-                                </Button>
-                              </OverlayTrigger>
-
-                              {booking.status === 'pending' && (
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-2">
+                                <img
+                                  src={providerAvatar || getAvatarUrl(providerName, 40)}
+                                  alt={providerName}
+                                  style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
+                                  onError={(e) => handleImageError(e, getAvatarUrl(providerName, 40))}
+                                />
+                                <div>
+                                  <div className="fw-semibold small">{providerName}</div>
+                                  {providerPhone && (
+                                    <small className="text-muted d-block">
+                                      <FaPhone size={10} className="me-1" />
+                                      {providerPhone}
+                                    </small>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-semibold">{bookingDate ? format(new Date(bookingDate), 'MMM dd, yyyy') : 'N/A'}</div>
+                              <small className="text-muted">{bookingTime || 'N/A'}</small>
+                              <div className="mt-1">{getDateBadge(bookingDate)}</div>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span className="fw-bold text-primary">{formatNaira(amount)}</span>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {getStatusBadge(status)}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex gap-2">
                                 <OverlayTrigger
                                   placement="top"
-                                  overlay={<Tooltip>Cancel Booking</Tooltip>}
+                                  overlay={<Tooltip>View Details</Tooltip>}
                                 >
                                   <Button
                                     size="sm"
-                                    variant="outline-danger"
+                                    variant="outline-primary"
                                     className="rounded-circle p-1"
                                     style={{ width: '32px', height: '32px' }}
                                     onClick={() => {
                                       setSelectedBooking(booking);
-                                      setShowCancelModal(true);
+                                      setShowDetailsModal(true);
                                     }}
                                   >
-                                    <FaTimesCircle size={12} />
+                                    <FaEye size={12} />
                                   </Button>
                                 </OverlayTrigger>
-                              )}
-
-                              {booking.status === 'pending' && (
+                                
                                 <OverlayTrigger
                                   placement="top"
-                                  overlay={<Tooltip>Reschedule</Tooltip>}
+                                  overlay={<Tooltip>Message Provider</Tooltip>}
                                 >
                                   <Button
                                     size="sm"
-                                    variant="outline-warning"
+                                    variant="outline-info"
                                     className="rounded-circle p-1"
                                     style={{ width: '32px', height: '32px' }}
-                                    onClick={() => handleReschedule(booking.id)}
+                                    as={Link}
+                                    to={`/customer/chat?booking=${bookingId}`}
                                   >
-                                    <FaUndo size={12} />
+                                    <FaComment size={12} />
                                   </Button>
                                 </OverlayTrigger>
-                              )}
 
-                              {booking.status === 'completed' && !booking.has_review && (
-                                <OverlayTrigger
-                                  placement="top"
-                                  overlay={<Tooltip>Write Review</Tooltip>}
-                                >
-                                  <Button
-                                    size="sm"
-                                    variant="outline-success"
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => handleWriteReview(booking.id)}
+                                {status.toLowerCase() === 'pending' && (
+                                  <>
+                                    <OverlayTrigger
+                                      placement="top"
+                                      overlay={<Tooltip>Cancel Booking</Tooltip>}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        variant="outline-danger"
+                                        className="rounded-circle p-1"
+                                        style={{ width: '32px', height: '32px' }}
+                                        onClick={() => {
+                                          setSelectedBooking(booking);
+                                          setShowCancelModal(true);
+                                        }}
+                                      >
+                                        <FaTimesCircle size={12} />
+                                      </Button>
+                                    </OverlayTrigger>
+
+                                    <OverlayTrigger
+                                      placement="top"
+                                      overlay={<Tooltip>Reschedule</Tooltip>}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        variant="outline-warning"
+                                        className="rounded-circle p-1"
+                                        style={{ width: '32px', height: '32px' }}
+                                        onClick={() => handleReschedule(bookingId)}
+                                      >
+                                        <FaUndo size={12} />
+                                      </Button>
+                                    </OverlayTrigger>
+                                  </>
+                                )}
+
+                                {status.toLowerCase() === 'completed' && !hasReview && (
+                                  <OverlayTrigger
+                                    placement="top"
+                                    overlay={<Tooltip>Write Review</Tooltip>}
                                   >
-                                    <FaStar size={12} />
-                                  </Button>
-                                </OverlayTrigger>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                                    <Button
+                                      size="sm"
+                                      variant="outline-success"
+                                      className="rounded-circle p-1"
+                                      style={{ width: '32px', height: '32px' }}
+                                      onClick={() => handleWriteReview(bookingId)}
+                                    >
+                                      <FaStar size={12} />
+                                    </Button>
+                                  </OverlayTrigger>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -658,8 +722,8 @@ const Bookings = () => {
             <>
               <div className="d-flex justify-content-between align-items-start mb-4">
                 <div>
-                  <h5 className="mb-1">{selectedBooking.service_title}</h5>
-                  <p className="text-muted small mb-0">Booking #{selectedBooking.id}</p>
+                  <h5 className="mb-1">{getField(selectedBooking, ['service_title', 'service.title', 'serviceTitle', 'title'], 'Unknown Service')}</h5>
+                  <p className="text-muted small mb-0">Booking #{selectedBooking.id || selectedBooking._id || 'N/A'}</p>
                 </div>
                 {getStatusBadge(selectedBooking.status)}
               </div>
@@ -670,15 +734,15 @@ const Bookings = () => {
                     <h6 className="fw-bold mb-3">Service Details</h6>
                     <div className="info-item">
                       <FaUserTie className="text-muted" />
-                      <span>{selectedBooking.provider_name}</span>
+                      <span>{getField(selectedBooking, ['provider_name', 'provider.name', 'providerName', 'provider'], 'Unknown')}</span>
                     </div>
                     <div className="info-item">
                       <FaCalendarAlt className="text-muted" />
-                      <span>{format(new Date(selectedBooking.date), 'EEEE, MMMM dd, yyyy')}</span>
+                      <span>{selectedBooking.date ? format(new Date(selectedBooking.date), 'EEEE, MMMM dd, yyyy') : 'N/A'}</span>
                     </div>
                     <div className="info-item">
                       <FaClock className="text-muted" />
-                      <span>{selectedBooking.time}</span>
+                      <span>{selectedBooking.time || selectedBooking.booking_time || 'N/A'}</span>
                     </div>
                     <div className="info-item">
                       <FaWallet className="text-muted" />
@@ -692,14 +756,8 @@ const Bookings = () => {
                     <h6 className="fw-bold mb-3">Location</h6>
                     <div className="info-item">
                       <FaMapMarkerAlt className="text-muted" />
-                      <span>{selectedBooking.location || 'Not specified'}</span>
+                      <span>{getField(selectedBooking, ['location', 'service_location', 'address'], 'Not specified')}</span>
                     </div>
-                    {selectedBooking.address && (
-                      <div className="info-item">
-                        <FaInfoCircle className="text-muted" />
-                        <span>{selectedBooking.address}</span>
-                      </div>
-                    )}
                   </div>
 
                   {selectedBooking.notes && (
@@ -711,7 +769,7 @@ const Bookings = () => {
                 </Col>
               </Row>
 
-              {selectedBooking.status === 'pending' && (
+              {selectedBooking.status?.toLowerCase() === 'pending' && (
                 <div className="mt-4 d-flex gap-2">
                   <Button
                     variant="danger"
@@ -727,7 +785,7 @@ const Bookings = () => {
                     variant="warning"
                     onClick={() => {
                       setShowDetailsModal(false);
-                      handleReschedule(selectedBooking.id);
+                      handleReschedule(selectedBooking.id || selectedBooking._id);
                     }}
                   >
                     <FaUndo className="me-2" />
@@ -742,11 +800,11 @@ const Bookings = () => {
           <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>
             Close
           </Button>
-          {selectedBooking && selectedBooking.status !== 'cancelled' && (
+          {selectedBooking && selectedBooking.status?.toLowerCase() !== 'cancelled' && (
             <Button
               variant="primary"
               as={Link}
-              to={`/customer/chat?booking=${selectedBooking.id}`}
+              to={`/customer/chat?booking=${selectedBooking.id || selectedBooking._id}`}
             >
               <FaComment className="me-2" />
               Message Provider
@@ -811,6 +869,13 @@ const Bookings = () => {
         }
         .info-item:last-child {
           border-bottom: none;
+        }
+        .table > :not(caption) > * > * {
+          padding: 16px 12px;
+          vertical-align: middle;
+        }
+        .table tbody tr:hover {
+          background-color: #f8fafc;
         }
       `}</style>
     </div>

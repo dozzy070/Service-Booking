@@ -1,5 +1,5 @@
 // src/pages/admin/AdminCategories.jsx
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -87,6 +87,8 @@ const AdminCategories = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
 
   // Data State
   const [categories, setCategories] = useState([]);
@@ -99,6 +101,10 @@ const AdminCategories = () => {
     totalServices: 0,
     totalRevenue: 0
   });
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -137,52 +143,159 @@ const AdminCategories = () => {
   const generateSlug = (name) =>
     name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
 
-  // Fetch categories
-  const fetchCategories = useCallback(async () => {
+  // ✅ Fetch categories from real API
+  const fetchCategories = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const res = await adminAPI.getCategories();
-      setCategories(res.data);
-      
-      // Calculate stats
-      const total = res.data.length;
-      const active = res.data.filter(c => c.status === 'active').length;
-      const inactive = res.data.filter(c => c.status === 'inactive').length;
-      const featured = res.data.filter(c => c.featured).length;
-      const popular = res.data.filter(c => c.popular).length;
-      const totalServices = res.data.reduce((sum, c) => sum + (c.serviceCount || 0), 0);
-      const totalRevenue = res.data.reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
-      
-      setStats({ total, active, inactive, featured, popular, totalServices, totalRevenue });
-    } catch (err) {
-      console.error('Error fetching categories:', err);
-      toast.error('Failed to load categories');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      if (!adminAPI || typeof adminAPI.getCategories !== 'function') {
+        throw new Error('API service not available');
+      }
 
+      const params = {
+        search: searchTerm || undefined,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        sortBy: sortConfig.key,
+        sortOrder: sortConfig.direction,
+        limit: itemsPerPage,
+        page: currentPage
+      };
+
+      const response = await adminAPI.getCategories(params);
+      
+      // Handle different response formats
+      let data = response?.data || [];
+      let total = 0;
+      
+      if (Array.isArray(data)) {
+        setCategories(data);
+        total = data.length;
+      } else if (data.categories) {
+        setCategories(data.categories);
+        total = data.total || data.categories.length;
+      } else if (data.data) {
+        setCategories(data.data);
+        total = data.total || data.data.length;
+      } else {
+        setCategories([]);
+        total = 0;
+      }
+      
+      setTotalCount(total);
+      calculateStats(data.categories || data.data || data || []);
+      
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      setError(error.message || 'Failed to load categories');
+      setCategories([]);
+      setTotalCount(0);
+      setStats({
+        total: 0,
+        active: 0,
+        inactive: 0,
+        featured: 0,
+        popular: 0,
+        totalServices: 0,
+        totalRevenue: 0
+      });
+      
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load categories');
+      }
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [searchTerm, filterStatus, sortConfig, itemsPerPage, currentPage]);
+
+  // ✅ Calculate stats with safety
+  const calculateStats = (categoryList) => {
+    const list = Array.isArray(categoryList) ? categoryList : [];
+    
+    if (list.length === 0) {
+      setStats({
+        total: 0,
+        active: 0,
+        inactive: 0,
+        featured: 0,
+        popular: 0,
+        totalServices: 0,
+        totalRevenue: 0
+      });
+      return;
+    }
+    
+    const newStats = {
+      total: list.length,
+      active: list.filter(c => c?.status?.toLowerCase() === 'active').length,
+      inactive: list.filter(c => c?.status?.toLowerCase() === 'inactive').length,
+      featured: list.filter(c => c?.featured === true).length,
+      popular: list.filter(c => c?.popular === true).length,
+      totalServices: list.reduce((sum, c) => sum + (parseInt(c?.serviceCount) || 0), 0),
+      totalRevenue: list.reduce((sum, c) => sum + (parseFloat(c?.totalRevenue) || 0), 0)
+    };
+    setStats(newStats);
+  };
+
+  // ✅ Fetch all data
   const fetchAllData = useCallback(async () => {
-    await fetchCategories();
+    await fetchCategories(true);
   }, [fetchCategories]);
 
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData();
-    setRefreshing(false);
     toast.success('Categories refreshed');
   };
 
+  // ✅ Initial data load
   useEffect(() => {
     fetchAllData();
-  }, [fetchAllData]);
+    
+    // Set up real-time polling
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
-  // Auto-refresh every 60 seconds
+  // ✅ Refetch when filters change
   useEffect(() => {
-    const interval = setInterval(fetchAllData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchAllData]);
+    if (!loading) {
+      fetchCategories(false);
+    }
+  }, [searchTerm, filterStatus, sortConfig, itemsPerPage, currentPage]);
 
-  // CRUD operations
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchCategories(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus]);
+
+  // ✅ CRUD operations with real API
   const handleViewCategory = (category) => {
     setSelectedCategory(category);
     setModalMode('view');
@@ -192,8 +305,8 @@ const AdminCategories = () => {
   const handleEditCategory = (category) => {
     setSelectedCategory(category);
     setFormData({
-      name: category.name,
-      slug: category.slug,
+      name: category.name || '',
+      slug: category.slug || '',
       description: category.description || '',
       icon: category.icon || '',
       color: category.color || '#6366f1',
@@ -240,22 +353,40 @@ const AdminCategories = () => {
     
     setProcessing(true);
     try {
-      const payload = { ...formData, slug: formData.slug || generateSlug(formData.name) };
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+      
+      const payload = { 
+        ...formData, 
+        slug: formData.slug || generateSlug(formData.name) 
+      };
+      
+      let response;
       if (modalMode === 'add') {
-        const res = await adminAPI.createCategory(payload);
-        setCategories(prev => [...prev, res.data]);
+        if (typeof adminAPI.createCategory !== 'function') {
+          throw new Error('Create category API not available');
+        }
+        response = await adminAPI.createCategory(payload);
         toast.success('Category added successfully');
       } else if (modalMode === 'edit' && selectedCategory) {
-        const res = await adminAPI.updateCategory(selectedCategory.id, payload);
-        setCategories(prev => prev.map(c => c.id === res.data.id ? res.data : c));
+        const categoryId = selectedCategory.id || selectedCategory._id;
+        if (!categoryId) {
+          throw new Error('Category ID not found');
+        }
+        if (typeof adminAPI.updateCategory !== 'function') {
+          throw new Error('Update category API not available');
+        }
+        response = await adminAPI.updateCategory(categoryId, payload);
         toast.success('Category updated successfully');
       }
+      
       setShowCategoryModal(false);
       setSelectedCategory(null);
       await fetchAllData();
-    } catch (err) {
-      console.error('Save error:', err);
-      toast.error(err.response?.data?.message || 'Failed to save category');
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error(error.message || 'Failed to save category');
     } finally {
       setProcessing(false);
     }
@@ -263,36 +394,50 @@ const AdminCategories = () => {
 
   const handleDeleteCategory = async () => {
     if (!selectedCategory) return;
+    const categoryId = selectedCategory.id || selectedCategory._id;
+    if (!categoryId) return;
     
     setProcessing(true);
     try {
-      await adminAPI.deleteCategory(selectedCategory.id);
-      setCategories(prev => prev.filter(c => c.id !== selectedCategory.id));
+      if (!adminAPI || typeof adminAPI.deleteCategory !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      await adminAPI.deleteCategory(categoryId);
       toast.success('Category deleted successfully');
       setShowDeleteModal(false);
       setSelectedCategory(null);
       await fetchAllData();
-    } catch (err) {
-      console.error('Delete error:', err);
-      toast.error(err.response?.data?.message || 'Failed to delete category');
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error(error.message || 'Failed to delete category');
     } finally {
       setProcessing(false);
     }
   };
 
-  // Bulk actions
+  // ✅ Bulk actions with real API
   const handleBulkStatusChange = async (status) => {
     if (selectedCategories.length === 0) return;
     
     setProcessing(true);
     try {
-      await adminAPI.bulkCategoryAction({ ids: selectedCategories, action: status });
+      if (!adminAPI || typeof adminAPI.bulkCategoryAction !== 'function') {
+        throw new Error('API service not available');
+      }
+      
+      await adminAPI.bulkCategoryAction({ 
+        ids: selectedCategories, 
+        action: status 
+      });
+      
       await fetchAllData();
       setSelectedCategories([]);
       setShowBulkActions(false);
       toast.success(`${selectedCategories.length} categories updated to ${status}`);
-    } catch (err) {
-      toast.error('Bulk update failed');
+    } catch (error) {
+      console.error('Bulk update error:', error);
+      toast.error(error.message || 'Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -303,23 +448,37 @@ const AdminCategories = () => {
     
     setProcessing(true);
     try {
+      if (!adminAPI || typeof adminAPI.bulkDeleteCategories !== 'function') {
+        throw new Error('API service not available');
+      }
+      
       await adminAPI.bulkDeleteCategories({ ids: selectedCategories });
       await fetchAllData();
       setSelectedCategories([]);
       setShowBulkActions(false);
       toast.success(`${selectedCategories.length} categories deleted`);
-    } catch (err) {
-      toast.error('Bulk delete failed');
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      toast.error(error.message || 'Bulk delete failed');
     } finally {
       setProcessing(false);
     }
   };
 
-  // Export
+  // ✅ Export with real API
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const response = await adminAPI.exportCategories({ format: exportFormat });
+      if (!adminAPI || typeof adminAPI.exportCategories !== 'function') {
+        throw new Error('Export API not available');
+      }
+      
+      const response = await adminAPI.exportCategories({ 
+        format: exportFormat,
+        search: searchTerm || undefined,
+        status: filterStatus !== 'all' ? filterStatus : undefined
+      });
+      
       const blob = new Blob([response.data], { 
         type: exportFormat === 'csv' ? 'text/csv' : 
               exportFormat === 'excel' ? 'application/vnd.ms-excel' : 
@@ -333,8 +492,9 @@ const AdminCategories = () => {
       window.URL.revokeObjectURL(url);
       toast.success('Categories exported successfully');
       setShowExportModal(false);
-    } catch (err) {
-      toast.error('Export failed');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(error.message || 'Export failed');
     } finally {
       setIsExporting(false);
     }
@@ -348,8 +508,8 @@ const AdminCategories = () => {
   };
 
   const handleSelectAll = () => {
-    const allIds = categories.map(c => c.id);
-    if (selectedCategories.length === allIds.length) {
+    const allIds = categories.map(c => c.id || c._id).filter(Boolean);
+    if (selectedCategories.length === allIds.length && allIds.length > 0) {
       setSelectedCategories([]);
     } else {
       setSelectedCategories(allIds);
@@ -357,6 +517,7 @@ const AdminCategories = () => {
   };
 
   const handleSelectCategory = (id) => {
+    if (!id) return;
     setSelectedCategories(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
@@ -373,26 +534,33 @@ const AdminCategories = () => {
     return sortConfig.direction === 'asc' ? <FaSortUp /> : <FaSortDown />;
   };
 
-  // Filter categories
+  // ✅ Filter categories (already filtered by API, but we keep client-side filtering for safety)
   const filteredCategories = useMemo(() => {
     let filtered = [...categories];
+    
+    // Client-side filtering as backup
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(cat =>
-        cat.name.toLowerCase().includes(term) ||
-        (cat.description || '').toLowerCase().includes(term) ||
-        cat.slug.toLowerCase().includes(term)
+        cat.name?.toLowerCase().includes(term) ||
+        cat.description?.toLowerCase().includes(term) ||
+        cat.slug?.toLowerCase().includes(term)
       );
     }
-    if (filterStatus !== 'all') filtered = filtered.filter(cat => cat.status === filterStatus);
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(cat => cat.status?.toLowerCase() === filterStatus);
+    }
     
+    // Sorting
     filtered.sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      let aVal = a[sortConfig.key] ?? '';
+      let bVal = b[sortConfig.key] ?? '';
+      
       if (sortConfig.key === 'serviceCount' || sortConfig.key === 'totalBookings' || sortConfig.key === 'totalRevenue') {
-        aVal = Number(aVal);
-        bVal = Number(bVal);
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
       }
+      
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
@@ -410,11 +578,21 @@ const AdminCategories = () => {
   const totalPages = Math.ceil(filteredCategories.length / itemsPerPage);
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaInfoCircle />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const badges = {
       active: { bg: 'success', icon: <FaCheckCircle />, label: 'Active' },
       inactive: { bg: 'secondary', icon: <FaClock />, label: 'Inactive' }
     };
-    const b = badges[status] || badges.inactive;
+    const b = badges[lowerStatus] || badges.inactive;
     return (
       <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
         {b.icon}
@@ -423,13 +601,23 @@ const AdminCategories = () => {
     );
   };
 
+  // Get category ID safely
+  const getCategoryId = (category) => {
+    return category?.id || category?._id || null;
+  };
+
+  // ✅ Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading categories...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading categories...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -475,6 +663,14 @@ const AdminCategories = () => {
             </Button>
           </div>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
 
         {/* Stats Cards */}
         <Row className="g-4 mb-4">
@@ -614,6 +810,7 @@ const AdminCategories = () => {
                   size="sm"
                   variant="success"
                   onClick={() => handleBulkStatusChange('active')}
+                  disabled={processing}
                 >
                   <FaCheckCircle className="me-2" /> Activate ({selectedCategories.length})
                 </Button>
@@ -621,6 +818,7 @@ const AdminCategories = () => {
                   size="sm"
                   variant="secondary"
                   onClick={() => handleBulkStatusChange('inactive')}
+                  disabled={processing}
                 >
                   <FaClock className="me-2" /> Deactivate ({selectedCategories.length})
                 </Button>
@@ -628,6 +826,7 @@ const AdminCategories = () => {
                   size="sm"
                   variant="danger"
                   onClick={() => setShowBulkActions(true)}
+                  disabled={processing}
                 >
                   <FaTrash className="me-2" /> Delete ({selectedCategories.length})
                 </Button>
@@ -643,9 +842,11 @@ const AdminCategories = () => {
               <div className="text-center py-5">
                 <FaTags size={48} className="text-muted mb-3 opacity-50" />
                 <h6 className="text-muted">No categories found</h6>
-                <Button variant="primary" onClick={() => handleAddCategory()} className="mt-2">
-                  <FaPlus className="me-2" /> Add Category
-                </Button>
+                {!error && (
+                  <Button variant="primary" onClick={() => handleAddCategory()} className="mt-2">
+                    <FaPlus className="me-2" /> Add Category
+                  </Button>
+                )}
               </div>
             ) : (
               <>
@@ -680,109 +881,112 @@ const AdminCategories = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentCategories.map(category => (
-                        <tr key={category.id} className={selectedCategories.includes(category.id) ? 'table-active' : ''}>
-                          <td style={{ padding: '16px' }}>
-                            <Form.Check
-                              type="checkbox"
-                              checked={selectedCategories.includes(category.id)}
-                              onChange={() => handleSelectCategory(category.id)}
-                            />
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex align-items-center gap-3">
-                              <div
-                                className="rounded-circle"
-                                style={{ width: '12px', height: '12px', backgroundColor: category.color || '#6366f1' }}
+                      {currentCategories.map(category => {
+                        const categoryId = getCategoryId(category);
+                        return (
+                          <tr key={categoryId} className={selectedCategories.includes(categoryId) ? 'table-active' : ''}>
+                            <td style={{ padding: '16px' }}>
+                              <Form.Check
+                                type="checkbox"
+                                checked={selectedCategories.includes(categoryId)}
+                                onChange={() => handleSelectCategory(categoryId)}
                               />
-                              {category.image && (
-                                <img
-                                  src={category.image}
-                                  alt={category.name}
-                                  className="rounded"
-                                  style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex align-items-center gap-3">
+                                <div
+                                  className="rounded-circle"
+                                  style={{ width: '12px', height: '12px', backgroundColor: category.color || '#6366f1' }}
                                 />
-                              )}
-                              <div>
-                                <div className="fw-semibold">{category.name}</div>
-                                <small className="text-muted">{category.slug}</small>
+                                {category.image && (
+                                  <img
+                                    src={category.image}
+                                    alt={category.name}
+                                    className="rounded"
+                                    style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                                  />
+                                )}
+                                <div>
+                                  <div className="fw-semibold">{category.name || 'Unnamed'}</div>
+                                  <small className="text-muted">{category.slug || ''}</small>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <span className="fs-4">{category.icon || '📁'}</span>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="fw-semibold">{category.serviceCount || 0}</div>
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {(category.totalBookings || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <span className="fw-semibold text-primary">
-                              {formatNaira(category.totalRevenue || 0)}
-                            </span>
-                          </td>
-                          <td style={{ padding: '16px' }}>{getStatusBadge(category.status)}</td>
-                          <td style={{ padding: '16px' }}>
-                            {category.featured ? (
-                              <FaStar className="text-warning" size={18} />
-                            ) : (
-                              <FaStar className="text-muted opacity-25" size={18} />
-                            )}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            {category.popular ? (
-                              <FaFire className="text-danger" size={18} />
-                            ) : (
-                              <FaFire className="text-muted opacity-25" size={18} />
-                            )}
-                          </td>
-                          <td style={{ padding: '16px' }}>
-                            <div className="d-flex gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline-primary"
-                                className="rounded-circle p-1"
-                                style={{ width: '32px', height: '32px' }}
-                                onClick={() => handleViewCategory(category)}
-                              >
-                                <FaEye size={14} />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline-info"
-                                className="rounded-circle p-1"
-                                style={{ width: '32px', height: '32px' }}
-                                onClick={() => handleEditCategory(category)}
-                              >
-                                <FaEdit size={14} />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline-success"
-                                className="rounded-circle p-1"
-                                style={{ width: '32px', height: '32px' }}
-                                onClick={() => handleAddCategory(category.id)}
-                              >
-                                <FaPlus size={14} />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline-danger"
-                                className="rounded-circle p-1"
-                                style={{ width: '32px', height: '32px' }}
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setShowDeleteModal(true);
-                                }}
-                              >
-                                <FaTrash size={14} />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span className="fs-4">{category.icon || '📁'}</span>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="fw-semibold">{category.serviceCount || 0}</div>
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {(category.totalBookings || 0).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <span className="fw-semibold text-primary">
+                                {formatNaira(category.totalRevenue || 0)}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px' }}>{getStatusBadge(category.status)}</td>
+                            <td style={{ padding: '16px' }}>
+                              {category.featured ? (
+                                <FaStar className="text-warning" size={18} />
+                              ) : (
+                                <FaStar className="text-muted opacity-25" size={18} />
+                              )}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              {category.popular ? (
+                                <FaFire className="text-danger" size={18} />
+                              ) : (
+                                <FaFire className="text-muted opacity-25" size={18} />
+                              )}
+                            </td>
+                            <td style={{ padding: '16px' }}>
+                              <div className="d-flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline-primary"
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => handleViewCategory(category)}
+                                >
+                                  <FaEye size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline-info"
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => handleEditCategory(category)}
+                                >
+                                  <FaEdit size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline-success"
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => handleAddCategory(categoryId)}
+                                >
+                                  <FaPlus size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline-danger"
+                                  className="rounded-circle p-1"
+                                  style={{ width: '32px', height: '32px' }}
+                                  onClick={() => {
+                                    setSelectedCategory(category);
+                                    setShowDeleteModal(true);
+                                  }}
+                                >
+                                  <FaTrash size={14} />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </Table>
                 </div>
@@ -992,7 +1196,7 @@ const AdminCategories = () => {
           </Button>
           {(modalMode === 'edit' || modalMode === 'add') && (
             <Button variant="primary" onClick={handleSaveCategory} disabled={processing}>
-              {processing ? 'Saving...' : (modalMode === 'edit' ? 'Update' : 'Create')}
+              {processing ? <><Spinner animation="border" size="sm" /> Saving...</> : (modalMode === 'edit' ? 'Update' : 'Create')}
             </Button>
           )}
         </Modal.Footer>
@@ -1016,7 +1220,7 @@ const AdminCategories = () => {
             Cancel
           </Button>
           <Button variant="danger" onClick={handleDeleteCategory} disabled={processing}>
-            {processing ? 'Deleting...' : 'Delete'}
+            {processing ? <><Spinner animation="border" size="sm" /> Deleting...</> : 'Delete'}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -1029,13 +1233,13 @@ const AdminCategories = () => {
         <Modal.Body className="pt-4">
           <p className="mb-4">Selected categories: <strong className="text-primary">{selectedCategories.length}</strong></p>
           <div className="d-grid gap-2">
-            <Button variant="success" onClick={() => handleBulkStatusChange('active')}>
+            <Button variant="success" onClick={() => handleBulkStatusChange('active')} disabled={processing}>
               <FaCheckCircle className="me-2" /> Activate All
             </Button>
-            <Button variant="secondary" onClick={() => handleBulkStatusChange('inactive')}>
+            <Button variant="secondary" onClick={() => handleBulkStatusChange('inactive')} disabled={processing}>
               <FaClock className="me-2" /> Deactivate All
             </Button>
-            <Button variant="danger" onClick={handleBulkDelete}>
+            <Button variant="danger" onClick={handleBulkDelete} disabled={processing}>
               <FaTrash className="me-2" /> Delete All
             </Button>
           </div>

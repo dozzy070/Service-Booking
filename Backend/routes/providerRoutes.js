@@ -123,7 +123,6 @@ router.get('/dashboard/stats', async (req, res) => {
     const lastMonthStart = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
     const lastMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
 
-    // Today's earnings
     const todayResult = await pool.query(
       `SELECT COALESCE(SUM(total_amount), 0) as today_earnings
        FROM bookings
@@ -132,7 +131,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId, todayStart, todayEnd]
     );
 
-    // Weekly earnings
     const weeklyResult = await pool.query(
       `SELECT COALESCE(SUM(total_amount), 0) as weekly_earnings
        FROM bookings
@@ -140,7 +138,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId, weekAgo]
     );
 
-    // Monthly earnings
     const monthlyResult = await pool.query(
       `SELECT COALESCE(SUM(total_amount), 0) as monthly_earnings
        FROM bookings
@@ -148,7 +145,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId, monthStart]
     );
 
-    // Total earnings all time
     const totalEarningsResult = await pool.query(
       `SELECT COALESCE(SUM(total_amount), 0) as total_earnings
        FROM bookings
@@ -156,7 +152,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // Earnings growth
     const earningsGrowthResult = await pool.query(
       `SELECT 
          COALESCE(SUM(CASE WHEN booking_date >= $1 THEN total_amount ELSE 0 END), 0) as this_month,
@@ -172,7 +167,6 @@ router.get('/dashboard/stats', async (req, res) => {
       ? ((thisMonthEarnings - lastMonthEarnings) / lastMonthEarnings * 100)
       : 0;
 
-    // Booking counts
     const bookingCounts = await pool.query(
       `SELECT
          COUNT(*) as total_bookings,
@@ -184,7 +178,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // Booking growth
     const bookingGrowthResult = await pool.query(
       `SELECT 
          COUNT(*) FILTER (WHERE booking_date >= $1) as this_month_count,
@@ -200,7 +193,6 @@ router.get('/dashboard/stats', async (req, res) => {
       ? ((thisMonthBookings - lastMonthBookings) / lastMonthBookings * 100)
       : 0;
 
-    // Active services
     const activeServices = await pool.query(
       `SELECT COUNT(*) as active_services
        FROM services
@@ -208,7 +200,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // Pending approval services
     const pendingApproval = await pool.query(
       `SELECT COUNT(*) as pending_approval
        FROM services
@@ -216,7 +207,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // Total clients
     const totalClients = await pool.query(
       `SELECT COUNT(DISTINCT customer_id) as total_clients
        FROM bookings
@@ -224,7 +214,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // New clients this month
     const newClients = await pool.query(
       `SELECT COUNT(DISTINCT customer_id) as new_clients_this_month
        FROM bookings
@@ -232,7 +221,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId, monthStart]
     );
 
-    // Reviews
     const reviews = await pool.query(
       `SELECT 
          COALESCE(AVG(r.rating), 0) as average_rating, 
@@ -243,7 +231,6 @@ router.get('/dashboard/stats', async (req, res) => {
       [providerId]
     );
 
-    // Completion rate
     const completionRateResult = await pool.query(
       `SELECT 
          COUNT(*) as total,
@@ -397,7 +384,6 @@ router.get('/dashboard/today-schedule', async (req, res) => {
 // PROVIDER SERVICES
 // =========================================================================
 
-// GET /api/provider/services
 router.get('/services', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -454,17 +440,15 @@ router.get('/services', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER BOOKINGS - ALL FIXED
+// PROVIDER BOOKINGS
 // =========================================================================
 
-// GET /api/provider/bookings
 router.get('/bookings', async (req, res) => {
   try {
     const userId = req.user.id;
     const { status, page = 1, limit = 10, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    // Verify the user has the provider role
     const userCheck = await pool.query(
       'SELECT id, role FROM users WHERE id = $1 AND role = $2',
       [userId, 'provider']
@@ -479,7 +463,6 @@ router.get('/bookings', async (req, res) => {
       });
     }
     
-    // Build conditions using provider_id = user_id
     let conditions = ['b.provider_id = $1'];
     let params = [userId];
     let paramIndex = 2;
@@ -497,7 +480,6 @@ router.get('/bookings', async (req, res) => {
     
     const whereClause = conditions.join(' AND ');
     
-    // Get total count
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM bookings b
@@ -508,7 +490,6 @@ router.get('/bookings', async (req, res) => {
     const countResult = await pool.query(countQuery, params);
     const total = parseInt(countResult.rows[0]?.total || 0);
     
-    // Get bookings with correct column names
     const query = `
       SELECT 
         b.id,
@@ -568,7 +549,6 @@ router.get('/bookings', async (req, res) => {
     
   } catch (err) {
     console.error('❌ Bookings fetch error:', err);
-    console.error('❌ Error stack:', err.stack);
     res.json({
       bookings: [],
       total: 0,
@@ -578,7 +558,6 @@ router.get('/bookings', async (req, res) => {
   }
 });
 
-// GET /api/provider/bookings/:id
 router.get('/bookings/:id', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -610,7 +589,6 @@ router.get('/bookings/:id', async (req, res) => {
   }
 });
 
-// PUT /api/provider/bookings/:id/status
 router.put('/bookings/:id/status', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -638,7 +616,6 @@ router.put('/bookings/:id/status', async (req, res) => {
   }
 });
 
-// POST /api/provider/bookings/:id/start
 router.post('/bookings/:id/start', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -667,7 +644,6 @@ router.post('/bookings/:id/start', async (req, res) => {
   }
 });
 
-// POST /api/provider/bookings/:id/complete
 router.post('/bookings/:id/complete', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -696,7 +672,6 @@ router.post('/bookings/:id/complete', async (req, res) => {
   }
 });
 
-// PUT /api/provider/bookings/:id/reschedule
 router.put('/bookings/:id/reschedule', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -743,7 +718,6 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
 // PROVIDER SCHEDULE
 // =========================================================================
 
-// GET /api/provider/schedule
 router.get('/schedule', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -776,7 +750,6 @@ router.get('/schedule', async (req, res) => {
   }
 });
 
-// POST /api/provider/schedule
 router.post('/schedule', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -800,7 +773,6 @@ router.post('/schedule', async (req, res) => {
   }
 });
 
-// PUT /api/provider/schedule/:id
 router.put('/schedule/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -829,7 +801,6 @@ router.put('/schedule/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/provider/schedule/:id
 router.delete('/schedule/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -848,7 +819,6 @@ router.delete('/schedule/:id', async (req, res) => {
 // PROVIDER EARNINGS
 // =========================================================================
 
-// GET /api/provider/earnings
 router.get('/earnings', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -943,7 +913,6 @@ router.get('/earnings', async (req, res) => {
 // PROVIDER REVIEWS
 // =========================================================================
 
-// GET /api/provider/reviews
 router.get('/reviews', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1029,7 +998,6 @@ router.get('/reviews', async (req, res) => {
   }
 });
 
-// POST /api/provider/reviews/:id/respond
 router.post('/reviews/:id/respond', async (req, res) => {
   try {
     const { response } = req.body;
@@ -1067,7 +1035,6 @@ router.post('/reviews/:id/respond', async (req, res) => {
 // PROVIDER PROFILE
 // =========================================================================
 
-// GET /api/provider/profile
 router.get('/profile', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1096,7 +1063,6 @@ router.get('/profile', async (req, res) => {
   }
 });
 
-// PUT /api/provider/profile
 router.put('/profile', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1132,7 +1098,6 @@ router.put('/profile', async (req, res) => {
 // PROVIDER NOTIFICATIONS
 // =========================================================================
 
-// GET /api/provider/notifications
 router.get('/notifications', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1164,7 +1129,6 @@ router.get('/notifications', async (req, res) => {
 // PROVIDER WITHDRAWAL METHODS
 // =========================================================================
 
-// GET /api/provider/withdrawal-methods
 router.get('/withdrawal-methods', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1184,7 +1148,6 @@ router.get('/withdrawal-methods', async (req, res) => {
   }
 });
 
-// POST /api/provider/withdrawal-methods
 router.post('/withdrawal-methods', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1221,7 +1184,6 @@ router.post('/withdrawal-methods', async (req, res) => {
   }
 });
 
-// DELETE /api/provider/withdrawal-methods/:id
 router.delete('/withdrawal-methods/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1242,5 +1204,319 @@ router.delete('/withdrawal-methods/:id', async (req, res) => {
     res.status(500).json({ message: 'Failed to delete withdrawal method' });
   }
 });
+
+// =========================================================================
+// PROVIDER HELP CENTER - ✅ FIXED: TICKETS & KNOWLEDGE BASE
+// =========================================================================
+
+// ========================
+// PROVIDER FAQs
+// ========================
+
+router.get('/faqs', async (req, res) => {
+  try {
+    const { limit = 20, category, search } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'faqs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    let conditions = ["status = 'published'"];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const query = `
+      SELECT id, question, answer, category, icon, helpful_count, created_at
+      FROM faqs
+      WHERE ${whereClause}
+      ORDER BY helpful_count DESC, created_at DESC
+      LIMIT $${paramIndex}
+    `;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching provider FAQs:', error);
+    res.json([]);
+  }
+});
+
+// ========================
+// PROVIDER TICKETS - ✅ FIXED
+// ========================
+
+// GET /api/provider/tickets - Get provider's tickets
+router.get('/tickets', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { limit = 10, page = 1, status } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Check if support_tickets table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        tickets: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['user_id = $1'];
+    let params = [userId];
+    let paramIndex = 2;
+    
+    if (status && status !== 'all') {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    // Get total count
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM support_tickets WHERE ${whereClause}
+    `, params.slice(0, paramIndex - 1));
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    // Get paginated tickets
+    const result = await pool.query(`
+      SELECT * FROM support_tickets 
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, [...params, parseInt(limit), offset]);
+    
+    // Get messages for each ticket
+    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
+      const messages = await pool.query(
+        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
+        [ticket.id]
+      );
+      return { ...ticket, messages: messages.rows };
+    }));
+    
+    res.json({
+      tickets: ticketsWithMessages,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('Error fetching provider tickets:', error);
+    res.json({
+      tickets: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// POST /api/provider/tickets - Create ticket
+router.post('/tickets', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { subject, category, priority = 'medium', message } = req.body;
+    
+    if (!subject || !message) {
+      return res.status(400).json({ 
+        message: 'Subject and message are required' 
+      });
+    }
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        message: 'Support tickets table not available' 
+      });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
+      RETURNING *
+    `, [userId, subject, category || 'general', priority]);
+    
+    const ticket = result.rows[0];
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticket.id, userId, message]);
+    
+    res.status(201).json(ticket);
+  } catch (error) {
+    console.error('Error creating ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to create ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /api/provider/tickets/:id/reply - Reply to ticket
+router.post('/tickets/:id/reply', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const ticketId = req.params.id;
+    const { message } = req.body;
+    
+    if (!message || !message.trim()) {
+      return res.status(400).json({ message: 'Reply message is required' });
+    }
+    
+    const ticketCheck = await pool.query(
+      'SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2',
+      [ticketId, userId]
+    );
+    
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticketId, userId, message.trim()]);
+    
+    await pool.query(`
+      UPDATE support_tickets 
+      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [ticketId]);
+    
+    res.status(201).json({ message: 'Reply sent successfully' });
+  } catch (error) {
+    console.error('Error replying to ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to reply to ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// ========================
+// PROVIDER KNOWLEDGE BASE - ✅ FIXED
+// ========================
+
+// GET /api/provider/knowledge-base - Get knowledge base for providers
+router.get('/knowledge-base', async (req, res) => {
+  try {
+    const { search, category, limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'knowledge_base'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        articles: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['is_published = true'];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    // Get total count
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM knowledge_base WHERE ${whereClause}
+    `, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    // Get paginated articles
+    const query = `
+      SELECT id, title, content, category, tags, read_time, created_at, updated_at
+      FROM knowledge_base
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    const articles = result.rows.map(article => ({
+      ...article,
+      read_time: article.read_time || Math.ceil((article.content || '').length / 1000) + 1
+    }));
+    
+    res.json({
+      articles: articles,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('Error fetching provider knowledge base:', error);
+    res.json({
+      articles: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// =========================================================================
+// EXPORT ROUTER - ✅ MAKE SURE THIS IS AT THE END
+// =========================================================================
 
 export default router;

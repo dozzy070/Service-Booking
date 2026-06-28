@@ -1,5 +1,5 @@
 // src/pages/customer/Reviews.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -55,6 +55,7 @@ const Reviews = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [stats, setStats] = useState({
     average: 0,
@@ -83,6 +84,11 @@ const Reviews = () => {
   const [reportReason, setReportReason] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showHelpful, setShowHelpful] = useState({});
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   const itemsPerPage = 10;
 
@@ -96,9 +102,56 @@ const Reviews = () => {
     }).format(amount || 0);
   };
 
-  // Fetch reviews
-  const fetchReviews = useCallback(async () => {
+  // Calculate stats from reviews data
+  const calculateStatsFromReviews = useCallback((reviewsData) => {
+    if (!reviewsData || reviewsData.length === 0) {
+      setStats({
+        average: 0,
+        total: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        verified: 0,
+        withPhotos: 0,
+        withResponse: 0
+      });
+      return;
+    }
+
+    const total = reviewsData.length;
+    const sum = reviewsData.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
+    const average = sum / total;
+
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviewsData.forEach(review => {
+      const rating = Math.round(parseFloat(review.rating) || 0);
+      if (rating >= 1 && rating <= 5) {
+        distribution[rating]++;
+      }
+    });
+
+    const verified = reviewsData.filter(r => r.booking_id || r.bookingId || r.is_verified).length;
+    const withPhotos = reviewsData.filter(r => r.images && r.images.length > 0).length;
+    const withResponse = reviewsData.filter(r => r.provider_response || r.admin_response || r.response_text).length;
+
+    setStats({
+      average: parseFloat(average.toFixed(1)),
+      total: total,
+      distribution: distribution,
+      verified: verified,
+      withPhotos: withPhotos,
+      withResponse: withResponse
+    });
+  }, []);
+
+  // Fetch reviews from real API
+  const fetchReviews = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
@@ -106,53 +159,88 @@ const Reviews = () => {
         sort: sortBy,
         search: searchTerm || undefined
       };
-      const response = await customerAPI.getReviews(params);
-      setReviews(response.data.reviews || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
+
+      let response = null;
+      
+      if (typeof customerAPI.getReviews === 'function') {
+        response = await customerAPI.getReviews(params);
+      } else if (typeof customerAPI.getUserReviews === 'function') {
+        response = await customerAPI.getUserReviews(params);
+      } else {
+        throw new Error('Reviews API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const reviewsData = data.reviews || data.data || [];
+      
+      setReviews(Array.isArray(reviewsData) ? reviewsData : []);
+      setTotalCount(data.total || reviewsData.length || 0);
+      setTotalPages(Math.ceil((data.total || reviewsData.length || 0) / itemsPerPage));
+      
+      // Calculate stats from the reviews we just fetched
+      calculateStatsFromReviews(reviewsData);
+      
     } catch (error) {
       console.error('Error fetching reviews:', error);
-      toast.error('Failed to load reviews');
-    }
-  }, [currentPage, filter, sortBy, searchTerm]);
-
-  // Fetch stats
-  const fetchStats = useCallback(async () => {
-    try {
-      const response = await customerAPI.getReviewStats();
-      setStats({
-        average: response.data.average_rating || 0,
-        total: response.data.total_reviews || 0,
-        distribution: response.data.rating_distribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
-        verified: response.data.verified_purchases || 0,
-        withPhotos: response.data.with_photos || 0,
-        withResponse: response.data.with_provider_response || 0
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
+      setError(error.message || 'Failed to load reviews');
+      setReviews([]);
+      setTotalCount(0);
+      setTotalPages(1);
+      if (error.response?.status !== 401) {
+        toast.error('Failed to load reviews');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [currentPage, filter, sortBy, searchTerm, calculateStatsFromReviews]);
 
-  // Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([fetchReviews(), fetchStats()]);
-    setLoading(false);
-  };
-
+  // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await fetchReviews(false);
     toast.success('Reviews updated');
   };
 
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchReviews(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    fetchReviews(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchReviews(false);
+    }
   }, [currentPage, filter, sortBy, searchTerm]);
 
-  // Submit review
+  // Submit review with real API
   const handleSubmitReview = async () => {
     if (reviewRating === 0) {
       toast.error('Please select a rating');
@@ -165,6 +253,10 @@ const Reviews = () => {
 
     setSubmitting(true);
     try {
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
       const formData = new FormData();
       formData.append('rating', reviewRating);
       formData.append('comment', reviewComment);
@@ -172,11 +264,20 @@ const Reviews = () => {
         formData.append('images', image);
       });
 
-      await customerAPI.addReview(selectedService.id, formData);
+      const serviceId = selectedService?.id || selectedService?._id;
+      
+      if (typeof customerAPI.addReview === 'function') {
+        await customerAPI.addReview(serviceId, formData);
+      } else if (typeof customerAPI.createReview === 'function') {
+        await customerAPI.createReview(serviceId, formData);
+      } else {
+        throw new Error('Add review API methods not available');
+      }
+      
       toast.success('Review submitted successfully!');
       setShowReviewModal(false);
       resetReviewForm();
-      await loadAllData();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error submitting review:', error);
       toast.error(error.response?.data?.message || 'Failed to submit review');
@@ -185,50 +286,93 @@ const Reviews = () => {
     }
   };
 
-  // Delete review
+  // Delete review with real API
   const handleDeleteReview = async () => {
     if (!reviewToDelete) return;
+    const reviewId = reviewToDelete.id || reviewToDelete._id;
+    if (!reviewId) return;
 
     try {
-      await customerAPI.deleteReview(reviewToDelete.id);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.deleteReview === 'function') {
+        await customerAPI.deleteReview(reviewId);
+      } else if (typeof customerAPI.removeReview === 'function') {
+        await customerAPI.removeReview(reviewId);
+      } else {
+        throw new Error('Delete review API methods not available');
+      }
+      
       toast.success('Review deleted successfully');
       setShowDeleteModal(false);
       setReviewToDelete(null);
-      await loadAllData();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error deleting review:', error);
-      toast.error('Failed to delete review');
+      toast.error(error.message || 'Failed to delete review');
     }
   };
 
-  // Report review
+  // Report review with real API
   const handleReportReview = async () => {
     if (!reviewToReport || !reportReason) {
       toast.error('Please provide a reason');
       return;
     }
 
+    const reviewId = reviewToReport.id || reviewToReport._id;
+    if (!reviewId) return;
+
     try {
-      await customerAPI.reportReview(reviewToReport.id, reportReason);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { reason: reportReason };
+      
+      if (typeof customerAPI.reportReview === 'function') {
+        await customerAPI.reportReview(reviewId, payload);
+      } else if (typeof customerAPI.reportReviewContent === 'function') {
+        await customerAPI.reportReviewContent(reviewId, payload);
+      } else {
+        throw new Error('Report review API methods not available');
+      }
+      
       toast.success('Review reported successfully');
       setShowReportModal(false);
       setReviewToReport(null);
       setReportReason('');
     } catch (error) {
       console.error('Error reporting review:', error);
-      toast.error('Failed to report review');
+      toast.error(error.message || 'Failed to report review');
     }
   };
 
-  // Mark helpful
+  // Mark helpful with real API
   const handleHelpful = async (reviewId) => {
+    if (!reviewId) return;
+    
     try {
-      await customerAPI.markReviewHelpful(reviewId);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.markReviewHelpful === 'function') {
+        await customerAPI.markReviewHelpful(reviewId);
+      } else if (typeof customerAPI.helpfulReview === 'function') {
+        await customerAPI.helpfulReview(reviewId);
+      } else {
+        throw new Error('Mark helpful API methods not available');
+      }
+      
       setShowHelpful(prev => ({ ...prev, [reviewId]: true }));
       toast.success('Thanks for your feedback!');
-      await fetchReviews();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error marking helpful:', error);
+      toast.error(error.message || 'Failed to mark review as helpful');
     }
   };
 
@@ -264,8 +408,9 @@ const Reviews = () => {
 
   // Render stars
   const renderStars = (rating, size = 16, showNumber = false) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+    const numRating = parseFloat(rating) || 0;
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
     return (
@@ -277,32 +422,44 @@ const Reviews = () => {
         {[...Array(emptyStars)].map((_, i) => (
           <FaRegStar key={i} size={size} color="#e2e8f0" />
         ))}
-        {showNumber && <span className="ms-2 fw-bold">{rating.toFixed(1)}</span>}
+        {showNumber && <span className="ms-2 fw-bold">{numRating.toFixed(1)}</span>}
       </div>
     );
   };
 
   // Get rating color
   const getRatingColor = (rating) => {
-    if (rating >= 4) return 'success';
-    if (rating >= 3) return 'warning';
+    const numRating = parseFloat(rating) || 0;
+    if (numRating >= 4) return 'success';
+    if (numRating >= 3) return 'warning';
     return 'danger';
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading reviews...</p>
-        </div>
-      </div>
-    );
-  }
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationCircle className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchReviews(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -467,7 +624,7 @@ const Reviews = () => {
 
             <div className="mt-3">
               <small className="text-muted">
-                Showing {reviews.length} of {stats.total} reviews
+                Showing {reviews.length} of {totalCount || stats.total} reviews
               </small>
             </div>
           </Card.Body>
@@ -486,151 +643,173 @@ const Reviews = () => {
             </Card.Body>
           </Card>
         ) : (
-          reviews.map((review) => (
-            <Card key={review.id} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex gap-3">
-                  {/* Provider Avatar */}
-                  <div 
-                    className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
-                    style={{ 
-                      width: '56px', 
-                      height: '56px', 
-                      background: `linear-gradient(135deg, ${getRatingColor(review.rating)} 0%, ${getRatingColor(review.rating)} 100%)`,
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      color: 'white'
-                    }}
-                  >
-                    {review.provider_name?.charAt(0).toUpperCase() || 'P'}
-                  </div>
+          reviews.map((review) => {
+            const reviewId = review.id || review._id;
+            const rating = parseFloat(review.rating) || 0;
+            const comment = getField(review, ['comment', 'content', 'review_text', 'text'], '');
+            const providerName = getField(review, ['provider_name', 'provider.name', 'providerName', 'provider'], 'Provider');
+            const serviceName = getField(review, ['service_name', 'service.name', 'serviceTitle', 'service.title'], '');
+            const images = review.images || [];
+            const createdAt = review.created_at || review.createdAt || review.date || new Date().toISOString();
+            const helpfulCount = parseInt(review.helpful_count) || parseInt(review.helpful) || 0;
+            const isVerified = review.booking_id || review.bookingId || review.is_verified;
+            const isEdited = review.is_edited || review.updated_at !== review.created_at;
+            const canEdit = review.can_edit || false;
+            const canDelete = review.can_delete || false;
+            const providerResponse = getField(review, ['provider_response', 'admin_response', 'response_text'], '');
+            const responseDate = getField(review, ['response_date', 'responded_at', 'updated_at'], '');
 
-                  <div className="flex-grow-1">
-                    {/* Header */}
-                    <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-                      <div>
-                        <h6 className="fw-bold mb-1">{review.provider_name}</h6>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          {renderStars(review.rating, 14)}
-                          <Badge bg="success" className="d-flex align-items-center gap-1 rounded-pill">
-                            <FaCheckCircle size={10} />
-                            Verified Purchase
-                          </Badge>
-                          {review.is_edited && (
-                            <Badge bg="secondary" className="rounded-pill">Edited</Badge>
-                          )}
-                        </div>
-                        <div className="d-flex align-items-center gap-3 text-muted small mb-3">
-                          <span className="d-flex align-items-center gap-1">
-                            <FaCalendarAlt size={12} />
-                            {format(new Date(review.created_at), 'MMM dd, yyyy')}
-                          </span>
-                          <span className="d-flex align-items-center gap-1">
-                            <FaClock size={12} />
-                            {formatDistanceToNow(new Date(review.created_at), { addSuffix: true })}
-                          </span>
-                          {review.service_name && (
-                            <span className="d-flex align-items-center gap-1">
-                              <FaUser size={12} />
-                              {review.service_name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+            return (
+              <Card key={reviewId} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
+                <Card.Body className="p-4">
+                  <div className="d-flex gap-3">
+                    {/* Provider Avatar */}
+                    <div 
+                      className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+                      style={{ 
+                        width: '56px', 
+                        height: '56px', 
+                        background: `linear-gradient(135deg, ${getRatingColor(rating)} 0%, ${getRatingColor(rating)} 100%)`,
+                        fontSize: '20px',
+                        fontWeight: 'bold',
+                        color: 'white'
+                      }}
+                    >
+                      {providerName.charAt(0).toUpperCase()}
                     </div>
 
-                    {/* Review Content */}
-                    <p className="mb-3" style={{ lineHeight: '1.6' }}>{review.comment}</p>
-
-                    {/* Review Images */}
-                    {review.images && review.images.length > 0 && (
-                      <div className="d-flex gap-2 mb-3 flex-wrap">
-                        {review.images.map((img, idx) => (
-                          <div key={idx} className="position-relative">
-                            <img
-                              src={img}
-                              alt={`Review ${idx + 1}`}
-                              style={{ width: '80px', height: '80px', borderRadius: '10px', objectFit: 'cover' }}
-                            />
+                    <div className="flex-grow-1">
+                      {/* Header */}
+                      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <div>
+                          <h6 className="fw-bold mb-1">{providerName}</h6>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            {renderStars(rating, 14)}
+                            {isVerified && (
+                              <Badge bg="success" className="d-flex align-items-center gap-1 rounded-pill">
+                                <FaCheckCircle size={10} />
+                                Verified Purchase
+                              </Badge>
+                            )}
+                            {isEdited && (
+                              <Badge bg="secondary" className="rounded-pill">Edited</Badge>
+                            )}
                           </div>
-                        ))}
+                          <div className="d-flex align-items-center gap-3 text-muted small mb-3">
+                            <span className="d-flex align-items-center gap-1">
+                              <FaCalendarAlt size={12} />
+                              {format(new Date(createdAt), 'MMM dd, yyyy')}
+                            </span>
+                            <span className="d-flex align-items-center gap-1">
+                              <FaClock size={12} />
+                              {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                            </span>
+                            {serviceName && (
+                              <span className="d-flex align-items-center gap-1">
+                                <FaUser size={12} />
+                                {serviceName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    )}
 
-                    {/* Actions */}
-                    <div className="d-flex gap-3 mb-3">
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-muted p-0 d-flex align-items-center gap-1"
-                        onClick={() => handleHelpful(review.id)}
-                        disabled={showHelpful[review.id]}
-                      >
-                        <FaThumbsUp size={12} />
-                        Helpful ({review.helpful_count || 0})
-                      </Button>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-muted p-0 d-flex align-items-center gap-1"
-                        onClick={() => {
-                          setReviewToReport(review);
-                          setShowReportModal(true);
-                        }}
-                      >
-                        <FaFlag size={12} />
-                        Report
-                      </Button>
-                      {review.can_edit && (
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="text-primary p-0 d-flex align-items-center gap-1"
-                          onClick={() => {
-                            setSelectedService(review);
-                            setReviewRating(review.rating);
-                            setReviewComment(review.comment);
-                            setShowReviewModal(true);
-                          }}
-                        >
-                          <FaEdit size={12} />
-                          Edit
-                        </Button>
+                      {/* Review Content */}
+                      <p className="mb-3" style={{ lineHeight: '1.6' }}>{comment}</p>
+
+                      {/* Review Images */}
+                      {images && images.length > 0 && (
+                        <div className="d-flex gap-2 mb-3 flex-wrap">
+                          {images.map((img, idx) => (
+                            <div key={idx} className="position-relative">
+                              <img
+                                src={img}
+                                alt={`Review ${idx + 1}`}
+                                style={{ width: '80px', height: '80px', borderRadius: '10px', objectFit: 'cover', cursor: 'pointer' }}
+                                onClick={() => window.open(img, '_blank')}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      {review.can_delete && (
+
+                      {/* Actions */}
+                      <div className="d-flex gap-3 mb-3">
                         <Button
                           variant="link"
                           size="sm"
-                          className="text-danger p-0 d-flex align-items-center gap-1"
+                          className="text-muted p-0 d-flex align-items-center gap-1"
+                          onClick={() => handleHelpful(reviewId)}
+                          disabled={showHelpful[reviewId]}
+                        >
+                          <FaThumbsUp size={12} />
+                          Helpful ({helpfulCount})
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="text-muted p-0 d-flex align-items-center gap-1"
                           onClick={() => {
-                            setReviewToDelete(review);
-                            setShowDeleteModal(true);
+                            setReviewToReport(review);
+                            setShowReportModal(true);
                           }}
                         >
-                          <FaTrash size={12} />
-                          Delete
+                          <FaFlag size={12} />
+                          Report
                         </Button>
+                        {canEdit && (
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="text-primary p-0 d-flex align-items-center gap-1"
+                            onClick={() => {
+                              setSelectedService(review);
+                              setReviewRating(rating);
+                              setReviewComment(comment);
+                              setShowReviewModal(true);
+                            }}
+                          >
+                            <FaEdit size={12} />
+                            Edit
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="text-danger p-0 d-flex align-items-center gap-1"
+                            onClick={() => {
+                              setReviewToDelete(review);
+                              setShowDeleteModal(true);
+                            }}
+                          >
+                            <FaTrash size={12} />
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Provider Response */}
+                      {providerResponse && (
+                        <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            <FaReply size={12} className="text-primary" />
+                            <strong className="small">Provider Response:</strong>
+                          </div>
+                          <p className="mb-1 small">{providerResponse}</p>
+                          {responseDate && (
+                            <small className="text-muted">
+                              {formatDistanceToNow(new Date(responseDate), { addSuffix: true })}
+                            </small>
+                          )}
+                        </div>
                       )}
                     </div>
-
-                    {/* Provider Response */}
-                    {review.provider_response && (
-                      <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <FaReply size={12} className="text-primary" />
-                          <strong className="small">Provider Response:</strong>
-                        </div>
-                        <p className="mb-1 small">{review.provider_response}</p>
-                        <small className="text-muted">
-                          {formatDistanceToNow(new Date(review.response_date), { addSuffix: true })}
-                        </small>
-                      </div>
-                    )}
                   </div>
-                </div>
-              </Card.Body>
-            </Card>
-          ))
+                </Card.Body>
+              </Card>
+            );
+          })
         )}
 
         {/* Pagination */}
@@ -686,11 +865,11 @@ const Reviews = () => {
           {selectedService && (
             <div className="mb-4 d-flex align-items-center gap-3">
               <div className="rounded-circle bg-primary d-flex align-items-center justify-content-center" style={{ width: '48px', height: '48px' }}>
-                {selectedService.provider_name?.charAt(0).toUpperCase()}
+                {getField(selectedService, ['provider_name', 'provider.name', 'providerName', 'provider'], 'P').charAt(0).toUpperCase()}
               </div>
               <div>
-                <h6 className="mb-0">{selectedService.provider_name}</h6>
-                <small className="text-muted">{selectedService.service_name}</small>
+                <h6 className="mb-0">{getField(selectedService, ['provider_name', 'provider.name', 'providerName', 'provider'], 'Provider')}</h6>
+                <small className="text-muted">{getField(selectedService, ['service_name', 'service.name', 'serviceTitle', 'service.title'], 'Service')}</small>
               </div>
             </div>
           )}

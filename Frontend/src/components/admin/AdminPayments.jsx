@@ -1,5 +1,5 @@
 // src/pages/admin/AdminPayments.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -78,6 +78,7 @@ const AdminPayments = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
+  const [error, setError] = useState(null);
 
   // Data State
   const [overview, setOverview] = useState({
@@ -118,6 +119,10 @@ const AdminPayments = () => {
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [processingAction, setProcessingAction] = useState(false);
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   // Format currency to NGN
   const formatNaira = (amount) => {
     return new Intl.NumberFormat('en-NG', {
@@ -136,63 +141,179 @@ const AdminPayments = () => {
 
   const formatNumber = (num) => (num || 0).toLocaleString();
 
-  // ✅ FIXED API Calls - Using correct adminAPI methods
-  const fetchAllData = useCallback(async () => {
-    setLoading(true);
+  // ✅ API Calls with proper error handling
+  const fetchPaymentOverview = useCallback(async () => {
     try {
+      if (!adminAPI || typeof adminAPI.getPaymentOverview !== 'function') {
+        throw new Error('API service not available');
+      }
       const params = { 
         startDate: dateRange.start, 
         endDate: dateRange.end 
       };
-      
-      // ✅ Use correct API methods
-      const [overviewRes, revenueRes, paymentsRes, payoutsRes, trendsRes] = await Promise.all([
-        adminAPI.getPaymentOverview(params),
-        adminAPI.getRevenueByMethod(params),
-        adminAPI.getPayments(params),      // ✅ Changed from getTransactions
-        adminAPI.getPayouts(params),       // ✅ Changed from getPayouts (correct)
-        adminAPI.getPaymentTrends(params)
-      ]);
-
-      setOverview(overviewRes.data || {});
-      setRevenueByMethod(Array.isArray(revenueRes.data) ? revenueRes.data : []);
-      
-      // ✅ Safely extract payments data
-      const paymentsData = Array.isArray(paymentsRes.data) ? paymentsRes.data :
-                           Array.isArray(paymentsRes.data?.payments) ? paymentsRes.data.payments : [];
-      setPayments(paymentsData);
-      
-      setPayouts(Array.isArray(payoutsRes.data) ? payoutsRes.data : []);
-      setMonthlyTrend(Array.isArray(trendsRes.data) ? trendsRes.data : []);
-
-      // Calculate payment stats
-      const stats = {
-        completed: paymentsData.filter(p => p?.status === 'paid' || p?.status === 'completed').length,
-        pending: paymentsData.filter(p => p?.status === 'pending' || p?.status === 'processing').length,
-        failed: paymentsData.filter(p => p?.status === 'failed').length,
-        refunded: paymentsData.filter(p => p?.status === 'refunded').length
-      };
-      setPaymentStats(stats);
-    } catch (error) {
-      console.error('Error fetching payment data:', error);
-      toast.error('Failed to load payment data');
-    } finally {
-      setLoading(false);
+      const res = await adminAPI.getPaymentOverview(params);
+      setOverview(res.data || overview);
+    } catch (err) {
+      console.error('Failed to fetch payment overview:', err);
+      setError('Failed to load payment overview');
     }
   }, [dateRange]);
 
+  const fetchRevenueByMethod = useCallback(async () => {
+    try {
+      if (!adminAPI || typeof adminAPI.getRevenueByMethod !== 'function') {
+        throw new Error('API service not available');
+      }
+      const params = { 
+        startDate: dateRange.start, 
+        endDate: dateRange.end 
+      };
+      const res = await adminAPI.getRevenueByMethod(params);
+      setRevenueByMethod(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to fetch revenue by method:', err);
+    }
+  }, [dateRange]);
+
+  const fetchPayments = useCallback(async () => {
+    try {
+      if (!adminAPI || typeof adminAPI.getPayments !== 'function') {
+        throw new Error('API service not available');
+      }
+      const params = {
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        payment_method: filterMethod !== 'all' ? filterMethod : undefined,
+        search: searchTerm || undefined,
+        sortBy: sortConfig.key,
+        sortOrder: sortConfig.direction,
+        limit: itemsPerPage,
+        page: currentPage
+      };
+      const res = await adminAPI.getPayments(params);
+      
+      // Handle different response formats
+      const data = res?.data || [];
+      const paymentsData = Array.isArray(data) ? data :
+                          Array.isArray(data?.payments) ? data.payments :
+                          Array.isArray(data?.data) ? data.data : [];
+      setPayments(paymentsData);
+
+      // Calculate payment stats
+      const stats = {
+        completed: paymentsData.filter(p => p?.status && ['paid', 'completed'].includes(p.status.toLowerCase())).length,
+        pending: paymentsData.filter(p => p?.status && ['pending', 'processing'].includes(p.status.toLowerCase())).length,
+        failed: paymentsData.filter(p => p?.status && p.status.toLowerCase() === 'failed').length,
+        refunded: paymentsData.filter(p => p?.status && p.status.toLowerCase() === 'refunded').length
+      };
+      setPaymentStats(stats);
+    } catch (err) {
+      console.error('Failed to fetch payments:', err);
+      setError('Failed to load payments');
+    }
+  }, [dateRange, filterStatus, filterMethod, searchTerm, sortConfig, itemsPerPage, currentPage]);
+
+  const fetchPayouts = useCallback(async () => {
+    try {
+      if (!adminAPI || typeof adminAPI.getPayouts !== 'function') {
+        throw new Error('API service not available');
+      }
+      const params = { 
+        startDate: dateRange.start, 
+        endDate: dateRange.end 
+      };
+      const res = await adminAPI.getPayouts(params);
+      setPayouts(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to fetch payouts:', err);
+    }
+  }, [dateRange]);
+
+  const fetchPaymentTrends = useCallback(async () => {
+    try {
+      if (!adminAPI || typeof adminAPI.getPaymentTrends !== 'function') {
+        throw new Error('API service not available');
+      }
+      const params = { 
+        startDate: dateRange.start, 
+        endDate: dateRange.end 
+      };
+      const res = await adminAPI.getPaymentTrends(params);
+      setMonthlyTrend(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to fetch payment trends:', err);
+    }
+  }, [dateRange]);
+
+  // ✅ Fetch all data
+  const fetchAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchPaymentOverview(),
+        fetchRevenueByMethod(),
+        fetchPayments(),
+        fetchPayouts(),
+        fetchPaymentTrends()
+      ]);
+    } catch (err) {
+      console.error('Failed to fetch payment data:', err);
+      setError('Failed to load payment data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [fetchPaymentOverview, fetchRevenueByMethod, fetchPayments, fetchPayouts, fetchPaymentTrends]);
+
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchAllData();
-    setRefreshing(false);
+    await fetchAllData(false);
     toast.success('Data refreshed');
   };
 
-  useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
 
-  // Filter payments
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial load
+  useEffect(() => {
+    fetchAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchAllData(false);
+    }
+  }, [dateRange, filterStatus, filterMethod, searchTerm, sortConfig, itemsPerPage, currentPage]);
+
+  // Filter payments client-side for additional filtering
   useEffect(() => {
     const list = Array.isArray(payments) ? payments : [];
     let filtered = [...list];
@@ -207,8 +328,8 @@ const AdminPayments = () => {
       );
     }
 
-    if (filterStatus !== 'all') filtered = filtered.filter(p => p?.status === filterStatus);
-    if (filterMethod !== 'all') filtered = filtered.filter(p => p?.payment_method === filterMethod);
+    if (filterStatus !== 'all') filtered = filtered.filter(p => p?.status?.toLowerCase() === filterStatus);
+    if (filterMethod !== 'all') filtered = filtered.filter(p => p?.payment_method?.toLowerCase() === filterMethod);
 
     // Sort
     if (sortConfig.key) {
@@ -216,12 +337,12 @@ const AdminPayments = () => {
         let aVal = a?.[sortConfig.key];
         let bVal = b?.[sortConfig.key];
         if (sortConfig.key === 'amount' || sortConfig.key === 'total_amount') {
-          aVal = parseFloat(aVal);
-          bVal = parseFloat(bVal);
+          aVal = parseFloat(aVal) || 0;
+          bVal = parseFloat(bVal) || 0;
         }
         if (sortConfig.key === 'created_at' || sortConfig.key === 'booking_date') {
-          aVal = new Date(aVal);
-          bVal = new Date(bVal);
+          aVal = aVal ? new Date(aVal) : 0;
+          bVal = bVal ? new Date(bVal) : 0;
         }
         if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
@@ -261,13 +382,17 @@ const AdminPayments = () => {
     if (selectedPayments.length === 0) return;
     setProcessingAction(true);
     try {
+      if (!adminAPI || typeof adminAPI.bulkPaymentAction !== 'function') {
+        throw new Error('API service not available');
+      }
       await adminAPI.bulkPaymentAction({ paymentIds: selectedPayments, action });
       toast.success(`${selectedPayments.length} payments ${action}ed`);
       setSelectedPayments([]);
       setShowBulkActions(false);
-      await fetchAllData();
+      await fetchAllData(false);
     } catch (error) {
-      toast.error('Bulk action failed');
+      console.error('Bulk action error:', error);
+      toast.error(error.message || 'Bulk action failed');
     } finally {
       setProcessingAction(false);
     }
@@ -277,6 +402,9 @@ const AdminPayments = () => {
     if (!selectedPayment) return;
     setProcessingAction(true);
     try {
+      if (!adminAPI || typeof adminAPI.refundPayment !== 'function') {
+        throw new Error('API service not available');
+      }
       await adminAPI.refundPayment(selectedPayment.id, {
         amount: parseFloat(refundAmount),
         reason: refundReason
@@ -286,9 +414,10 @@ const AdminPayments = () => {
       setSelectedPayment(null);
       setRefundAmount('');
       setRefundReason('');
-      await fetchAllData();
+      await fetchAllData(false);
     } catch (error) {
-      toast.error('Refund failed');
+      console.error('Refund error:', error);
+      toast.error(error.message || 'Refund failed');
     } finally {
       setProcessingAction(false);
     }
@@ -296,6 +425,8 @@ const AdminPayments = () => {
 
   const handleDateRangeChange = (period) => {
     setSelectedPeriod(period);
+    if (period === 'custom') return;
+    
     const today = new Date();
     let start = new Date();
     switch(period) {
@@ -328,6 +459,9 @@ const AdminPayments = () => {
   const handleExport = async () => {
     setIsExporting(true);
     try {
+      if (!adminAPI || typeof adminAPI.exportPayments !== 'function') {
+        throw new Error('Export API not available');
+      }
       const response = await adminAPI.exportPayments({
         format: exportFormat,
         startDate: dateRange.start,
@@ -351,13 +485,24 @@ const AdminPayments = () => {
       toast.success(`Exported ${filteredPayments.length} payments`);
       setShowExportModal(false);
     } catch (error) {
-      toast.error('Export failed');
+      console.error('Export error:', error);
+      toast.error(error.message || 'Export failed');
     } finally {
       setIsExporting(false);
     }
   };
 
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+          <FaInfoCircle />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const badges = {
       paid: { bg: 'success', icon: <FaCheckCircle />, label: 'Paid' },
       completed: { bg: 'success', icon: <FaCheckCircle />, label: 'Completed' },
@@ -366,7 +511,7 @@ const AdminPayments = () => {
       failed: { bg: 'danger', icon: <FaTimesCircle />, label: 'Failed' },
       refunded: { bg: 'info', icon: <FaUndo />, label: 'Refunded' }
     };
-    const b = badges[status] || badges.pending;
+    const b = badges[lowerStatus] || badges.pending;
     return (
       <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
         {b.icon}
@@ -376,7 +521,8 @@ const AdminPayments = () => {
   };
 
   const getPaymentIcon = (method) => {
-    switch(method?.toLowerCase()) {
+    if (!method) return <FaMoneyBillWave className="text-secondary" />;
+    switch(method.toLowerCase()) {
       case 'card': return <FaCcVisa className="text-primary" />;
       case 'paypal': return <FaPaypal className="text-primary" />;
       case 'bank': return <FaUniversity className="text-success" />;
@@ -391,13 +537,18 @@ const AdminPayments = () => {
   const currentPayments = filteredPayments.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
 
+  // Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading payment data...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading payment data...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -440,6 +591,14 @@ const AdminPayments = () => {
           </div>
         </div>
 
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+          </Alert>
+        )}
+
         {/* Date Range */}
         <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
           <Card.Body className="p-4">
@@ -476,7 +635,7 @@ const AdminPayments = () => {
                 </>
               )}
               <Col lg={3} className="d-flex align-items-end gap-2">
-                <Button variant="primary" onClick={fetchAllData} className="w-100">
+                <Button variant="primary" onClick={() => fetchAllData(false)} className="w-100">
                   <FaSearch className="me-2" /> Apply
                 </Button>
               </Col>
@@ -833,16 +992,16 @@ const AdminPayments = () => {
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-2">
                               <FaUserCircle className="text-muted" />
-                              <span>{payment.customer_name || 'Unknown'}</span>
+                              <span>{payment.customer_name || payment.customer?.name || 'Unknown'}</span>
                             </div>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <div className="d-flex align-items-center gap-2">
                               <FaUserTie className="text-muted" />
-                              <span>{payment.provider_name || 'Unknown'}</span>
+                              <span>{payment.provider_name || payment.provider?.name || 'Unknown'}</span>
                             </div>
                           </td>
-                          <td style={{ padding: '16px' }}>{payment.service_title || 'Unknown'}</td>
+                          <td style={{ padding: '16px' }}>{payment.service_title || payment.service?.title || 'Unknown'}</td>
                           <td style={{ padding: '16px' }}>
                             <div className="fw-bold text-primary">{formatNaira(payment.amount || 0)}</div>
                             <small className="text-muted">Fee: {formatNaira(payment.fee || 0)}</small>
@@ -958,8 +1117,8 @@ const AdminPayments = () => {
                     </thead>
                     <tbody>
                       {payouts.map((payout, idx) => (
-                        <tr key={idx}>
-                          <td>{payout.provider || 'Unknown'}</td>
+                        <tr key={payout.id || idx}>
+                          <td>{payout.provider || payout.provider_name || 'Unknown'}</td>
                           <td className="fw-bold text-primary">{formatNaira(payout.amount || 0)}</td>
                           <td>{payout.method || 'N/A'}</td>
                           <td>{payout.date ? format(new Date(payout.date), 'MMM dd, yyyy') : 'N/A'}</td>
@@ -1008,10 +1167,10 @@ const AdminPayments = () => {
                   <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                     <h6 className="fw-bold mb-3">Customer Details</h6>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                      <FaUserCircle className="text-muted" /> <span>{selectedPayment.customer_name || 'Unknown'}</span>
+                      <FaUserCircle className="text-muted" /> <span>{selectedPayment.customer_name || selectedPayment.customer?.name || 'Unknown'}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0' }}>
-                      <FaInfoCircle className="text-muted" /> <span>{selectedPayment.customer_email || 'N/A'}</span>
+                      <FaInfoCircle className="text-muted" /> <span>{selectedPayment.customer_email || selectedPayment.customer?.email || 'N/A'}</span>
                     </div>
                   </div>
                 </Col>

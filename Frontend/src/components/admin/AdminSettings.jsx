@@ -1,5 +1,5 @@
 // src/components/admin/AdminSettings.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -13,7 +13,8 @@ import {
   Spinner,
   Badge,
   OverlayTrigger,
-  Tooltip
+  Tooltip,
+  Table
 } from 'react-bootstrap';
 import {
   Globe,
@@ -66,6 +67,7 @@ const AdminSettings = () => {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [error, setError] = useState(null);
   const [systemStatus, setSystemStatus] = useState({
     database: 'connected',
     cache: 'connected',
@@ -74,11 +76,15 @@ const AdminSettings = () => {
   });
   const [auditLogs, setAuditLogs] = useState([]);
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   const [settings, setSettings] = useState({
     // General Settings
-    siteName: 'ServiceHub',
-    siteEmail: 'admin@servicehub.com',
-    sitePhone: '+234 800 000 0000',
+    siteName: '',
+    siteEmail: '',
+    sitePhone: '',
     timezone: 'Africa/Lagos',
     dateFormat: 'DD/MM/YYYY',
     currency: 'NGN',
@@ -106,7 +112,7 @@ const AdminSettings = () => {
     // Email Settings
     smtpHost: 'smtp.gmail.com',
     smtpPort: 587,
-    senderEmail: 'noreply@servicehub.com',
+    senderEmail: '',
     smtpSecure: true,
     
     // API Settings
@@ -131,45 +137,167 @@ const AdminSettings = () => {
     }).format(amount || 0);
   };
 
-  // Fetch settings
+  // ✅ Fetch settings from real API
   const fetchSettings = useCallback(async () => {
     try {
-      const response = await adminAPI.getSettings();
-      setSettings(response.data);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      // Try getSettings first
+      if (typeof adminAPI.getSettings === 'function') {
+        response = await adminAPI.getSettings();
+      } 
+      // Fallback to getPlatformSettings
+      else if (typeof adminAPI.getPlatformSettings === 'function') {
+        response = await adminAPI.getPlatformSettings();
+      } 
+      else {
+        throw new Error('Settings API methods not available');
+      }
+
+      const data = response?.data || {};
+      setSettings(prev => ({ 
+        ...prev, 
+        ...data,
+        siteName: data.siteName || data.site_name || '',
+        siteEmail: data.siteEmail || data.site_email || '',
+        sitePhone: data.sitePhone || data.site_phone || '',
+        senderEmail: data.senderEmail || data.sender_email || '',
+        apiKey: data.apiKey || data.api_key || ''
+      }));
+      
     } catch (error) {
       console.error('Error fetching settings:', error);
+      setError(error.message || 'Failed to load settings');
       toast.error('Failed to load settings');
-    } finally {
-      setLoading(false);
     }
   }, []);
 
+  // ✅ Fetch audit logs from real API
   const fetchAuditLogs = useCallback(async () => {
     try {
-      const response = await adminAPI.getAuditLogs({ limit: 10 });
-      setAuditLogs(response.data);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      // Try getActivities first (most common)
+      if (typeof adminAPI.getActivities === 'function') {
+        response = await adminAPI.getActivities({ limit: 10 });
+        const data = response?.data || [];
+        setAuditLogs(Array.isArray(data) ? data : 
+                    Array.isArray(data?.activities) ? data.activities : 
+                    Array.isArray(data?.logs) ? data.logs : []);
+        return;
+      }
+      
+      // Fallback to getAuditLogs
+      if (typeof adminAPI.getAuditLogs === 'function') {
+        response = await adminAPI.getAuditLogs({ limit: 10 });
+        const data = response?.data || [];
+        setAuditLogs(Array.isArray(data) ? data : 
+                    Array.isArray(data?.logs) ? data.logs : []);
+        return;
+      }
+      
+      // Try getLogs as last resort
+      if (typeof adminAPI.getLogs === 'function') {
+        response = await adminAPI.getLogs({ limit: 10 });
+        const data = response?.data || [];
+        setAuditLogs(Array.isArray(data) ? data : 
+                    Array.isArray(data?.logs) ? data.logs : []);
+        return;
+      }
+      
+      throw new Error('Audit log API methods not available');
+      
     } catch (error) {
       console.error('Error fetching audit logs:', error);
+      setAuditLogs([]);
     }
   }, []);
 
+  // ✅ Check system status with real API
   const checkSystemStatus = useCallback(async () => {
     try {
-      const response = await adminAPI.getSystemHealth();
-      setSystemStatus(response.data);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof adminAPI.getSystemHealth === 'function') {
+        const response = await adminAPI.getSystemHealth();
+        const data = response?.data || {};
+        setSystemStatus(prev => ({ 
+          ...prev, 
+          ...data,
+          database: data.database || data.db || 'connected',
+          cache: data.cache || 'connected',
+          queue: data.queue || 'connected',
+          email: data.email || 'connected'
+        }));
+      } else {
+        // Keep default status if method not available
+        console.warn('System health check not available');
+      }
     } catch (error) {
       console.error('Error checking system status:', error);
+      // Keep default status on error
     }
   }, []);
 
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([fetchSettings(), fetchAuditLogs(), checkSystemStatus()]);
-    setLoading(false);
+  // ✅ Fetch all data
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchSettings(),
+        fetchAuditLogs(),
+        checkSystemStatus()
+      ]);
+    } catch (error) {
+      console.error('Error loading all data:', error);
+      setError(error.message || 'Failed to load settings data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [fetchSettings, fetchAuditLogs, checkSystemStatus]);
+
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 60000); // Poll every 60 seconds for real-time updates
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
   }, []);
 
   const handleChange = (e) => {
@@ -180,26 +308,49 @@ const AdminSettings = () => {
     });
   };
 
+  // ✅ Save settings with real API
   const handleSave = async () => {
     setSaving(true);
+    setError(null);
     try {
-      await adminAPI.updateSettings(settings);
+      if (!adminAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      // Try updateSettings first
+      if (typeof adminAPI.updateSettings === 'function') {
+        response = await adminAPI.updateSettings(settings);
+      } 
+      // Fallback to updatePlatformSettings
+      else if (typeof adminAPI.updatePlatformSettings === 'function') {
+        response = await adminAPI.updatePlatformSettings(settings);
+      } 
+      else {
+        throw new Error('Settings update API methods not available');
+      }
+
       toast.success('Settings saved successfully');
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
+      
+      // Refresh settings after save
       await fetchSettings();
+      
     } catch (error) {
       console.error('Error saving settings:', error);
+      setError(error.message || 'Failed to save settings');
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await loadAllData(false);
     toast.success('Settings refreshed');
   };
 
@@ -207,9 +358,11 @@ const AdminSettings = () => {
     const config = {
       connected: { variant: 'success', icon: CheckCircle, text: 'Connected' },
       disconnected: { variant: 'danger', icon: XCircle, text: 'Disconnected' },
-      warning: { variant: 'warning', icon: AlertCircle, text: 'Warning' }
+      warning: { variant: 'warning', icon: AlertCircle, text: 'Warning' },
+      healthy: { variant: 'success', icon: CheckCircle, text: 'Healthy' },
+      critical: { variant: 'danger', icon: XCircle, text: 'Critical' }
     };
-    const item = config[status] || config.disconnected;
+    const item = config[status?.toLowerCase()] || config.disconnected;
     const Icon = item.icon;
     return (
       <Badge bg={item.variant} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
@@ -219,13 +372,18 @@ const AdminSettings = () => {
     );
   };
 
+  // Loading state
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading settings...</p>
-        </div>
+      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+        <Container fluid className="py-4">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+            <div className="text-center">
+              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
+              <p className="mt-3 text-muted">Loading settings...</p>
+            </div>
+          </div>
+        </Container>
       </div>
     );
   }
@@ -238,6 +396,14 @@ const AdminSettings = () => {
           <Alert variant="success" className="mb-4" onClose={() => setShowSuccess(false)} dismissible style={{ borderRadius: '12px' }}>
             <CheckCircle className="me-2" size={18} />
             Settings saved successfully!
+          </Alert>
+        )}
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <AlertCircle className="me-2" size={18} />
+            {error}
           </Alert>
         )}
 
@@ -324,7 +490,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="text"
                           name="siteName"
-                          value={settings.siteName}
+                          value={settings.siteName || ''}
                           onChange={handleChange}
                           placeholder="Enter site name"
                         />
@@ -336,7 +502,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="email"
                           name="siteEmail"
-                          value={settings.siteEmail}
+                          value={settings.siteEmail || ''}
                           onChange={handleChange}
                           placeholder="Enter site email"
                         />
@@ -348,7 +514,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="tel"
                           name="sitePhone"
-                          value={settings.sitePhone}
+                          value={settings.sitePhone || ''}
                           onChange={handleChange}
                           placeholder="Enter phone number"
                         />
@@ -357,7 +523,7 @@ const AdminSettings = () => {
                     <Col md={6}>
                       <Form.Group className="mb-3">
                         <Form.Label className="fw-semibold">Timezone</Form.Label>
-                        <Form.Select name="timezone" value={settings.timezone} onChange={handleChange}>
+                        <Form.Select name="timezone" value={settings.timezone || 'Africa/Lagos'} onChange={handleChange}>
                           <option value="Africa/Lagos">Africa/Lagos (WAT)</option>
                           <option value="Africa/Cairo">Africa/Cairo (EET)</option>
                           <option value="Africa/Johannesburg">Africa/Johannesburg (SAST)</option>
@@ -369,7 +535,7 @@ const AdminSettings = () => {
                     <Col md={6}>
                       <Form.Group className="mb-3">
                         <Form.Label className="fw-semibold">Date Format</Form.Label>
-                        <Form.Select name="dateFormat" value={settings.dateFormat} onChange={handleChange}>
+                        <Form.Select name="dateFormat" value={settings.dateFormat || 'DD/MM/YYYY'} onChange={handleChange}>
                           <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                           <option value="DD/MM/YYYY">DD/MM/YYYY</option>
                           <option value="YYYY-MM-DD">YYYY-MM-DD</option>
@@ -379,7 +545,7 @@ const AdminSettings = () => {
                     <Col md={6}>
                       <Form.Group className="mb-3">
                         <Form.Label className="fw-semibold">Currency</Form.Label>
-                        <Form.Select name="currency" value={settings.currency} onChange={handleChange}>
+                        <Form.Select name="currency" value={settings.currency || 'NGN'} onChange={handleChange}>
                           <option value="NGN">Nigerian Naira (₦)</option>
                           <option value="USD">US Dollar ($)</option>
                           <option value="EUR">Euro (€)</option>
@@ -393,7 +559,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Maintenance Mode"
                           name="maintenanceMode"
-                          checked={settings.maintenanceMode}
+                          checked={settings.maintenanceMode || false}
                           onChange={handleChange}
                         />
                         <Form.Text className="text-muted">
@@ -419,7 +585,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="commissionRate"
-                          value={settings.commissionRate}
+                          value={settings.commissionRate || 0}
                           onChange={handleChange}
                           min="0"
                           max="100"
@@ -434,7 +600,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="minPayoutAmount"
-                          value={settings.minPayoutAmount}
+                          value={settings.minPayoutAmount || 0}
                           onChange={handleChange}
                           min="0"
                           step="100"
@@ -447,7 +613,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="maxPayoutAmount"
-                          value={settings.maxPayoutAmount}
+                          value={settings.maxPayoutAmount || 0}
                           onChange={handleChange}
                           min="0"
                           step="100"
@@ -460,7 +626,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="processingFee"
-                          value={settings.processingFee}
+                          value={settings.processingFee || 0}
                           onChange={handleChange}
                           min="0"
                           step="50"
@@ -484,7 +650,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="Email Alerts for Admin"
                       name="adminEmailAlerts"
-                      checked={settings.adminEmailAlerts}
+                      checked={settings.adminEmailAlerts || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -493,7 +659,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="New User Signup Alerts"
                       name="userSignupAlerts"
-                      checked={settings.userSignupAlerts}
+                      checked={settings.userSignupAlerts || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -502,7 +668,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="New Booking Alerts"
                       name="bookingAlerts"
-                      checked={settings.bookingAlerts}
+                      checked={settings.bookingAlerts || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -511,7 +677,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="Payment Alerts"
                       name="paymentAlerts"
-                      checked={settings.paymentAlerts}
+                      checked={settings.paymentAlerts || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -520,7 +686,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="Review Alerts"
                       name="reviewAlerts"
-                      checked={settings.reviewAlerts}
+                      checked={settings.reviewAlerts || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -539,7 +705,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="Require Two-Factor Authentication for Admins"
                       name="twoFactorAuth"
-                      checked={settings.twoFactorAuth}
+                      checked={settings.twoFactorAuth || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -548,7 +714,7 @@ const AdminSettings = () => {
                       type="switch"
                       label="Require Email Verification for New Users"
                       name="requireVerification"
-                      checked={settings.requireVerification}
+                      checked={settings.requireVerification || false}
                       onChange={handleChange}
                     />
                   </Form.Group>
@@ -559,7 +725,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="sessionTimeout"
-                          value={settings.sessionTimeout}
+                          value={settings.sessionTimeout || 60}
                           onChange={handleChange}
                           min="5"
                           max="480"
@@ -572,7 +738,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="maxLoginAttempts"
-                          value={settings.maxLoginAttempts}
+                          value={settings.maxLoginAttempts || 5}
                           onChange={handleChange}
                           min="3"
                           max="20"
@@ -597,7 +763,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="text"
                           name="smtpHost"
-                          value={settings.smtpHost}
+                          value={settings.smtpHost || ''}
                           onChange={handleChange}
                           placeholder="smtp.gmail.com"
                         />
@@ -609,7 +775,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="smtpPort"
-                          value={settings.smtpPort}
+                          value={settings.smtpPort || 587}
                           onChange={handleChange}
                           placeholder="587"
                         />
@@ -621,7 +787,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="email"
                           name="senderEmail"
-                          value={settings.senderEmail}
+                          value={settings.senderEmail || ''}
                           onChange={handleChange}
                           placeholder="noreply@example.com"
                         />
@@ -633,7 +799,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Use Secure Connection (SSL/TLS)"
                           name="smtpSecure"
-                          checked={settings.smtpSecure}
+                          checked={settings.smtpSecure || false}
                           onChange={handleChange}
                         />
                       </Form.Group>
@@ -656,7 +822,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="number"
                           name="apiRateLimit"
-                          value={settings.apiRateLimit}
+                          value={settings.apiRateLimit || 100}
                           onChange={handleChange}
                           min="10"
                           max="10000"
@@ -689,7 +855,7 @@ const AdminSettings = () => {
                         <Form.Control
                           type="url"
                           name="webhookUrl"
-                          value={settings.webhookUrl}
+                          value={settings.webhookUrl || ''}
                           onChange={handleChange}
                           placeholder="https://your-app.com/webhook"
                         />
@@ -713,7 +879,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Enable Bookings"
                           name="enableBookings"
-                          checked={settings.enableBookings}
+                          checked={settings.enableBookings || false}
                           onChange={handleChange}
                         />
                       </Form.Group>
@@ -724,7 +890,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Enable Payments"
                           name="enablePayments"
-                          checked={settings.enablePayments}
+                          checked={settings.enablePayments || false}
                           onChange={handleChange}
                         />
                       </Form.Group>
@@ -735,7 +901,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Enable Reviews"
                           name="enableReviews"
-                          checked={settings.enableReviews}
+                          checked={settings.enableReviews || false}
                           onChange={handleChange}
                         />
                       </Form.Group>
@@ -746,7 +912,7 @@ const AdminSettings = () => {
                           type="switch"
                           label="Enable Chat"
                           name="enableChat"
-                          checked={settings.enableChat}
+                          checked={settings.enableChat || false}
                           onChange={handleChange}
                         />
                       </Form.Group>
@@ -788,11 +954,11 @@ const AdminSettings = () => {
                           </tr>
                         ) : (
                           auditLogs.map((log, index) => (
-                            <tr key={index}>
-                              <td>{log.user}</td>
-                              <td><Badge bg="secondary" className="rounded-pill">{log.action}</Badge></td>
-                              <td>{log.details}</td>
-                              <td><small className="text-muted">{new Date(log.timestamp).toLocaleString()}</small></td>
+                            <tr key={log.id || index}>
+                              <td>{log.user || log.username || log.admin || 'System'}</td>
+                              <td><Badge bg="secondary" className="rounded-pill">{log.action || log.type || 'Unknown'}</Badge></td>
+                              <td>{log.details || log.message || log.description || 'No details'}</td>
+                              <td><small className="text-muted">{log.timestamp || log.createdAt ? new Date(log.timestamp || log.createdAt).toLocaleString() : 'N/A'}</small></td>
                             </tr>
                           ))
                         )}

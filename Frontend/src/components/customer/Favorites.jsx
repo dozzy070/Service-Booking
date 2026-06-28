@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -10,7 +10,8 @@ import {
   Alert,
   Modal,
   OverlayTrigger,
-  Tooltip
+  Tooltip,
+  Form
 } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -43,11 +44,16 @@ const Favorites = () => {
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [removingId, setRemovingId] = useState(null);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [sortBy, setSortBy] = useState('date_desc');
   const [filterCategory, setFilterCategory] = useState('all');
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Format currency to NGN
   const formatNaira = (amount) => {
@@ -66,48 +72,119 @@ const Favorites = () => {
     return formatNaira(amount);
   };
 
-  // Fetch favorites
-  const fetchFavorites = useCallback(async () => {
+  // ✅ Fetch favorites from real API
+  const fetchFavorites = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const response = await customerAPI.getFavorites();
-      setFavorites(response.data || []);
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof customerAPI.getFavorites === 'function') {
+        response = await customerAPI.getFavorites();
+      } else if (typeof customerAPI.getFavoriteServices === 'function') {
+        response = await customerAPI.getFavoriteServices();
+      } else {
+        throw new Error('Favorites API methods not available');
+      }
+
+      const data = response?.data || [];
+      setFavorites(Array.isArray(data) ? data : []);
+      
     } catch (error) {
       console.error('Error fetching favorites:', error);
-      toast.error('Failed to load favorites');
+      setError(error.message || 'Failed to load favorites');
+      setFavorites([]);
+      if (error.response?.status !== 401) {
+        toast.error('Failed to load favorites');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  // Remove from favorites
+  // ✅ Remove from favorites with real API
   const removeFromFavorites = async () => {
     if (!selectedService) return;
+    const serviceId = selectedService.id || selectedService._id;
+    if (!serviceId) return;
 
-    setRemovingId(selectedService.id);
+    setRemovingId(serviceId);
     try {
-      await customerAPI.toggleFavorite(selectedService.id);
-      setFavorites(prev => prev.filter(s => s.id !== selectedService.id));
+      if (!customerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof customerAPI.toggleFavorite === 'function') {
+        await customerAPI.toggleFavorite(serviceId);
+      } else if (typeof customerAPI.removeFavorite === 'function') {
+        await customerAPI.removeFavorite(serviceId);
+      } else {
+        throw new Error('Remove favorite API methods not available');
+      }
+      
+      setFavorites(prev => prev.filter(s => (s.id || s._id) !== serviceId));
       toast.success('Removed from favorites');
       setShowRemoveModal(false);
       setSelectedService(null);
     } catch (error) {
       console.error('Error removing favorite:', error);
-      toast.error('Failed to remove from favorites');
+      toast.error(error.message || 'Failed to remove from favorites');
     } finally {
       setRemovingId(null);
     }
   };
 
+  // ✅ Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchFavorites();
-    setRefreshing(false);
+    await fetchFavorites(false);
     toast.success('Favorites updated');
   };
 
+  // ✅ Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchFavorites(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    fetchFavorites();
-  }, [fetchFavorites]);
+    fetchFavorites(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // ✅ Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
 
   // Sort and filter favorites
   const getSortedAndFilteredFavorites = () => {
@@ -115,21 +192,31 @@ const Favorites = () => {
 
     // Filter by category
     if (filterCategory !== 'all') {
-      filtered = filtered.filter(s => s.category === filterCategory);
+      filtered = filtered.filter(s => {
+        const category = getField(s, ['category', 'categoryName', 'category_name'], '');
+        return category.toLowerCase() === filterCategory.toLowerCase();
+      });
     }
 
     // Sort
     filtered.sort((a, b) => {
+      const aPrice = parseFloat(a.price) || 0;
+      const bPrice = parseFloat(b.price) || 0;
+      const aRating = parseFloat(a.rating) || 0;
+      const bRating = parseFloat(b.rating) || 0;
+      
       switch (sortBy) {
         case 'price_asc':
-          return (a.price || 0) - (b.price || 0);
+          return aPrice - bPrice;
         case 'price_desc':
-          return (b.price || 0) - (a.price || 0);
+          return bPrice - aPrice;
         case 'rating_desc':
-          return (b.rating || 0) - (a.rating || 0);
+          return bRating - aRating;
         case 'date_desc':
         default:
-          return new Date(b.created_at) - new Date(a.created_at);
+          const aDate = a.created_at || a.createdAt || a.favorited_at || a.favoritedAt || 0;
+          const bDate = b.created_at || b.createdAt || b.favorited_at || b.favoritedAt || 0;
+          return new Date(bDate) - new Date(aDate);
       }
     });
 
@@ -138,8 +225,9 @@ const Favorites = () => {
 
   // Render stars
   const renderStars = (rating, size = 14) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+    const numRating = parseFloat(rating) || 0;
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
     return (
@@ -151,30 +239,33 @@ const Favorites = () => {
         {[...Array(emptyStars)].map((_, i) => (
           <FaRegStar key={i} size={size} color="#e2e8f0" />
         ))}
-        <span className="ms-1 small fw-semibold">{rating.toFixed(1)}</span>
+        <span className="ms-1 small fw-semibold">{numRating.toFixed(1)}</span>
       </div>
     );
   };
 
   // Get unique categories
-  const categories = ['all', ...new Set(favorites.map(s => s.category).filter(Boolean))];
+  const categories = ['all', ...new Set(favorites.map(s => getField(s, ['category', 'categoryName', 'category_name'], '')).filter(Boolean))];
 
   const sortedFavorites = getSortedAndFilteredFavorites();
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading favorites...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaHeart className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchFavorites(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -285,130 +376,145 @@ const Favorites = () => {
         ) : (
           <>
             <Row xs={1} md={2} lg={3} xl={4} className="g-4">
-              {sortedFavorites.map((service) => (
-                <Col key={service.id}>
-                  <Card className="favorite-card h-100 border-0 shadow-sm">
-                    {/* Image */}
-                    <div className="card-image-wrapper">
-                      <Card.Img
-                        variant="top"
-                        src={getServiceImage(service.title, service.id, 400, 250)}
-                        style={{ height: '200px', objectFit: 'cover' }}
-                        onError={(e) => handleImageError(e, getServiceImage(service.title, service.id, 400, 250))}
-                      />
-                      <OverlayTrigger
-                        placement="top"
-                        overlay={<Tooltip>Remove from favorites</Tooltip>}
-                      >
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          className="remove-favorite-btn"
-                          onClick={() => {
-                            setSelectedService(service);
-                            setShowRemoveModal(true);
-                          }}
+              {sortedFavorites.map((service) => {
+                const serviceId = service.id || service._id;
+                const title = getField(service, ['title', 'name', 'serviceName', 'service_name'], 'Untitled Service');
+                const providerName = getField(service, ['provider_name', 'provider.name', 'providerName', 'provider'], 'Professional Service');
+                const category = getField(service, ['category', 'categoryName', 'category_name'], 'Service');
+                const location = getField(service, ['location', 'serviceLocation', 'service_location', 'address'], '');
+                const price = parseFloat(service.price) || 0;
+                const oldPrice = parseFloat(service.old_price) || 0;
+                const rating = parseFloat(service.rating) || 0;
+                const totalReviews = parseInt(service.total_reviews) || parseInt(service.reviews) || 0;
+                const duration = service.duration || service.estimated_duration || '';
+                const isFeatured = service.is_featured || service.featured || false;
+                const image = getField(service, ['image', 'serviceImage', 'service_image', 'featured_image'], '');
+
+                return (
+                  <Col key={serviceId}>
+                    <Card className="favorite-card h-100 border-0 shadow-sm">
+                      {/* Image */}
+                      <div className="card-image-wrapper">
+                        <Card.Img
+                          variant="top"
+                          src={image || getServiceImage(title, serviceId, 400, 250)}
+                          style={{ height: '200px', objectFit: 'cover' }}
+                          onError={(e) => handleImageError(e, getServiceImage(title, serviceId, 400, 250))}
+                        />
+                        <OverlayTrigger
+                          placement="top"
+                          overlay={<Tooltip>Remove from favorites</Tooltip>}
                         >
-                          <FaTrash />
-                        </Button>
-                      </OverlayTrigger>
-                      {service.is_featured && (
-                        <Badge bg="warning" className="featured-badge">
-                          <FaStar className="me-1" size={10} />
-                          Featured
-                        </Badge>
-                      )}
-                    </div>
-
-                    <Card.Body>
-                      {/* Category */}
-                      <div className="mb-2">
-                        <Badge bg="light" text="dark" className="rounded-pill">
-                          <FaTags size={10} className="me-1" />
-                          {service.category || 'Service'}
-                        </Badge>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            className="remove-favorite-btn"
+                            onClick={() => {
+                              setSelectedService(service);
+                              setShowRemoveModal(true);
+                            }}
+                          >
+                            <FaTrash />
+                          </Button>
+                        </OverlayTrigger>
+                        {isFeatured && (
+                          <Badge bg="warning" className="featured-badge">
+                            <FaStar className="me-1" size={10} />
+                            Featured
+                          </Badge>
+                        )}
                       </div>
 
-                      {/* Title */}
-                      <Card.Title className="fw-bold fs-6 mb-2">
-                        <Link to={`/services/${service.id}`} className="text-decoration-none text-dark">
-                          {service.title}
-                        </Link>
-                      </Card.Title>
-
-                      {/* Provider Info */}
-                      <div className="d-flex align-items-center gap-2 mb-2 small text-muted">
-                        <FaUser size={12} />
-                        <span>{service.provider_name || 'Professional Service'}</span>
-                      </div>
-
-                      {/* Location */}
-                      {service.location && (
-                        <div className="d-flex align-items-center gap-2 mb-2 small text-muted">
-                          <FaMapMarkerAlt size={12} />
-                          <span>{service.location}</span>
+                      <Card.Body>
+                        {/* Category */}
+                        <div className="mb-2">
+                          <Badge bg="light" text="dark" className="rounded-pill">
+                            <FaTags size={10} className="me-1" />
+                            {category}
+                          </Badge>
                         </div>
-                      )}
 
-                      {/* Rating */}
-                      <div className="d-flex align-items-center justify-content-between mb-3">
-                        {service.rating ? (
-                          renderStars(service.rating)
-                        ) : (
-                          <span className="small text-muted">No reviews yet</span>
-                        )}
-                        {service.total_reviews > 0 && (
-                          <small className="text-muted">({service.total_reviews})</small>
-                        )}
-                      </div>
+                        {/* Title */}
+                        <Card.Title className="fw-bold fs-6 mb-2">
+                          <Link to={`/services/${serviceId}`} className="text-decoration-none text-dark">
+                            {title}
+                          </Link>
+                        </Card.Title>
 
-                      {/* Price */}
-                      <div className="d-flex justify-content-between align-items-center">
-                        <div>
-                          <span className="fw-bold text-primary fs-5">
-                            {formatCompactNaira(service.price)}
-                          </span>
-                          {service.old_price && (
-                            <span className="text-muted text-decoration-line-through ms-2 small">
-                              {formatCompactNaira(service.old_price)}
-                            </span>
+                        {/* Provider Info */}
+                        <div className="d-flex align-items-center gap-2 mb-2 small text-muted">
+                          <FaUser size={12} />
+                          <span>{providerName}</span>
+                        </div>
+
+                        {/* Location */}
+                        {location && (
+                          <div className="d-flex align-items-center gap-2 mb-2 small text-muted">
+                            <FaMapMarkerAlt size={12} />
+                            <span>{location}</span>
+                          </div>
+                        )}
+
+                        {/* Rating */}
+                        <div className="d-flex align-items-center justify-content-between mb-3">
+                          {rating > 0 ? (
+                            renderStars(rating)
+                          ) : (
+                            <span className="small text-muted">No reviews yet</span>
+                          )}
+                          {totalReviews > 0 && (
+                            <small className="text-muted">({totalReviews})</small>
                           )}
                         </div>
-                        {service.duration && (
-                          <small className="text-muted d-flex align-items-center gap-1">
-                            <FaClock size={10} />
-                            {service.duration}
-                          </small>
-                        )}
-                      </div>
-                    </Card.Body>
 
-                    <Card.Footer className="bg-white border-0 pb-3">
-                      <div className="d-flex gap-2">
-                        <Button
-                          as={Link}
-                          to={`/services/${service.id}`}
-                          variant="outline-primary"
-                          size="sm"
-                          className="flex-grow-1 d-flex align-items-center justify-content-center gap-2"
-                        >
-                          <FaEye size={12} />
-                          View Details
-                        </Button>
-                        <Button
-                          variant="outline-success"
-                          size="sm"
-                          className="flex-grow-1 d-flex align-items-center justify-content-center gap-2"
-                          onClick={() => navigate(`/checkout?service=${service.id}`)}
-                        >
-                          <FaShoppingCart size={12} />
-                          Book Now
-                        </Button>
-                      </div>
-                    </Card.Footer>
-                  </Card>
-                </Col>
-              ))}
+                        {/* Price */}
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            <span className="fw-bold text-primary fs-5">
+                              {formatCompactNaira(price)}
+                            </span>
+                            {oldPrice > 0 && (
+                              <span className="text-muted text-decoration-line-through ms-2 small">
+                                {formatCompactNaira(oldPrice)}
+                              </span>
+                            )}
+                          </div>
+                          {duration && (
+                            <small className="text-muted d-flex align-items-center gap-1">
+                              <FaClock size={10} />
+                              {duration}
+                            </small>
+                          )}
+                        </div>
+                      </Card.Body>
+
+                      <Card.Footer className="bg-white border-0 pb-3">
+                        <div className="d-flex gap-2">
+                          <Button
+                            as={Link}
+                            to={`/services/${serviceId}`}
+                            variant="outline-primary"
+                            size="sm"
+                            className="flex-grow-1 d-flex align-items-center justify-content-center gap-2"
+                          >
+                            <FaEye size={12} />
+                            View Details
+                          </Button>
+                          <Button
+                            variant="outline-success"
+                            size="sm"
+                            className="flex-grow-1 d-flex align-items-center justify-content-center gap-2"
+                            onClick={() => navigate(`/checkout?service=${serviceId}`)}
+                          >
+                            <FaShoppingCart size={12} />
+                            Book Now
+                          </Button>
+                        </div>
+                      </Card.Footer>
+                    </Card>
+                  </Col>
+                );
+              })}
             </Row>
 
             {/* Empty state after filter */}
@@ -443,7 +549,7 @@ const Favorites = () => {
         <Modal.Body className="pt-4">
           <Alert variant="warning" className="mb-0" style={{ borderRadius: '12px' }}>
             <FaTrash className="me-2" />
-            Are you sure you want to remove "{selectedService?.title}" from your favorites?
+            Are you sure you want to remove "{selectedService ? getField(selectedService, ['title', 'name', 'serviceName', 'service_name'], 'this service') : ''}" from your favorites?
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
@@ -453,9 +559,9 @@ const Favorites = () => {
           <Button
             variant="danger"
             onClick={removeFromFavorites}
-            disabled={removingId === selectedService?.id}
+            disabled={removingId === (selectedService?.id || selectedService?._id)}
           >
-            {removingId === selectedService?.id ? 'Removing...' : 'Remove'}
+            {removingId === (selectedService?.id || selectedService?._id) ? 'Removing...' : 'Remove'}
           </Button>
         </Modal.Footer>
       </Modal>

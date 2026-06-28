@@ -1,5 +1,5 @@
 // src/components/provider/ProviderSettings.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -57,11 +57,16 @@ const ProviderSettings = () => {
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [show2FAModal, setShow2FAModal] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -128,7 +133,15 @@ const ProviderSettings = () => {
     }).format(amount || 0);
   };
 
-  // ✅ Load notification preferences from localStorage
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Load notification preferences from localStorage
   const loadNotificationPrefsFromStorage = useCallback(() => {
     try {
       const saved = localStorage.getItem('provider_notification_prefs');
@@ -150,55 +163,99 @@ const ProviderSettings = () => {
     }
   }, []);
 
-  // Fetch provider profile
+  // Fetch provider profile from real API
   const fetchProviderProfile = useCallback(async () => {
     try {
-      const response = await providerAPI.getProfile();
-      const profileData = response.data || {};
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getProfile === 'function') {
+        response = await providerAPI.getProfile();
+      } else if (typeof providerAPI.getProviderProfile === 'function') {
+        response = await providerAPI.getProviderProfile();
+      } else {
+        throw new Error('Profile API methods not available');
+      }
+
+      const profileData = response?.data || {};
       setSettings(prev => ({
         ...prev,
-        businessName: profileData.business_name || '',
-        displayName: profileData.display_name || user?.name || '',
+        businessName: profileData.business_name || profileData.businessName || '',
+        displayName: profileData.display_name || profileData.displayName || user?.name || '',
         email: profileData.email || user?.email || '',
-        phone: profileData.phone || '',
-        bio: profileData.bio || '',
+        phone: profileData.phone || profileData.phone_number || '',
+        bio: profileData.bio || profileData.about || '',
         address: profileData.address || '',
         city: profileData.city || '',
         state: profileData.state || '',
-        zipCode: profileData.zip_code || '',
+        zipCode: profileData.zip_code || profileData.zip || '',
         website: profileData.website || '',
-        bankName: profileData.bank_name || '',
-        accountNumber: profileData.account_number || '',
-        accountName: profileData.account_name || '',
+        bankName: profileData.bank_name || profileData.bankName || '',
+        accountNumber: profileData.account_number || profileData.accountNumber || '',
+        accountName: profileData.account_name || profileData.accountName || '',
+        bankCode: profileData.bank_code || profileData.bankCode || '',
         automaticPayouts: profileData.automatic_payouts !== false,
-        payoutThreshold: profileData.payout_threshold || 50000,
-        profileVisibility: profileData.profile_visibility || 'public',
-        showEmail: profileData.show_email || false,
+        payoutThreshold: profileData.payout_threshold || profileData.payoutThreshold || 50000,
+        profileVisibility: profileData.profile_visibility || profileData.profileVisibility || 'public',
+        showEmail: profileData.show_email || profileData.showEmail || false,
         showPhone: profileData.show_phone !== false,
-        showAddress: profileData.show_address || false
+        showAddress: profileData.show_address || profileData.showAddress || false
       }));
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setError(error.message || 'Failed to load profile data');
       toast.error('Failed to load profile data');
     }
   }, [user]);
 
-  // ✅ REMOVED: fetchNotificationPrefs - using localStorage instead
-
   // Load all data
-  const loadAllData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchProviderProfile(),
-      // ✅ REMOVED: fetchNotificationPrefs()
-    ]);
-    // ✅ Load notification prefs from localStorage
-    loadNotificationPrefsFromStorage();
-    setLoading(false);
+  const loadAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      await fetchProviderProfile();
+      loadNotificationPrefsFromStorage();
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      setError('Failed to load settings');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [fetchProviderProfile, loadNotificationPrefsFromStorage]);
+
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        loadAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 60000); // Poll every 60 seconds
   };
 
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    loadAllData(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
   }, []);
 
   const handleChange = (e) => {
@@ -217,10 +274,15 @@ const ProviderSettings = () => {
     });
   };
 
-  // Save profile settings
+  // Save profile settings with real API
   const handleSaveProfile = async () => {
     setSaving(true);
+    setError(null);
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const profileData = {
         business_name: settings.businessName,
         display_name: settings.displayName,
@@ -234,6 +296,7 @@ const ProviderSettings = () => {
         bank_name: settings.bankName,
         account_number: settings.accountNumber,
         account_name: settings.accountName,
+        bank_code: settings.bankCode,
         automatic_payouts: settings.automaticPayouts,
         payout_threshold: settings.payoutThreshold,
         profile_visibility: settings.profileVisibility,
@@ -241,19 +304,34 @@ const ProviderSettings = () => {
         show_phone: settings.showPhone,
         show_address: settings.showAddress
       };
+
+      let response = null;
       
-      await providerAPI.updateProfile(profileData);
-      await updateUser({ name: settings.displayName, email: settings.email });
+      if (typeof providerAPI.updateProfile === 'function') {
+        response = await providerAPI.updateProfile(profileData);
+      } else if (typeof providerAPI.editProfile === 'function') {
+        response = await providerAPI.editProfile(profileData);
+      } else {
+        throw new Error('Update profile API methods not available');
+      }
+
+      const data = response?.data || {};
+      await updateUser({ 
+        name: settings.displayName, 
+        email: settings.email,
+        businessName: settings.businessName
+      });
       toast.success('Profile settings saved successfully');
     } catch (error) {
       console.error('Error saving profile:', error);
+      setError(error.message || 'Failed to save profile');
       toast.error(error.response?.data?.message || 'Failed to save profile');
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ Save notification preferences to localStorage only
+  // Save notification preferences to localStorage only
   const handleSaveNotifications = async () => {
     setSaving(true);
     try {
@@ -271,13 +349,14 @@ const ProviderSettings = () => {
       toast.success('Notification preferences saved');
     } catch (error) {
       console.error('Error saving notifications:', error);
+      setError(error.message || 'Failed to save notification preferences');
       toast.error('Failed to save notification preferences');
     } finally {
       setSaving(false);
     }
   };
 
-  // Change password
+  // Change password with real API
   const handleChangePassword = async () => {
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       toast.error('New passwords do not match');
@@ -291,10 +370,23 @@ const ProviderSettings = () => {
 
     setSaving(true);
     try {
-      await authAPI.changePassword({
+      if (!authAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
         current_password: passwordData.currentPassword,
         new_password: passwordData.newPassword
-      });
+      };
+
+      if (typeof authAPI.changePassword === 'function') {
+        await authAPI.changePassword(payload);
+      } else if (typeof authAPI.updatePassword === 'function') {
+        await authAPI.updatePassword(payload);
+      } else {
+        throw new Error('Change password API methods not available');
+      }
+      
       toast.success('Password changed successfully');
       setShowPasswordModal(false);
       setPasswordData({
@@ -304,45 +396,56 @@ const ProviderSettings = () => {
       });
     } catch (error) {
       console.error('Error changing password:', error);
+      setError(error.message || 'Failed to change password');
       toast.error(error.response?.data?.message || 'Failed to change password');
     } finally {
       setSaving(false);
     }
   };
 
-  // Enable 2FA
+  // Enable 2FA with real API
   const handleEnable2FA = async () => {
     setSaving(true);
     try {
-      // This API may not exist yet - handle gracefully
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       if (typeof providerAPI.enable2FA === 'function') {
         const response = await providerAPI.enable2FA();
         toast.success('2FA setup initiated');
+      } else if (typeof providerAPI.setupTwoFactor === 'function') {
+        const response = await providerAPI.setupTwoFactor();
+        toast.success('2FA setup initiated');
       } else {
-        toast.info('2FA feature coming soon');
+        throw new Error('2FA API methods not available');
       }
     } catch (error) {
       console.error('Error enabling 2FA:', error);
-      toast.error('Failed to enable 2FA');
+      setError(error.message || 'Failed to enable 2FA');
+      toast.error(error.message || 'Failed to enable 2FA');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading settings...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <AlertCircle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => loadAllData(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="mb-4">
           <h2 className="mb-1 fw-bold">Settings</h2>

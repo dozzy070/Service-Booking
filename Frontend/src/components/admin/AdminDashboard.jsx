@@ -1,5 +1,5 @@
 // src/pages/dashboard/AdminDashboard.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FaUsers,
@@ -510,6 +510,10 @@ const AdminDashboard = () => {
   const [hoveredAchievement, setHoveredAchievement] = useState(null);
   const [hoveredHealth, setHoveredHealth] = useState(null);
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   const [stats, setStats] = useState({
     users: { total: 0, new: 0, active: 0, suspended: 0, verified: 0, unverified: 0, providers: 0, customers: 0, admins: 0, growth: 0 },
     services: { total: 0, pending: 0, approved: 0, rejected: 0, featured: 0, categories: 0, growth: 0 },
@@ -561,11 +565,14 @@ const AdminDashboard = () => {
     return <span style={styles.badge(item.bg, item.color)}>{item.label}</span>;
   };
 
-  // ✅ FIXED API Calls - Using correct adminAPI methods
+  // ✅ API Calls with proper error handling
   const fetchStats = useCallback(async () => {
     try {
+      if (!adminAPI || typeof adminAPI.getStats !== 'function') {
+        throw new Error('API service not available');
+      }
       const res = await adminAPI.getStats();
-      setStats(res.data);
+      setStats(res.data || stats);
     } catch (err) {
       console.error('Failed to fetch admin stats:', err);
       setError('Failed to load statistics');
@@ -574,8 +581,11 @@ const AdminDashboard = () => {
 
   const fetchChartData = useCallback(async (view) => {
     try {
+      if (!adminAPI || typeof adminAPI.getRevenueChart !== 'function') {
+        throw new Error('API service not available');
+      }
       const res = await adminAPI.getRevenueChart(view);
-      setChartData(res.data);
+      setChartData(res.data || { labels: [], data: [], maxValue: 0 });
     } catch (err) {
       console.error('Failed to fetch chart data:', err);
     }
@@ -583,7 +593,10 @@ const AdminDashboard = () => {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await adminAPI.getActivities();
+      if (!adminAPI || typeof adminAPI.getActivities !== 'function') {
+        throw new Error('API service not available');
+      }
+      const res = await adminAPI.getActivities({ limit: 5 });
       setRecentActivities(res.data || []);
     } catch (err) {
       console.error('Failed to fetch activities:', err);
@@ -592,7 +605,10 @@ const AdminDashboard = () => {
 
   const fetchTopProviders = useCallback(async () => {
     try {
-      const res = await adminAPI.getTopProviders();
+      if (!adminAPI || typeof adminAPI.getTopProviders !== 'function') {
+        throw new Error('API service not available');
+      }
+      const res = await adminAPI.getTopProviders({ limit: 5 });
       setTopProviders(res.data || []);
     } catch (err) {
       console.error('Failed to fetch top providers:', err);
@@ -601,7 +617,10 @@ const AdminDashboard = () => {
 
   const fetchPopularServices = useCallback(async () => {
     try {
-      const res = await adminAPI.getPopularServices();
+      if (!adminAPI || typeof adminAPI.getPopularServices !== 'function') {
+        throw new Error('API service not available');
+      }
+      const res = await adminAPI.getPopularServices({ limit: 3 });
       setPopularServices(res.data || []);
     } catch (err) {
       console.error('Failed to fetch popular services:', err);
@@ -610,8 +629,11 @@ const AdminDashboard = () => {
 
   const fetchPendingApprovals = useCallback(async () => {
     try {
+      if (!adminAPI || typeof adminAPI.getPendingApprovals !== 'function') {
+        throw new Error('API service not available');
+      }
       const res = await adminAPI.getPendingApprovals();
-      setPendingApprovals(res.data);
+      setPendingApprovals(res.data || { users: 0, services: 0, reviews: 0, disputes: 0 });
     } catch (err) {
       console.error('Failed to fetch pending approvals:', err);
     }
@@ -619,33 +641,71 @@ const AdminDashboard = () => {
 
   const fetchSystemHealth = useCallback(async () => {
     try {
+      if (!adminAPI || typeof adminAPI.getSystemHealth !== 'function') {
+        throw new Error('API service not available');
+      }
       const res = await adminAPI.getSystemHealth();
-      setSystemHealth(res.data);
+      setSystemHealth(res.data || {
+        server: { status: 'healthy', uptime: '99.9%', responseTime: 45 },
+        database: { status: 'healthy', queries: 1200, slowQueries: 3 },
+        cache: { status: 'healthy', hitRate: 92 },
+        api: { status: 'healthy', requests: 450, errors: 2 },
+      });
     } catch (err) {
       console.error('Failed to fetch system health:', err);
     }
   }, []);
 
-  const fetchAllData = useCallback(async () => {
-    setLoading(true);
+  // ✅ Fetch all data
+  const fetchAllData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError(null);
-    await Promise.all([
-      fetchStats(),
-      fetchChartData(selectedChartView),
-      fetchActivities(),
-      fetchTopProviders(),
-      fetchPopularServices(),
-      fetchPendingApprovals(),
-      fetchSystemHealth(),
-    ]);
-    setLoading(false);
+    
+    try {
+      await Promise.all([
+        fetchStats(),
+        fetchChartData(selectedChartView),
+        fetchActivities(),
+        fetchTopProviders(),
+        fetchPopularServices(),
+        fetchPendingApprovals(),
+        fetchSystemHealth(),
+      ]);
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
+    }
   }, [selectedChartView, fetchStats, fetchChartData, fetchActivities, fetchTopProviders, fetchPopularServices, fetchPendingApprovals, fetchSystemHealth]);
 
+  // ✅ Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchAllData();
-    setRefreshing(false);
+    await fetchAllData(false);
     toast.success('Dashboard refreshed');
+  };
+
+  // ✅ Polling functions
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchAllData(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds for real-time updates
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
   };
 
   // Initial load
@@ -662,20 +722,20 @@ const AdminDashboard = () => {
     updateTimeAgo();
     const timeInterval = setInterval(updateTimeAgo, 1000);
 
-    fetchAllData();
-
-    const refreshInterval = setInterval(() => {
-      fetchAllData();
-    }, 60000);
+    fetchAllData(true);
+    startPolling();
 
     return () => {
       clearInterval(timeInterval);
-      clearInterval(refreshInterval);
+      stopPolling();
     };
-  }, [fetchAllData]);
+  }, []);
 
+  // Update chart when view changes
   useEffect(() => {
-    fetchChartData(selectedChartView);
+    if (!loading) {
+      fetchChartData(selectedChartView);
+    }
   }, [selectedChartView, fetchChartData]);
 
   const handleBarClick = (label, value) => {
@@ -787,6 +847,29 @@ const AdminDashboard = () => {
         </div>
       </div>
 
+      {/* Error Alert */}
+      {error && (
+        <div style={{ 
+          background: '#fee2e2', 
+          color: '#991b1b', 
+          padding: '12px 20px', 
+          borderRadius: '12px', 
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <FaExclamationTriangle />
+          <span>{error}</span>
+          <button 
+            onClick={() => setError(null)}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div style={styles.statsGrid}>
         {statItems.map((item, idx) => {
@@ -833,16 +916,16 @@ const AdminDashboard = () => {
           <div style={{ ...styles.cardBody, padding: '16px 24px' }}>
             <div style={styles.quickActions}>
               <Link to="/admin/users" style={styles.quickActionBtn('#b45309', '#fef3c7')}>
-                <FaUserClock size={12} /> Pending Users ({pendingApprovals.users})
+                <FaUserClock size={12} /> Pending Users ({pendingApprovals.users || 0})
               </Link>
               <Link to="/admin/services" style={styles.quickActionBtn('#1d4ed8', '#dbeafe')}>
-                <FaClock size={12} /> Pending Services ({pendingApprovals.services})
+                <FaClock size={12} /> Pending Services ({pendingApprovals.services || 0})
               </Link>
               <Link to="/admin/reviews" style={styles.quickActionBtn('#b45309', '#fef3c7')}>
-                <FaStar size={12} /> Moderate Reviews ({pendingApprovals.reviews})
+                <FaStar size={12} /> Moderate Reviews ({pendingApprovals.reviews || 0})
               </Link>
               <Link to="/admin/bookings" style={styles.quickActionBtn('#991b1b', '#fee2e2')}>
-                <FaExclamationTriangle size={12} /> Disputes ({pendingApprovals.disputes})
+                <FaExclamationTriangle size={12} /> Disputes ({pendingApprovals.disputes || 0})
               </Link>
               <Link to="/admin/reports" style={styles.quickActionBtn('#1e40af', '#dbeafe')}>
                 <FaFileAlt size={12} /> Generate Report
@@ -877,47 +960,53 @@ const AdminDashboard = () => {
             <div style={styles.cardBody}>
               <div style={styles.chartContainer}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: '12px', paddingTop: '20px' }}>
-                  {chartData.labels?.map((label, idx) => {
-                    const value = chartData.data?.[idx] || 0;
-                    const max = chartData.maxValue || 1;
-                    const height = (value / max) * 250;
-                    return (
-                      <div
-                        key={idx}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: '8px',
-                          cursor: 'pointer',
-                        }}
-                        onClick={() => handleBarClick(label, value)}
-                      >
+                  {chartData.labels?.length > 0 ? (
+                    chartData.labels.map((label, idx) => {
+                      const value = chartData.data?.[idx] || 0;
+                      const max = chartData.maxValue || 1;
+                      const height = (value / max) * 250;
+                      return (
                         <div
+                          key={idx}
                           style={{
-                            width: '100%',
-                            height: `${Math.max(height, 10)}px`,
-                            background: `linear-gradient(180deg, #667eea 0%, #764ba2 100%)`,
-                            borderRadius: '8px 8px 0 0',
-                            transition: 'all 0.3s ease',
-                            opacity: value > 0 ? 1 : 0.3,
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
                           }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.opacity = '0.8';
-                            e.currentTarget.style.transform = 'scaleY(1.05)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.opacity = '1';
-                            e.currentTarget.style.transform = 'scaleY(1)';
-                          }}
-                        />
-                        <div style={{ fontSize: '11px', color: '#a0aec0', textAlign: 'center' }}>
-                          {label}
+                          onClick={() => handleBarClick(label, value)}
+                        >
+                          <div
+                            style={{
+                              width: '100%',
+                              height: `${Math.max(height, 10)}px`,
+                              background: `linear-gradient(180deg, #667eea 0%, #764ba2 100%)`,
+                              borderRadius: '8px 8px 0 0',
+                              transition: 'all 0.3s ease',
+                              opacity: value > 0 ? 1 : 0.3,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = '0.8';
+                              e.currentTarget.style.transform = 'scaleY(1.05)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.transform = 'scaleY(1)';
+                            }}
+                          />
+                          <div style={{ fontSize: '11px', color: '#a0aec0', textAlign: 'center' }}>
+                            {label}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <div style={{ textAlign: 'center', width: '100%', color: '#a0aec0', padding: '40px 0' }}>
+                      No data available
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={styles.chartHint}>
@@ -954,10 +1043,10 @@ const AdminDashboard = () => {
                         </div>
                         <div style={styles.activityContent}>
                           <p style={styles.activityText}>
-                            <span style={{ fontWeight: '600' }}>{activity.user}</span> {activity.action}
+                            <span style={{ fontWeight: '600' }}>{activity.user || activity.username || 'System'}</span> {activity.action || activity.message || 'Performed action'}
                           </p>
                           <span style={styles.activityTime}>
-                            {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
+                            {activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Just now'}
                           </span>
                         </div>
                         {idx < recentActivities.length - 1 && <div style={styles.activityLine} />}
@@ -1000,31 +1089,31 @@ const AdminDashboard = () => {
                       </tr>
                     ) : (
                       topProviders.slice(0, 5).map((provider, idx) => (
-                        <tr key={provider.id}>
+                        <tr key={provider.id || provider._id}>
                           <td style={{ ...styles.td, ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <img
-                                src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name}&background=667eea&color=fff&size=30`}
+                                src={provider.avatar || `https://ui-avatars.com/api/?name=${provider.name || provider.fullName || 'P'}&background=667eea&color=fff&size=30`}
                                 alt={provider.name}
                                 style={{ width: 30, height: 30, borderRadius: '50%' }}
                               />
-                              <span style={{ fontWeight: '500' }}>{provider.name}</span>
+                              <span style={{ fontWeight: '500' }}>{provider.name || provider.fullName || 'Unknown'}</span>
                             </div>
                           </td>
                           <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                            {provider.services || 0}
+                            {provider.services || provider.serviceCount || 0}
                           </td>
                           <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                            {provider.bookings || 0}
+                            {provider.bookings || provider.bookingCount || 0}
                           </td>
                           <td style={{ ...styles.td, textAlign: 'center', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
                             <span style={{ color: '#f59e0b' }}>
                               <FaStar size={12} style={{ marginRight: '4px' }} />
-                              {provider.rating || '0.0'}
+                              {provider.rating || provider.averageRating || '0.0'}
                             </span>
                           </td>
                           <td style={{ ...styles.td, textAlign: 'right', fontWeight: '600', color: '#667eea', ...(idx === topProviders.length - 1 ? styles.tdLast : {}) }}>
-                            {formatNaira(provider.revenue || 0)}
+                            {formatNaira(provider.revenue || provider.totalRevenue || 0)}
                           </td>
                         </tr>
                       ))
@@ -1135,7 +1224,7 @@ const AdminDashboard = () => {
               ) : (
                 popularServices.slice(0, 3).map((service, idx) => (
                   <div
-                    key={service.id}
+                    key={service.id || service._id}
                     style={{
                       ...styles.popularServiceItem,
                       ...(idx === popularServices.length - 1 ? styles.popularServiceItemLast : {}),
@@ -1143,16 +1232,18 @@ const AdminDashboard = () => {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        <h6 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>{service.title}</h6>
-                        <small style={{ color: '#a0aec0' }}>{service.category}</small>
+                        <h6 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>
+                          {service.title || service.name || 'Unnamed Service'}
+                        </h6>
+                        <small style={{ color: '#a0aec0' }}>{service.category || service.categoryName || 'Uncategorized'}</small>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <span style={styles.badge('#fef3c7', '#b45309')}>
                           <FaStar size={10} style={{ marginRight: '4px' }} />
-                          {service.rating || '0.0'}
+                          {service.rating || service.averageRating || '0.0'}
                         </span>
                         <div style={{ fontSize: '12px', color: '#667eea', fontWeight: '600', marginTop: '4px' }}>
-                          {service.bookings || 0} bookings
+                          {service.bookings || service.bookingCount || 0} bookings
                         </div>
                       </div>
                     </div>

@@ -1371,10 +1371,46 @@ router.get('/analytics/overview', async (req, res) => {
   }
 });
 
-// Get activity log
+// Backend/routes/adminRoutes.js
+
+// ========================
+// ACTIVITY LOGS - FIXED
+// ========================
+
+// GET /api/admin/activities - Get activity logs with pagination
 router.get('/activities', async (req, res) => {
   try {
-    const { startDate, endDate, type, status, search, sortBy, sortOrder, limit = 50 } = req.query;
+    const { 
+      page = 1, 
+      limit = 20, 
+      search, 
+      type, 
+      userId, 
+      startDate, 
+      endDate,
+      sortBy = 'timestamp',
+      sortOrder = 'DESC'
+    } = req.query;
+    
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    // ✅ Check if activity_logs table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'activity_logs'
+      );
+    `);
+    
+    // ✅ If table doesn't exist, return empty array
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        activities: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
     
     let conditions = [];
     let params = [];
@@ -1405,24 +1441,371 @@ router.get('/activities', async (req, res) => {
       params.push(`%${search}%`);
       paramIndex++;
     }
+    if (userId) {
+      conditions.push(`user_id = $${paramIndex}`);
+      params.push(userId);
+      paramIndex++;
+    }
     
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const orderClause = sortBy ? `ORDER BY ${sortBy} ${sortOrder || 'DESC'}` : 'ORDER BY timestamp DESC';
     
+    // ✅ Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM activity_logs 
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    // ✅ Get activities
     const query = `
-      SELECT id, user, user_type, action, type, details, timestamp, ip, status
+      SELECT id, user, user_type, action, type, details, timestamp, ip, status, user_id
       FROM activity_logs
       ${whereClause}
       ${orderClause}
-      LIMIT $${paramIndex}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-    params.push(parseInt(limit) || 50);
+    params.push(parseInt(limit) || 20, offset);
     
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    
+    // ✅ Format activities
+    const activities = result.rows.map(row => ({
+      id: row.id,
+      user: row.user || 'System',
+      userType: row.user_type || 'system',
+      action: row.action || 'Unknown',
+      type: row.type || 'info',
+      details: row.details || '',
+      timestamp: row.timestamp || new Date().toISOString(),
+      ip: row.ip || '',
+      status: row.status || 'success',
+      userId: row.user_id
+    }));
+    
+    res.json({
+      activities,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+    
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    // ✅ Return empty array instead of 500
+    res.json({
+      activities: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// POST /api/admin/activities - Log an activity
+router.post('/activities', async (req, res) => {
+  try {
+    const { user, userType, action, type, details, userId, ip, status } = req.body;
+    
+    // ✅ Check if table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'activity_logs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ message: 'Activity logs table not available' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO activity_logs (
+        user, user_type, action, type, details, 
+        user_id, ip, status, timestamp
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      RETURNING *
+    `, [
+      user || 'System',
+      userType || 'system',
+      action || 'Unknown',
+      type || 'info',
+      details || '',
+      userId || null,
+      ip || null,
+      status || 'success'
+    ]);
+    
+    res.status(201).json(result.rows[0]);
+    
+  } catch (error) {
+    console.error('Error logging activity:', error);
+    res.status(500).json({ message: 'Failed to log activity' });
+  }
+});
+
+// ========================
+// PLATFORM SETTINGS
+// ========================
+
+// GET /api/admin/settings - Get platform settings
+router.get('/settings', async (req, res) => {
+  try {
+    // Check if platform_settings table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'platform_settings'
+      );
+    `);
+    
+    // If table doesn't exist, return default settings
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        siteName: 'ServiceHub',
+        siteEmail: 'admin@servicehub.com',
+        sitePhone: '+234 800 000 0000',
+        timezone: 'Africa/Lagos',
+        dateFormat: 'DD/MM/YYYY',
+        currency: 'NGN',
+        commissionRate: 10,
+        minPayoutAmount: 5000,
+        maxPayoutAmount: 500000,
+        processingFee: 0,
+        maintenanceMode: false,
+        adminEmailAlerts: true,
+        userSignupAlerts: true,
+        bookingAlerts: true,
+        paymentAlerts: true,
+        reviewAlerts: true,
+        twoFactorAuth: true,
+        sessionTimeout: 60,
+        maxLoginAttempts: 5,
+        requireVerification: true,
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: 587,
+        senderEmail: 'noreply@servicehub.com',
+        smtpSecure: true,
+        apiRateLimit: 100,
+        apiKey: '',
+        webhookUrl: '',
+        enableBookings: true,
+        enablePayments: true,
+        enableReviews: true,
+        enableChat: true
+      });
+    }
+    
+    const result = await pool.query('SELECT * FROM platform_settings LIMIT 1');
+    
+    if (result.rows.length === 0) {
+      // Insert default settings if table is empty
+      const defaultSettings = {
+        site_name: 'ServiceHub',
+        site_email: 'admin@servicehub.com',
+        site_phone: '+234 800 000 0000',
+        timezone: 'Africa/Lagos',
+        date_format: 'DD/MM/YYYY',
+        currency: 'NGN',
+        commission_rate: 10,
+        min_payout_amount: 5000,
+        max_payout_amount: 500000,
+        processing_fee: 0,
+        maintenance_mode: false,
+        enable_bookings: true,
+        enable_payments: true,
+        enable_reviews: true,
+        enable_chat: true
+      };
+      
+      const insertResult = await pool.query(`
+        INSERT INTO platform_settings (
+          site_name, site_email, site_phone, timezone, date_format, currency,
+          commission_rate, min_payout_amount, max_payout_amount, processing_fee,
+          maintenance_mode, enable_bookings, enable_payments, enable_reviews, enable_chat
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING *
+      `, Object.values(defaultSettings));
+      
+      // Map snake_case to camelCase for frontend
+      const settings = insertResult.rows[0];
+      return res.json({
+        siteName: settings.site_name,
+        siteEmail: settings.site_email,
+        sitePhone: settings.site_phone,
+        timezone: settings.timezone,
+        dateFormat: settings.date_format,
+        currency: settings.currency,
+        commissionRate: parseFloat(settings.commission_rate),
+        minPayoutAmount: parseFloat(settings.min_payout_amount),
+        maxPayoutAmount: parseFloat(settings.max_payout_amount),
+        processingFee: parseFloat(settings.processing_fee || 0),
+        maintenanceMode: settings.maintenance_mode,
+        enableBookings: settings.enable_bookings,
+        enablePayments: settings.enable_payments,
+        enableReviews: settings.enable_reviews,
+        enableChat: settings.enable_chat
+      });
+    }
+    
+    // Map snake_case to camelCase for frontend
+    const settings = result.rows[0];
+    res.json({
+      siteName: settings.site_name,
+      siteEmail: settings.site_email,
+      sitePhone: settings.site_phone,
+      timezone: settings.timezone,
+      dateFormat: settings.date_format,
+      currency: settings.currency,
+      commissionRate: parseFloat(settings.commission_rate),
+      minPayoutAmount: parseFloat(settings.min_payout_amount),
+      maxPayoutAmount: parseFloat(settings.max_payout_amount),
+      processingFee: parseFloat(settings.processing_fee || 0),
+      maintenanceMode: settings.maintenance_mode,
+      enableBookings: settings.enable_bookings,
+      enablePayments: settings.enable_payments,
+      enableReviews: settings.enable_reviews,
+      enableChat: settings.enable_chat
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching settings:', err);
+    // Return default settings on error
+    res.json({
+      siteName: 'ServiceHub',
+      siteEmail: 'admin@servicehub.com',
+      sitePhone: '+234 800 000 0000',
+      timezone: 'Africa/Lagos',
+      dateFormat: 'DD/MM/YYYY',
+      currency: 'NGN',
+      commissionRate: 10,
+      minPayoutAmount: 5000,
+      maxPayoutAmount: 500000,
+      processingFee: 0,
+      maintenanceMode: false,
+      enableBookings: true,
+      enablePayments: true,
+      enableReviews: true,
+      enableChat: true
+    });
+  }
+});
+
+// PUT /api/admin/settings - Update platform settings
+router.put('/settings', async (req, res) => {
+  try {
+    const {
+      siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
+      commissionRate, minPayoutAmount, maxPayoutAmount, processingFee,
+      maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
+    } = req.body;
+    
+    // Check if platform_settings table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'platform_settings'
+      );
+    `);
+    
+    // Create table if it doesn't exist
+    if (!tableCheck.rows[0].exists) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS platform_settings (
+          id SERIAL PRIMARY KEY,
+          site_name VARCHAR(255) DEFAULT 'ServiceHub',
+          site_email VARCHAR(255) DEFAULT 'admin@servicehub.com',
+          site_phone VARCHAR(50) DEFAULT '+234 800 000 0000',
+          timezone VARCHAR(100) DEFAULT 'Africa/Lagos',
+          date_format VARCHAR(50) DEFAULT 'DD/MM/YYYY',
+          currency VARCHAR(10) DEFAULT 'NGN',
+          commission_rate DECIMAL(5,2) DEFAULT 10.00,
+          min_payout_amount DECIMAL(10,2) DEFAULT 5000.00,
+          max_payout_amount DECIMAL(10,2) DEFAULT 500000.00,
+          processing_fee DECIMAL(10,2) DEFAULT 0.00,
+          maintenance_mode BOOLEAN DEFAULT false,
+          enable_bookings BOOLEAN DEFAULT true,
+          enable_payments BOOLEAN DEFAULT true,
+          enable_reviews BOOLEAN DEFAULT true,
+          enable_chat BOOLEAN DEFAULT true,
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+    }
+    
+    // Check if settings exist
+    const check = await pool.query('SELECT id FROM platform_settings LIMIT 1');
+    
+    let result;
+    if (check.rows.length === 0) {
+      // Insert new settings
+      result = await pool.query(`
+        INSERT INTO platform_settings (
+          site_name, site_email, site_phone, timezone, date_format, currency,
+          commission_rate, min_payout_amount, max_payout_amount, processing_fee,
+          maintenance_mode, enable_bookings, enable_payments, enable_reviews, enable_chat,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        RETURNING *
+      `, [
+        siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
+        commissionRate, minPayoutAmount, maxPayoutAmount, processingFee || 0,
+        maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
+      ]);
+    } else {
+      // Update existing settings
+      result = await pool.query(`
+        UPDATE platform_settings SET
+          site_name = $1,
+          site_email = $2,
+          site_phone = $3,
+          timezone = $4,
+          date_format = $5,
+          currency = $6,
+          commission_rate = $7,
+          min_payout_amount = $8,
+          max_payout_amount = $9,
+          processing_fee = $10,
+          maintenance_mode = $11,
+          enable_bookings = $12,
+          enable_payments = $13,
+          enable_reviews = $14,
+          enable_chat = $15,
+          updated_at = NOW()
+        RETURNING *
+      `, [
+        siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
+        commissionRate, minPayoutAmount, maxPayoutAmount, processingFee || 0,
+        maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
+      ]);
+    }
+    
+    const settings = result.rows[0];
+    res.json({
+      message: 'Settings updated successfully',
+      settings: {
+        siteName: settings.site_name,
+        siteEmail: settings.site_email,
+        sitePhone: settings.site_phone,
+        timezone: settings.timezone,
+        dateFormat: settings.date_format,
+        currency: settings.currency,
+        commissionRate: parseFloat(settings.commission_rate),
+        minPayoutAmount: parseFloat(settings.min_payout_amount),
+        maxPayoutAmount: parseFloat(settings.max_payout_amount),
+        processingFee: parseFloat(settings.processing_fee || 0),
+        maintenanceMode: settings.maintenance_mode,
+        enableBookings: settings.enable_bookings,
+        enablePayments: settings.enable_payments,
+        enableReviews: settings.enable_reviews,
+        enableChat: settings.enable_chat
+      }
+    });
+  } catch (err) {
+    console.error('Error saving settings:', err);
+    res.status(500).json({ message: 'Failed to save settings' });
   }
 });
 
@@ -1465,140 +1848,6 @@ router.put('/profile', async (req, res) => {
     );
     
     res.json({ message: 'Profile updated successfully' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get platform settings
-router.get('/settings', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM platform_settings LIMIT 1');
-    if (result.rows.length === 0) {
-      // Return default settings
-      return res.json({
-        siteName: 'ServiceHub',
-        siteEmail: 'admin@servicehub.com',
-        sitePhone: '+234 800 000 0000',
-        timezone: 'Africa/Lagos',
-        dateFormat: 'DD/MM/YYYY',
-        currency: 'NGN',
-        commissionRate: 10,
-        minPayoutAmount: 5000,
-        maxPayoutAmount: 500000,
-        maintenanceMode: false,
-        enableBookings: true,
-        enablePayments: true,
-        enableReviews: true,
-        enableChat: true
-      });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Update platform settings
-router.put('/settings', async (req, res) => {
-  try {
-    const {
-      siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
-      commissionRate, minPayoutAmount, maxPayoutAmount,
-      maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
-    } = req.body;
-    
-    // Check if settings exist
-    const check = await pool.query('SELECT id FROM platform_settings LIMIT 1');
-    
-    let result;
-    if (check.rows.length === 0) {
-      result = await pool.query(`
-        INSERT INTO platform_settings (
-          site_name, site_email, site_phone, timezone, date_format, currency,
-          commission_rate, min_payout_amount, max_payout_amount,
-          maintenance_mode, enable_bookings, enable_payments, enable_reviews, enable_chat
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        RETURNING *
-      `, [siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
-          commissionRate, minPayoutAmount, maxPayoutAmount,
-          maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat]);
-    } else {
-      result = await pool.query(`
-        UPDATE platform_settings SET
-          site_name = COALESCE($1, site_name),
-          site_email = COALESCE($2, site_email),
-          site_phone = COALESCE($3, site_phone),
-          timezone = COALESCE($4, timezone),
-          date_format = COALESCE($5, date_format),
-          currency = COALESCE($6, currency),
-          commission_rate = COALESCE($7, commission_rate),
-          min_payout_amount = COALESCE($8, min_payout_amount),
-          max_payout_amount = COALESCE($9, max_payout_amount),
-          maintenance_mode = COALESCE($10, maintenance_mode),
-          enable_bookings = COALESCE($11, enable_bookings),
-          enable_payments = COALESCE($12, enable_payments),
-          enable_reviews = COALESCE($13, enable_reviews),
-          enable_chat = COALESCE($14, enable_chat),
-          updated_at = NOW()
-        RETURNING *
-      `, [siteName, siteEmail, sitePhone, timezone, dateFormat, currency,
-          commissionRate, minPayoutAmount, maxPayoutAmount,
-          maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat]);
-    }
-    
-    res.json({ message: 'Settings updated successfully', settings: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get audit logs
-router.get('/audit-logs', async (req, res) => {
-  try {
-    const { page = 1, limit = 20, action, userId } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    let conditions = [];
-    let params = [];
-    let paramIndex = 1;
-    
-    if (action) {
-      conditions.push(`action = $${paramIndex}`);
-      params.push(action);
-      paramIndex++;
-    }
-    if (userId) {
-      conditions.push(`user_id = $${paramIndex}`);
-      params.push(userId);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
-    const countQuery = `SELECT COUNT(*) as total FROM audit_logs ${whereClause}`;
-    const countResult = await pool.query(countQuery, params);
-    const total = parseInt(countResult.rows[0].total);
-    
-    const query = `
-      SELECT * FROM audit_logs
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-    params.push(parseInt(limit), offset);
-    
-    const result = await pool.query(query, params);
-    
-    res.json({
-      logs: result.rows,
-      total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
-    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -1679,10 +1928,6 @@ router.put('/notifications/read-all', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Backend/routes/adminRoutes.js
-
-// Add these routes after your existing routes
 
 // =========================================================================
 // PAYOUTS MANAGEMENT
@@ -1837,80 +2082,6 @@ router.get('/payouts/:id', async (req, res) => {
   }
 });
 
-// POST /api/admin/payouts - Create a new payout
-router.post('/payouts', async (req, res) => {
-  try {
-    const { provider_id, amount, method, account_details, notes } = req.body;
-    
-    if (!provider_id || !amount) {
-      return res.status(400).json({ message: 'Provider ID and amount are required' });
-    }
-    
-    // Check if provider exists
-    const providerCheck = await pool.query(
-      'SELECT id FROM users WHERE id = $1 AND role = $2',
-      [provider_id, 'provider']
-    );
-    
-    if (providerCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Provider not found' });
-    }
-    
-    // Check if provider has sufficient balance
-    const balanceCheck = await pool.query(
-      `SELECT COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) - 
-              COALESCE(SUM(CASE WHEN type = 'payout' AND status IN ('pending', 'processing') THEN amount ELSE 0 END), 0) 
-       FROM bookings b
-       WHERE provider_id = $1 AND status = 'completed'`,
-      [provider_id]
-    );
-    
-    const availableBalance = parseFloat(balanceCheck.rows[0].coalesce || 0);
-    
-    if (amount > availableBalance) {
-      return res.status(400).json({ 
-        message: 'Insufficient balance',
-        available: availableBalance,
-        requested: amount
-      });
-    }
-    
-    const result = await pool.query(`
-      INSERT INTO payouts (
-        provider_id, 
-        amount, 
-        fee, 
-        net_amount, 
-        status, 
-        method, 
-        account_details, 
-        notes, 
-        type,
-        created_at
-      )
-      VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 'payout', NOW())
-      RETURNING *
-    `, [
-      provider_id, 
-      amount, 
-      0, // fee - can be calculated based on business rules
-      amount, // net_amount
-      method || 'bank_transfer', 
-      account_details || null,
-      notes || null
-    ]);
-    
-    res.status(201).json({
-      message: 'Payout created successfully',
-      payout: result.rows[0]
-    });
-    
-  } catch (error) {
-    console.error('Error creating payout:', error);
-    res.status(500).json({ message: 'Failed to create payout' });
-  }
-});
-
 // PUT /api/admin/payouts/:id/status - Update payout status
 router.put('/payouts/:id/status', async (req, res) => {
   try {
@@ -2029,6 +2200,603 @@ router.get('/payouts/provider/:providerId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching provider payout summary:', error);
     res.status(500).json({ message: 'Failed to fetch provider payout summary' });
+  }
+});
+
+// =========================================================================
+// HELP CENTER MANAGEMENT - NEW
+// =========================================================================
+
+// ========================
+// FAQ MANAGEMENT
+// ========================
+
+// GET /api/admin/faqs - Get all FAQs
+router.get('/faqs', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search, category, status, sort = 'created_at' } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'faqs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        faqs: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = [];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    if (status) {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+    const countQuery = `SELECT COUNT(*) as total FROM faqs ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT * FROM faqs
+      ${whereClause}
+      ORDER BY ${sort} DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    res.json({
+      faqs: result.rows,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+    
+  } catch (error) {
+    console.error('Error fetching FAQs:', error);
+    res.json({
+      faqs: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// GET /api/admin/faqs/:id - Get single FAQ
+router.get('/faqs/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM faqs WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'FAQ not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching FAQ:', error);
+    res.status(500).json({ message: 'Failed to fetch FAQ' });
+  }
+});
+
+// POST /api/admin/faqs - Create FAQ
+router.post('/faqs', async (req, res) => {
+  try {
+    const { question, answer, category, status = 'published', icon, helpful_count = 0 } = req.body;
+    
+    if (!question || !answer) {
+      return res.status(400).json({ message: 'Question and answer are required' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO faqs (question, answer, category, status, icon, helpful_count, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      RETURNING *
+    `, [question, answer, category, status, icon || '📌', helpful_count]);
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating FAQ:', error);
+    res.status(500).json({ message: 'Failed to create FAQ' });
+  }
+});
+
+// PUT /api/admin/faqs/:id - Update FAQ
+router.put('/faqs/:id', async (req, res) => {
+  try {
+    const { question, answer, category, status, icon, helpful_count } = req.body;
+    
+    const result = await pool.query(`
+      UPDATE faqs SET
+        question = COALESCE($1, question),
+        answer = COALESCE($2, answer),
+        category = COALESCE($3, category),
+        status = COALESCE($4, status),
+        icon = COALESCE($5, icon),
+        helpful_count = COALESCE($6, helpful_count),
+        updated_at = NOW()
+      WHERE id = $7
+      RETURNING *
+    `, [question, answer, category, status, icon, helpful_count, req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'FAQ not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating FAQ:', error);
+    res.status(500).json({ message: 'Failed to update FAQ' });
+  }
+});
+
+// DELETE /api/admin/faqs/:id - Delete FAQ
+router.delete('/faqs/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM faqs WHERE id = $1 RETURNING id', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'FAQ not found' });
+    }
+    res.json({ message: 'FAQ deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting FAQ:', error);
+    res.status(500).json({ message: 'Failed to delete FAQ' });
+  }
+});
+
+// ========================
+// SUPPORT TICKETS MANAGEMENT
+// ========================
+
+// GET /api/admin/tickets - Get all support tickets
+router.get('/tickets', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status, priority, search, userId } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        tickets: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = [];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (status) {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    if (priority) {
+      conditions.push(`priority = $${paramIndex}`);
+      params.push(priority);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(subject ILIKE $${paramIndex} OR message ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (userId) {
+      conditions.push(`user_id = $${paramIndex}`);
+      params.push(userId);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+    const countQuery = `SELECT COUNT(*) as total FROM support_tickets ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT t.*, u.name as user_name, u.email as user_email, u.role as user_role
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      ${whereClause}
+      ORDER BY t.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    res.json({
+      tickets: result.rows,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+    
+  } catch (error) {
+    console.error('Error fetching tickets:', error);
+    res.json({
+      tickets: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// GET /api/admin/tickets/:id - Get single ticket
+router.get('/tickets/:id', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT t.*, u.name as user_name, u.email as user_email
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = $1
+    `, [req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    const messages = await pool.query(`
+      SELECT * FROM ticket_messages 
+      WHERE ticket_id = $1 
+      ORDER BY created_at ASC
+    `, [req.params.id]);
+    
+    res.json({
+      ...result.rows[0],
+      messages: messages.rows
+    });
+  } catch (error) {
+    console.error('Error fetching ticket:', error);
+    res.status(500).json({ message: 'Failed to fetch ticket' });
+  }
+});
+
+// PUT /api/admin/tickets/:id/status - Update ticket status
+router.put('/tickets/:id/status', async (req, res) => {
+  try {
+    const { status, assigned_to } = req.body;
+    const validStatuses = ['open', 'in_progress', 'resolved', 'closed'];
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    
+    const result = await pool.query(`
+      UPDATE support_tickets SET
+        status = $1,
+        assigned_to = COALESCE($2, assigned_to),
+        updated_at = NOW()
+      WHERE id = $3
+      RETURNING *
+    `, [status, assigned_to, req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating ticket status:', error);
+    res.status(500).json({ message: 'Failed to update ticket status' });
+  }
+});
+
+// POST /api/admin/tickets/:id/reply - Reply to ticket
+router.post('/tickets/:id/reply', async (req, res) => {
+  try {
+    const { message, sender_type = 'admin' } = req.body;
+    const adminId = req.user.id;
+    
+    if (!message) {
+      return res.status(400).json({ message: 'Message is required' });
+    }
+    
+    const messageResult = await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING *
+    `, [req.params.id, adminId, sender_type, message]);
+    
+    await pool.query(`
+      UPDATE support_tickets 
+      SET status = CASE 
+        WHEN status = 'open' THEN 'in_progress' 
+        ELSE status 
+      END,
+      updated_at = NOW()
+      WHERE id = $1
+    `, [req.params.id]);
+    
+    res.status(201).json(messageResult.rows[0]);
+  } catch (error) {
+    console.error('Error replying to ticket:', error);
+    res.status(500).json({ message: 'Failed to reply to ticket' });
+  }
+});
+
+// ========================
+// ANNOUNCEMENTS MANAGEMENT
+// ========================
+
+// GET /api/admin/announcements
+router.get('/announcements', async (req, res) => {
+  try {
+    const { limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'announcements'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        announcements: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    const countQuery = `SELECT COUNT(*) as total FROM announcements`;
+    const countResult = await pool.query(countQuery);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const result = await pool.query(`
+      SELECT * FROM announcements 
+      ORDER BY created_at DESC 
+      LIMIT $1 OFFSET $2
+    `, [parseInt(limit), offset]);
+    
+    res.json({
+      announcements: result.rows,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('Error fetching announcements:', error);
+    res.json({
+      announcements: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// POST /api/admin/announcements
+router.post('/announcements', async (req, res) => {
+  try {
+    const { title, content, type = 'info', is_active = true } = req.body;
+    
+    if (!title || !content) {
+      return res.status(400).json({ message: 'Title and content are required' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO announcements (title, content, type, is_active, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      RETURNING *
+    `, [title, content, type, is_active]);
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating announcement:', error);
+    res.status(500).json({ message: 'Failed to create announcement' });
+  }
+});
+
+// PUT /api/admin/announcements/:id
+router.put('/announcements/:id', async (req, res) => {
+  try {
+    const { title, content, type, is_active } = req.body;
+    
+    const result = await pool.query(`
+      UPDATE announcements SET
+        title = COALESCE($1, title),
+        content = COALESCE($2, content),
+        type = COALESCE($3, type),
+        is_active = COALESCE($4, is_active),
+        updated_at = NOW()
+      WHERE id = $5
+      RETURNING *
+    `, [title, content, type, is_active, req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating announcement:', error);
+    res.status(500).json({ message: 'Failed to update announcement' });
+  }
+});
+
+// DELETE /api/admin/announcements/:id
+router.delete('/announcements/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM announcements WHERE id = $1 RETURNING id', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+    res.json({ message: 'Announcement deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting announcement:', error);
+    res.status(500).json({ message: 'Failed to delete announcement' });
+  }
+});
+
+// ========================
+// KNOWLEDGE BASE MANAGEMENT
+// ========================
+
+// GET /api/admin/knowledge-base
+router.get('/knowledge-base', async (req, res) => {
+  try {
+    const { search, category, limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'knowledge_base'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({
+        articles: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = [];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex} OR category ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+    const countQuery = `SELECT COUNT(*) as total FROM knowledge_base ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT * FROM knowledge_base
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    res.json({
+      articles: result.rows,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('Error fetching knowledge base:', error);
+    res.json({
+      articles: [],
+      total: 0,
+      page: 1,
+      totalPages: 0
+    });
+  }
+});
+
+// POST /api/admin/knowledge-base
+router.post('/knowledge-base', async (req, res) => {
+  try {
+    const { title, content, category, tags, read_time = 5 } = req.body;
+    
+    if (!title || !content) {
+      return res.status(400).json({ message: 'Title and content are required' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO knowledge_base (title, content, category, tags, read_time, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      RETURNING *
+    `, [title, content, category || 'General', tags || [], read_time]);
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating knowledge base article:', error);
+    res.status(500).json({ message: 'Failed to create article' });
+  }
+});
+
+// PUT /api/admin/knowledge-base/:id
+router.put('/knowledge-base/:id', async (req, res) => {
+  try {
+    const { title, content, category, tags, read_time } = req.body;
+    
+    const result = await pool.query(`
+      UPDATE knowledge_base SET
+        title = COALESCE($1, title),
+        content = COALESCE($2, content),
+        category = COALESCE($3, category),
+        tags = COALESCE($4, tags),
+        read_time = COALESCE($5, read_time),
+        updated_at = NOW()
+      WHERE id = $6
+      RETURNING *
+    `, [title, content, category, tags, read_time, req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating knowledge base article:', error);
+    res.status(500).json({ message: 'Failed to update article' });
+  }
+});
+
+// DELETE /api/admin/knowledge-base/:id
+router.delete('/knowledge-base/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM knowledge_base WHERE id = $1 RETURNING id', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
+    res.json({ message: 'Article deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting knowledge base article:', error);
+    res.status(500).json({ message: 'Failed to delete article' });
   }
 });
 

@@ -1,5 +1,5 @@
 // src/pages/provider/ProviderSchedule.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -30,7 +30,7 @@ import {
   FaCopy
 } from 'react-icons/fa';
 import { format, parse, isWithinInterval, addMinutes, differenceInMinutes } from 'date-fns';
-import api from '../../api';
+import { providerAPI } from '../../api/api';
 import toast from 'react-hot-toast';
 
 const days = [
@@ -53,6 +53,7 @@ const ProviderSchedule = () => {
   const [schedule, setSchedule] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -68,32 +69,89 @@ const ProviderSchedule = () => {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Fetch schedule
-  const fetchSchedule = useCallback(async () => {
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Fetch schedule from real API
+  const fetchSchedule = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const res = await api.get('/provider/schedule');
-      setSchedule(res.data);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof providerAPI.getSchedule === 'function') {
+        response = await providerAPI.getSchedule();
+      } else if (typeof providerAPI.getProviderSchedule === 'function') {
+        response = await providerAPI.getProviderSchedule();
+      } else {
+        throw new Error('Schedule API methods not available');
+      }
+
+      const data = response?.data || {};
+      setSchedule(data);
       setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Error fetching schedule:', err);
-      toast.error('Failed to load schedule');
+      
+    } catch (error) {
+      console.error('Error fetching schedule:', error);
+      setError(error.message || 'Failed to load schedule');
+      setSchedule({});
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load schedule');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
+  // Initial data load
   useEffect(() => {
-    fetchSchedule();
-    
-    let interval;
+    fetchSchedule(true);
+  }, []);
+
+  // Polling for real-time updates
+  useEffect(() => {
+    const startPolling = () => {
+      stopPolling();
+      pollingInterval.current = setInterval(() => {
+        if (!isPolling.current) {
+          isPolling.current = true;
+          fetchSchedule(false).finally(() => {
+            isPolling.current = false;
+          });
+        }
+      }, 30000); // Poll every 30 seconds
+    };
+
+    const stopPolling = () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
+      }
+      isPolling.current = false;
+    };
+
     if (autoRefresh) {
-      interval = setInterval(fetchSchedule, 60000); // Refresh every minute
+      startPolling();
     }
     
     return () => {
-      if (interval) clearInterval(interval);
+      stopPolling();
     };
-  }, [fetchSchedule, autoRefresh]);
+  }, [autoRefresh, fetchSchedule]);
 
   // Check for time slot conflicts
   const checkConflicts = (day, start, end, excludeSlotId = null) => {
@@ -141,7 +199,7 @@ const ProviderSchedule = () => {
     return true;
   };
 
-  // Add time slot
+  // Add time slot with real API
   const addTimeSlot = async () => {
     if (!validateTimeSlot(startTime, endTime)) return;
     
@@ -154,28 +212,43 @@ const ProviderSchedule = () => {
     
     setSaving(true);
     try {
-      await api.post('/provider/schedule', {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = {
         day: selectedDay,
         start: startTime,
         end: endTime
-      });
+      };
+
+      if (typeof providerAPI.addScheduleSlot === 'function') {
+        await providerAPI.addScheduleSlot(payload);
+      } else if (typeof providerAPI.createSchedule === 'function') {
+        await providerAPI.createSchedule(payload);
+      } else {
+        throw new Error('Add schedule API methods not available');
+      }
+      
       toast.success('Time slot added successfully');
       setShowAddModal(false);
       setStartTime('09:00');
       setEndTime('17:00');
-      fetchSchedule();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add slot');
+      await fetchSchedule(false);
+    } catch (error) {
+      console.error('Error adding slot:', error);
+      toast.error(error.response?.data?.message || error.message || 'Failed to add slot');
     } finally {
       setSaving(false);
     }
   };
 
-  // Edit time slot
+  // Edit time slot with real API
   const editTimeSlot = async () => {
+    if (!selectedSlot) return;
     if (!validateTimeSlot(startTime, endTime)) return;
     
-    const conflicts = checkConflicts(selectedDay, startTime, endTime, selectedSlot?.id);
+    const conflicts = checkConflicts(selectedDay, startTime, endTime, selectedSlot.id);
     if (conflicts.length > 0) {
       setConflicts(conflicts);
       setShowConflicts(true);
@@ -184,35 +257,63 @@ const ProviderSchedule = () => {
     
     setSaving(true);
     try {
-      await api.put(`/provider/schedule/${selectedSlot.id}`, {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const slotId = selectedSlot.id || selectedSlot._id;
+      const payload = {
         start: startTime,
         end: endTime
-      });
+      };
+
+      if (typeof providerAPI.updateScheduleSlot === 'function') {
+        await providerAPI.updateScheduleSlot(slotId, payload);
+      } else if (typeof providerAPI.editSchedule === 'function') {
+        await providerAPI.editSchedule(slotId, payload);
+      } else {
+        throw new Error('Update schedule API methods not available');
+      }
+      
       toast.success('Time slot updated successfully');
       setShowEditModal(false);
       setSelectedSlot(null);
-      fetchSchedule();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update slot');
+      await fetchSchedule(false);
+    } catch (error) {
+      console.error('Error updating slot:', error);
+      toast.error(error.response?.data?.message || error.message || 'Failed to update slot');
     } finally {
       setSaving(false);
     }
   };
 
-  // Remove time slot
+  // Remove time slot with real API
   const removeTimeSlot = async (slotId) => {
+    if (!slotId) return;
     if (!window.confirm('Are you sure you want to remove this time slot?')) return;
     
     try {
-      await api.delete(`/provider/schedule/${slotId}`);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.deleteScheduleSlot === 'function') {
+        await providerAPI.deleteScheduleSlot(slotId);
+      } else if (typeof providerAPI.removeSchedule === 'function') {
+        await providerAPI.removeSchedule(slotId);
+      } else {
+        throw new Error('Delete schedule API methods not available');
+      }
+      
       toast.success('Slot removed successfully');
-      fetchSchedule();
-    } catch (err) {
-      toast.error('Failed to remove slot');
+      await fetchSchedule(false);
+    } catch (error) {
+      console.error('Error removing slot:', error);
+      toast.error(error.message || 'Failed to remove slot');
     }
   };
 
-  // Add bulk time slots
+  // Add bulk time slots with real API
   const addBulkTimeSlots = async () => {
     if (bulkDays.length === 0) {
       toast.error('Please select at least one day');
@@ -233,11 +334,23 @@ const ProviderSchedule = () => {
       }
       
       try {
-        await api.post('/provider/schedule', {
+        if (!providerAPI) {
+          throw new Error('API service not available');
+        }
+
+        const payload = {
           day: day,
           start: bulkStart,
           end: bulkEnd
-        });
+        };
+
+        if (typeof providerAPI.addScheduleSlot === 'function') {
+          await providerAPI.addScheduleSlot(payload);
+        } else if (typeof providerAPI.createSchedule === 'function') {
+          await providerAPI.createSchedule(payload);
+        } else {
+          throw new Error('Add schedule API methods not available');
+        }
         successCount++;
       } catch (err) {
         errorCount++;
@@ -253,11 +366,11 @@ const ProviderSchedule = () => {
     
     setShowBulkModal(false);
     setBulkDays([]);
-    fetchSchedule();
+    await fetchSchedule(false);
     setSaving(false);
   };
 
-  // Copy schedule from one day to another
+  // Copy schedule from one day to another with real API
   const copySchedule = async (sourceDay, targetDay) => {
     const sourceSlots = schedule[sourceDay] || [];
     if (sourceSlots.length === 0) {
@@ -269,25 +382,40 @@ const ProviderSchedule = () => {
     
     setSaving(true);
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       // First remove existing slots for target day
       const existingSlots = schedule[targetDay] || [];
       for (const slot of existingSlots) {
-        await api.delete(`/provider/schedule/${slot.id}`);
+        const slotId = slot.id || slot._id;
+        if (typeof providerAPI.deleteScheduleSlot === 'function') {
+          await providerAPI.deleteScheduleSlot(slotId);
+        } else if (typeof providerAPI.removeSchedule === 'function') {
+          await providerAPI.removeSchedule(slotId);
+        }
       }
       
       // Add copied slots
       for (const slot of sourceSlots) {
-        await api.post('/provider/schedule', {
+        const payload = {
           day: targetDay,
           start: slot.start,
           end: slot.end
-        });
+        };
+        if (typeof providerAPI.addScheduleSlot === 'function') {
+          await providerAPI.addScheduleSlot(payload);
+        } else if (typeof providerAPI.createSchedule === 'function') {
+          await providerAPI.createSchedule(payload);
+        }
       }
       
       toast.success(`Schedule copied from ${sourceDay} to ${targetDay}`);
-      fetchSchedule();
-    } catch (err) {
-      toast.error('Failed to copy schedule');
+      await fetchSchedule(false);
+    } catch (error) {
+      console.error('Error copying schedule:', error);
+      toast.error(error.message || 'Failed to copy schedule');
     } finally {
       setSaving(false);
     }
@@ -314,22 +442,25 @@ const ProviderSchedule = () => {
     return { variant: 'warning', text: 'Partial' };
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading schedule...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   const totalHours = getTotalWeeklyHours();
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <FaExclamationTriangle size={18} className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchSchedule(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -382,7 +513,7 @@ const ProviderSchedule = () => {
                   <div>
                     <p className="text-muted mb-1">Active Days</p>
                     <h2 className="fw-bold mb-0">
-                      {Object.values(schedule).filter(day => day.length > 0).length}/7
+                      {Object.values(schedule).filter(day => day && day.length > 0).length}/7
                     </h2>
                   </div>
                   <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
@@ -399,7 +530,7 @@ const ProviderSchedule = () => {
                   <div>
                     <p className="text-muted mb-1">Total Slots</p>
                     <h2 className="fw-bold mb-0">
-                      {Object.values(schedule).reduce((sum, day) => sum + day.length, 0)}
+                      {Object.values(schedule).reduce((sum, day) => sum + (day ? day.length : 0), 0)}
                     </h2>
                   </div>
                   <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
@@ -492,56 +623,59 @@ const ProviderSchedule = () => {
                   <Card.Body className="p-4">
                     {daySlots.length > 0 ? (
                       <div className="d-flex flex-column gap-2">
-                        {daySlots.map(slot => (
-                          <div
-                            key={slot.id}
-                            className="d-flex justify-content-between align-items-center p-3 border rounded-3"
-                            style={{ background: '#f8fafc', transition: 'all 0.2s' }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#f8fafc'}
-                          >
-                            <div className="d-flex align-items-center gap-3">
-                              <div className="text-primary">
-                                <FaClock size={18} />
-                              </div>
-                              <div>
-                                <span className="fw-semibold">{slot.start}</span>
-                                <span className="text-muted mx-2">–</span>
-                                <span className="fw-semibold">{slot.end}</span>
-                                <div className="small text-muted">
-                                  Duration: {differenceInMinutes(
-                                    parse(slot.end, 'HH:mm', new Date()),
-                                    parse(slot.start, 'HH:mm', new Date())
-                                  )} mins
+                        {daySlots.map(slot => {
+                          const slotId = slot.id || slot._id;
+                          return (
+                            <div
+                              key={slotId}
+                              className="d-flex justify-content-between align-items-center p-3 border rounded-3"
+                              style={{ background: '#f8fafc', transition: 'all 0.2s' }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = '#f8fafc'}
+                            >
+                              <div className="d-flex align-items-center gap-3">
+                                <div className="text-primary">
+                                  <FaClock size={18} />
+                                </div>
+                                <div>
+                                  <span className="fw-semibold">{slot.start}</span>
+                                  <span className="text-muted mx-2">–</span>
+                                  <span className="fw-semibold">{slot.end}</span>
+                                  <div className="small text-muted">
+                                    Duration: {differenceInMinutes(
+                                      parse(slot.end, 'HH:mm', new Date()),
+                                      parse(slot.start, 'HH:mm', new Date())
+                                    )} mins
+                                  </div>
                                 </div>
                               </div>
+                              <div className="d-flex gap-1">
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedSlot(slot);
+                                    setSelectedDay(day.key);
+                                    setStartTime(slot.start);
+                                    setEndTime(slot.end);
+                                    setShowEditModal(true);
+                                  }}
+                                  className="text-primary p-1"
+                                >
+                                  <FaEdit />
+                                </Button>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  onClick={() => removeTimeSlot(slotId)}
+                                  className="text-danger p-1"
+                                >
+                                  <FaTrash />
+                                </Button>
+                              </div>
                             </div>
-                            <div className="d-flex gap-1">
-                              <Button
-                                variant="link"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedSlot(slot);
-                                  setSelectedDay(day.key);
-                                  setStartTime(slot.start);
-                                  setEndTime(slot.end);
-                                  setShowEditModal(true);
-                                }}
-                                className="text-primary p-1"
-                              >
-                                <FaEdit />
-                              </Button>
-                              <Button
-                                variant="link"
-                                size="sm"
-                                onClick={() => removeTimeSlot(slot.id)}
-                                className="text-danger p-1"
-                              >
-                                <FaTrash />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-center py-5">
@@ -769,11 +903,14 @@ const ProviderSchedule = () => {
             <Alert variant="warning">
               <strong>The following time slots conflict with your new slot:</strong>
               <ul className="mt-2 mb-0">
-                {conflicts.map(conflict => (
-                  <li key={conflict.id}>
-                    {conflict.start} – {conflict.end}
-                  </li>
-                ))}
+                {conflicts.map(conflict => {
+                  const conflictId = conflict.id || conflict._id;
+                  return (
+                    <li key={conflictId}>
+                      {conflict.start} – {conflict.end}
+                    </li>
+                  );
+                })}
               </ul>
             </Alert>
             <p className="text-muted small mt-3">

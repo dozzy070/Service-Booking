@@ -41,7 +41,6 @@ import {
   VolumeX,
   TrendingDown
 } from 'lucide-react';
-// No duplicate imports from react-icons/fa
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { chatAPI } from '../../api/api';
@@ -56,6 +55,7 @@ const ProviderChat = () => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typing, setTyping] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState(null);
@@ -65,6 +65,10 @@ const ProviderChat = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+  
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -73,9 +77,17 @@ const ProviderChat = () => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
       currency: 'NGN',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount || 0);
+  };
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
   };
 
   // Scroll to bottom of messages
@@ -83,45 +95,129 @@ const ProviderChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Fetch conversations
-  const fetchConversations = useCallback(async () => {
+  // Fetch conversations from real API
+  const fetchConversations = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
-      const response = await chatAPI.getConversations();
-      setChats(response.data);
+      if (!chatAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof chatAPI.getConversations === 'function') {
+        response = await chatAPI.getConversations();
+      } else if (typeof chatAPI.getChats === 'function') {
+        response = await chatAPI.getChats();
+      } else {
+        throw new Error('Conversations API methods not available');
+      }
+
+      const data = response?.data || [];
+      setChats(Array.isArray(data) ? data : []);
+      
     } catch (error) {
       console.error('Error fetching conversations:', error);
-      toast.error('Failed to load conversations');
+      setError(error.message || 'Failed to load conversations');
+      setChats([]);
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load conversations');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
-  // Fetch messages for selected conversation
+  // Fetch messages for selected conversation from real API
   const fetchMessages = useCallback(async (conversationId) => {
+    if (!conversationId) return;
+    
     try {
-      const response = await chatAPI.getMessages(conversationId);
+      if (!chatAPI) {
+        throw new Error('API service not available');
+      }
+
+      let response = null;
+      
+      if (typeof chatAPI.getMessages === 'function') {
+        response = await chatAPI.getMessages(conversationId);
+      } else if (typeof chatAPI.getChatHistory === 'function') {
+        response = await chatAPI.getChatHistory(conversationId);
+      } else {
+        throw new Error('Messages API methods not available');
+      }
+
+      const data = response?.data || [];
       setSelectedChat(prev => ({
         ...prev,
-        messages: response.data
+        messages: Array.isArray(data) ? data : []
       }));
       scrollToBottom();
+      
     } catch (error) {
       console.error('Error fetching messages:', error);
       toast.error('Failed to load messages');
     }
   }, []);
 
-  // Mark messages as read
+  // Mark messages as read with real API
   const markAsRead = useCallback(async (conversationId, messageIds) => {
+    if (!conversationId || !messageIds || messageIds.length === 0) return;
+    
     try {
-      await chatAPI.markMessagesAsRead(conversationId, messageIds);
+      if (!chatAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { message_ids: messageIds };
+      
+      if (typeof chatAPI.markMessagesAsRead === 'function') {
+        await chatAPI.markMessagesAsRead(conversationId, payload);
+      } else if (typeof chatAPI.markAsRead === 'function') {
+        await chatAPI.markAsRead(conversationId, payload);
+      } else {
+        throw new Error('Mark as read API methods not available');
+      }
+      
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
   }, []);
 
+  // Initial data load
   useEffect(() => {
-    fetchConversations();
+    fetchConversations(true);
+  }, []);
+
+  // Polling for real-time updates
+  useEffect(() => {
+    const startPolling = () => {
+      stopPolling();
+      pollingInterval.current = setInterval(() => {
+        if (!isPolling.current) {
+          isPolling.current = true;
+          fetchConversations(false).finally(() => {
+            isPolling.current = false;
+          });
+        }
+      }, 30000); // Poll every 30 seconds
+    };
+
+    const stopPolling = () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
+      }
+      isPolling.current = false;
+    };
+
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
   }, [fetchConversations]);
 
   // Handle socket events
@@ -129,11 +225,13 @@ const ProviderChat = () => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
+      if (!message) return;
+      
       setSelectedChat(prev => {
         if (prev && prev.id === message.conversation_id) {
           return {
             ...prev,
-            messages: [...prev.messages, message],
+            messages: [...(prev.messages || []), message],
             lastMessage: message.message,
             lastMessageTime: message.created_at
           };
@@ -177,14 +275,21 @@ const ProviderChat = () => {
     
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     
-    sendTyping(selectedChat?.other_party_id, selectedChat?.booking_id, true);
+    const otherPartyId = selectedChat?.other_party_id || selectedChat?.customer_id;
+    const bookingId = selectedChat?.booking_id || selectedChat?.bookingId;
+    
+    if (otherPartyId) {
+      sendTyping(otherPartyId, bookingId, true);
+    }
     
     typingTimeoutRef.current = setTimeout(() => {
-      sendTyping(selectedChat?.other_party_id, selectedChat?.booking_id, false);
+      if (otherPartyId) {
+        sendTyping(otherPartyId, bookingId, false);
+      }
     }, 1000);
   };
 
-  // Send message
+  // Send message with real API
   const handleSendMessage = async () => {
     if (!message.trim() || !selectedChat) return;
     
@@ -192,21 +297,44 @@ const ProviderChat = () => {
     const messageText = message.trim();
     setMessage('');
     
+    const otherPartyId = selectedChat.other_party_id || selectedChat.customer_id;
+    const bookingId = selectedChat.booking_id || selectedChat.bookingId;
+    const senderName = user?.name || 'Provider';
+    
     // Send via socket for real-time
     const sent = sendSocketMessage(
-      selectedChat.other_party_id,
+      otherPartyId,
       messageText,
-      selectedChat.booking_id,
-      user?.name
+      bookingId,
+      senderName
     );
     
     if (!sent) {
       // Fallback to API if socket fails
       try {
-        await chatAPI.sendMessage(selectedChat.id, messageText, selectedChat.other_party_id);
+        if (!chatAPI) {
+          throw new Error('API service not available');
+        }
+
+        const conversationId = selectedChat.id || selectedChat.conversation_id;
+        const payload = {
+          message: messageText,
+          recipient_id: otherPartyId,
+          booking_id: bookingId
+        };
+
+        if (typeof chatAPI.sendMessage === 'function') {
+          await chatAPI.sendMessage(conversationId, payload);
+        } else if (typeof chatAPI.sendChatMessage === 'function') {
+          await chatAPI.sendChatMessage(conversationId, payload);
+        } else {
+          throw new Error('Send message API methods not available');
+        }
+        
       } catch (error) {
         console.error('Error sending message:', error);
-        toast.error('Failed to send message');
+        toast.error(error.message || 'Failed to send message');
+        setMessage(messageText); // Restore message on failure
       }
     }
     
@@ -216,14 +344,20 @@ const ProviderChat = () => {
 
   // Select conversation
   const handleSelectChat = async (chat) => {
+    if (!chat) return;
+    
     setSelectedChat(chat);
     setTyping(false);
-    await fetchMessages(chat.id);
+    await fetchMessages(chat.id || chat.conversation_id);
     
     // Mark unread messages as read
-    const unreadMessages = chat.messages?.filter(m => !m.is_read && m.sender_id !== user?.id) || [];
+    const unreadMessages = (chat.messages || []).filter(
+      m => !m.is_read && m.sender_id !== user?.id
+    );
+    
     if (unreadMessages.length > 0) {
-      markAsRead(chat.id, unreadMessages.map(m => m.id));
+      const messageIds = unreadMessages.map(m => m.id || m._id).filter(Boolean);
+      markAsRead(chat.id || chat.conversation_id, messageIds);
       setChats(prev => prev.map(c => 
         c.id === chat.id ? { ...c, unreadCount: 0 } : c
       ));
@@ -232,19 +366,31 @@ const ProviderChat = () => {
 
   // Get online status
   const isUserOnline = (userId) => {
-    return onlineUsers.includes(userId);
+    return onlineUsers && onlineUsers.includes(userId);
   };
 
   // Get status badge
   const getStatusBadge = (status) => {
+    if (!status) {
+      return (
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-2 py-1">
+          <ClockIcon size={10} />
+          <span className="ms-1">Unknown</span>
+        </Badge>
+      );
+    }
+    
+    const lowerStatus = status.toLowerCase();
     const statusConfig = {
       pending: { variant: 'warning', icon: ClockIcon, text: 'Pending' },
       confirmed: { variant: 'info', icon: CheckCircle, text: 'Confirmed' },
+      accepted: { variant: 'info', icon: CheckCircle, text: 'Accepted' },
       in_progress: { variant: 'primary', icon: ClockIcon, text: 'In Progress' },
       completed: { variant: 'success', icon: CheckCircle, text: 'Completed' },
-      cancelled: { variant: 'danger', icon: XCircle, text: 'Cancelled' }
+      cancelled: { variant: 'danger', icon: XCircle, text: 'Cancelled' },
+      rejected: { variant: 'danger', icon: XCircle, text: 'Rejected' }
     };
-    const config = statusConfig[status] || statusConfig.pending;
+    const config = statusConfig[lowerStatus] || statusConfig.pending;
     const Icon = config.icon;
     return (
       <Badge bg={config.variant} className="d-inline-flex align-items-center gap-1 px-2 py-1">
@@ -255,25 +401,32 @@ const ProviderChat = () => {
   };
 
   // Filter chats by search
-  const filteredChats = chats.filter(chat =>
-    chat.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    chat.service_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredChats = chats.filter(chat => {
+    const customerName = getField(chat, ['customer_name', 'customer.name', 'customerName', 'customer'], '');
+    const serviceName = getField(chat, ['service_name', 'service.title', 'serviceName', 'title'], '');
+    const search = searchTerm.toLowerCase();
+    return customerName.toLowerCase().includes(search) || serviceName.toLowerCase().includes(search);
+  });
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading conversations...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', height: 'calc(100vh - 60px)' }}>
       <Container fluid className="h-100 py-3">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-3" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <Alert variant="danger" className="mb-3" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+              <Users size={18} className="me-2" />
+              {error}
+              <Button variant="outline-danger" size="sm" onClick={() => fetchConversations(false)} className="ms-3">
+                Retry
+              </Button>
+            </Alert>
+          </Alert>
+        )}
+
         <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '20px', overflow: 'hidden' }}>
           <Card.Body className="p-0 h-100">
             <Row className="h-100 g-0">
@@ -301,44 +454,55 @@ const ProviderChat = () => {
                       <small className="text-muted">Messages will appear here</small>
                     </div>
                   ) : (
-                    filteredChats.map(chat => (
-                      <div
-                        key={chat.id}
-                        className={`chat-list-item ${selectedChat?.id === chat.id ? 'active' : ''}`}
-                        onClick={() => handleSelectChat(chat)}
-                      >
-                        <div className="d-flex gap-3">
-                          <div className="position-relative">
-                            <div className="chat-avatar">
-                              {chat.customer_name?.charAt(0).toUpperCase() || 'C'}
+                    filteredChats.map(chat => {
+                      const chatId = chat.id || chat.conversation_id;
+                      const customerName = getField(chat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown');
+                      const serviceName = getField(chat, ['service_name', 'service.title', 'serviceName', 'title'], '');
+                      const otherPartyId = chat.other_party_id || chat.customer_id;
+                      const lastMessage = getField(chat, ['lastMessage', 'last_message', 'lastMessageText'], 'No messages yet');
+                      const lastMessageTime = chat.lastMessageTime || chat.last_message_time || chat.updated_at;
+                      const unreadCount = chat.unreadCount || chat.unread_count || 0;
+                      const bookingStatus = getField(chat, ['booking_status', 'status', 'bookingStatus'], '');
+
+                      return (
+                        <div
+                          key={chatId}
+                          className={`chat-list-item ${selectedChat?.id === chatId ? 'active' : ''}`}
+                          onClick={() => handleSelectChat(chat)}
+                        >
+                          <div className="d-flex gap-3">
+                            <div className="position-relative">
+                              <div className="chat-avatar">
+                                {customerName.charAt(0).toUpperCase()}
+                              </div>
+                              {isUserOnline(otherPartyId) && (
+                                <div className="online-dot"></div>
+                              )}
                             </div>
-                            {isUserOnline(chat.other_party_id) && (
-                              <div className="online-dot"></div>
+                            <div className="flex-grow-1 min-width-0">
+                              <div className="d-flex justify-content-between align-items-start">
+                                <h6 className="mb-1 text-truncate">{customerName}</h6>
+                                <small className="text-muted flex-shrink-0">
+                                  {lastMessageTime && formatDistanceToNow(new Date(lastMessageTime), { addSuffix: true })}
+                                </small>
+                              </div>
+                              <p className="mb-1 small text-muted text-truncate">{lastMessage}</p>
+                              <div className="d-flex gap-2">
+                                {serviceName && (
+                                  <small className="text-muted">{serviceName}</small>
+                                )}
+                                {bookingStatus && getStatusBadge(bookingStatus)}
+                              </div>
+                            </div>
+                            {unreadCount > 0 && (
+                              <Badge bg="success" pill className="unread-badge">
+                                {unreadCount}
+                              </Badge>
                             )}
                           </div>
-                          <div className="flex-grow-1 min-width-0">
-                            <div className="d-flex justify-content-between align-items-start">
-                              <h6 className="mb-1 text-truncate">{chat.customer_name}</h6>
-                              <small className="text-muted flex-shrink-0">
-                                {chat.lastMessageTime && formatDistanceToNow(new Date(chat.lastMessageTime), { addSuffix: true })}
-                              </small>
-                            </div>
-                            <p className="mb-1 small text-muted text-truncate">{chat.lastMessage || 'No messages yet'}</p>
-                            <div className="d-flex gap-2">
-                              {chat.service_name && (
-                                <small className="text-muted">{chat.service_name}</small>
-                              )}
-                              {getStatusBadge(chat.booking_status)}
-                            </div>
-                          </div>
-                          {chat.unreadCount > 0 && (
-                            <Badge bg="success" pill className="unread-badge">
-                              {chat.unreadCount}
-                            </Badge>
-                          )}
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </Col>
@@ -360,16 +524,16 @@ const ProviderChat = () => {
                         </Button>
                         <div className="position-relative">
                           <div className="chat-avatar-sm">
-                            {selectedChat.customer_name?.charAt(0).toUpperCase() || 'C'}
+                            {getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'C').charAt(0).toUpperCase()}
                           </div>
-                          {isUserOnline(selectedChat.other_party_id) && (
+                          {isUserOnline(selectedChat.other_party_id || selectedChat.customer_id) && (
                             <div className="online-dot-sm"></div>
                           )}
                         </div>
                         <div className="flex-grow-1">
-                          <h6 className="mb-0">{selectedChat.customer_name}</h6>
+                          <h6 className="mb-0">{getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown')}</h6>
                           <small className="text-muted">
-                            {isUserOnline(selectedChat.other_party_id) ? 'Online' : 'Offline'}
+                            {isUserOnline(selectedChat.other_party_id || selectedChat.customer_id) ? 'Online' : 'Offline'}
                           </small>
                         </div>
                       </div>
@@ -397,7 +561,7 @@ const ProviderChat = () => {
                     </div>
 
                     {/* Booking Info Panel */}
-                    {showInfo && selectedChat.booking_id && (
+                    {showInfo && (selectedChat.booking_id || selectedChat.bookingId) && (
                       <div className="booking-info-panel">
                         <Row className="g-3">
                           <Col sm={6}>
@@ -406,7 +570,7 @@ const ProviderChat = () => {
                               <div>
                                 <small className="text-muted d-block">Booking Date</small>
                                 <span className="small fw-medium">
-                                  {format(new Date(selectedChat.booking_date), 'MMM dd, yyyy')}
+                                  {selectedChat.booking_date ? format(new Date(selectedChat.booking_date), 'MMM dd, yyyy') : 'N/A'}
                                 </span>
                               </div>
                             </div>
@@ -417,7 +581,7 @@ const ProviderChat = () => {
                               <div>
                                 <small className="text-muted d-block">Time</small>
                                 <span className="small fw-medium">
-                                  {selectedChat.booking_time}
+                                  {selectedChat.booking_time || selectedChat.start_time || 'N/A'}
                                 </span>
                               </div>
                             </div>
@@ -428,7 +592,7 @@ const ProviderChat = () => {
                               <div>
                                 <small className="text-muted d-block">Amount</small>
                                 <span className="small fw-medium">
-                                  {formatNaira(selectedChat.booking_amount)}
+                                  {formatNaira(selectedChat.booking_amount || selectedChat.amount || 0)}
                                 </span>
                               </div>
                             </div>
@@ -439,7 +603,7 @@ const ProviderChat = () => {
                               <div>
                                 <small className="text-muted d-block">Location</small>
                                 <span className="small fw-medium text-truncate">
-                                  {selectedChat.location || 'Not specified'}
+                                  {getField(selectedChat, ['location', 'service_location', 'address'], 'Not specified')}
                                 </span>
                               </div>
                             </div>
@@ -450,7 +614,7 @@ const ProviderChat = () => {
 
                     {/* Messages Area */}
                     <div className="messages-area">
-                      {selectedChat.messages?.length === 0 ? (
+                      {(selectedChat.messages || []).length === 0 ? (
                         <div className="text-center py-5">
                           <div className="empty-chat-icon mb-3">
                             💬
@@ -459,26 +623,30 @@ const ProviderChat = () => {
                           <p className="text-muted small">Send a message to start the conversation</p>
                         </div>
                       ) : (
-                        selectedChat.messages?.map((msg, idx) => {
+                        (selectedChat.messages || []).map((msg, idx) => {
                           const isMine = msg.sender_id === user?.id;
-                          const showAvatar = idx === 0 || selectedChat.messages[idx - 1]?.sender_id !== msg.sender_id;
+                          const showAvatar = idx === 0 || (selectedChat.messages || [])[idx - 1]?.sender_id !== msg.sender_id;
+                          const messageId = msg.id || msg._id;
+                          const messageText = msg.message || msg.text || msg.content || '';
+                          const createdAt = msg.created_at || msg.timestamp || msg.sent_at || new Date().toISOString();
+                          const isRead = msg.is_read || msg.read || false;
                           
                           return (
                             <div
-                              key={msg.id}
+                              key={messageId}
                               className={`d-flex ${isMine ? 'justify-content-end' : 'justify-content-start'} mb-3`}
                             >
                               {!isMine && showAvatar && (
                                 <div className="message-avatar me-2">
-                                  {selectedChat.customer_name?.charAt(0).toUpperCase() || 'C'}
+                                  {getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'C').charAt(0).toUpperCase()}
                                 </div>
                               )}
                               <div className={`message-bubble ${isMine ? 'message-mine' : 'message-theirs'}`}>
-                                <p className="mb-1">{msg.message}</p>
+                                <p className="mb-1">{messageText}</p>
                                 <div className="d-flex justify-content-end align-items-center gap-1 mt-1">
-                                  <small className="message-time">{format(new Date(msg.created_at), 'hh:mm a')}</small>
-                                  {isMine && msg.is_read && <CheckCheck size={12} className="text-success" />}
-                                  {isMine && !msg.is_read && <CheckCheck size={12} className="text-muted" />}
+                                  <small className="message-time">{format(new Date(createdAt), 'hh:mm a')}</small>
+                                  {isMine && isRead && <CheckCheck size={12} className="text-success" />}
+                                  {isMine && !isRead && <CheckCheck size={12} className="text-muted" />}
                                 </div>
                               </div>
                             </div>
@@ -559,9 +727,9 @@ const ProviderChat = () => {
             <>
               <div className="text-center mb-4">
                 <div className="call-avatar mx-auto mb-3">
-                  {selectedChat?.customer_name?.charAt(0).toUpperCase() || 'C'}
+                  {getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'C').charAt(0).toUpperCase()}
                 </div>
-                <h5 className="mb-1">{selectedChat?.customer_name}</h5>
+                <h5 className="mb-1">{getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown')}</h5>
                 <small className="text-muted">Audio Call</small>
               </div>
               <div className="d-flex justify-content-center gap-3">
@@ -580,10 +748,10 @@ const ProviderChat = () => {
             <>
               <div className="text-center mb-4">
                 <div className="call-avatar mx-auto mb-3">
-                  {selectedChat?.customer_name?.charAt(0).toUpperCase() || 'C'}
+                  {getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'C').charAt(0).toUpperCase()}
                 </div>
                 <h5 className="mb-1">Call in progress</h5>
-                <small className="text-muted">{selectedChat?.customer_name}</small>
+                <small className="text-muted">{getField(selectedChat, ['customer_name', 'customer.name', 'customerName', 'customer'], 'Unknown')}</small>
                 <div className="call-timer mt-2">00:00</div>
               </div>
               <div className="d-flex justify-content-center gap-3">

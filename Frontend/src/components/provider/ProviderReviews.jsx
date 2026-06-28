@@ -1,5 +1,5 @@
 // src/components/provider/ProviderReviews.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
   Row,
@@ -37,8 +37,8 @@ import {
   Search,
   ArrowUp,
   ArrowDown,
-  TrendingUp,        // ✅ ADD THIS - from lucide-react it's TrendingUp
-  TrendingDown        // ✅ Also add for potential downward trends
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -51,6 +51,7 @@ const ProviderReviews = () => {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [currentPage, setCurrentPage] = useState(1);
@@ -71,9 +72,21 @@ const ProviderReviews = () => {
   const [submittingResponse, setSubmittingResponse] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // Refs for polling
+  const pollingInterval = useRef(null);
+  const isPolling = useRef(false);
+
   const itemsPerPage = 10;
 
-  // ✅ Calculate stats from reviews (no API call)
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Calculate stats from reviews
   const calculateStatsFromReviews = useCallback((reviewsData) => {
     if (!reviewsData || reviewsData.length === 0) {
       setStats({
@@ -85,12 +98,12 @@ const ProviderReviews = () => {
     }
 
     const total = reviewsData.length;
-    const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
+    const sum = reviewsData.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
     const average = sum / total;
 
     const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
     reviewsData.forEach(review => {
-      const rating = Math.round(review.rating || 0);
+      const rating = Math.round(parseFloat(review.rating) || 0);
       if (rating >= 1 && rating <= 5) {
         distribution[rating]++;
       }
@@ -103,9 +116,16 @@ const ProviderReviews = () => {
     });
   }, []);
 
-  // ✅ Fetch reviews (stats calculated from reviews data)
-  const fetchReviews = useCallback(async () => {
+  // Fetch reviews from real API
+  const fetchReviews = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
     try {
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
       const params = {
         page: currentPage,
         limit: itemsPerPage,
@@ -114,48 +134,89 @@ const ProviderReviews = () => {
         date_range: dateRange !== 'all' ? dateRange : undefined
       };
 
-      const response = await providerAPI.getReviews(params);
-      const reviewsData = response.data.reviews || [];
-      setReviews(reviewsData);
-      setTotalPages(Math.ceil((response.data.total || 0) / itemsPerPage));
-      setTotalReviews(response.data.total || 0);
+      let response = null;
       
-      // ✅ Calculate stats from reviews
+      if (typeof providerAPI.getReviews === 'function') {
+        response = await providerAPI.getReviews(params);
+      } else if (typeof providerAPI.getProviderReviews === 'function') {
+        response = await providerAPI.getProviderReviews(params);
+      } else {
+        throw new Error('Reviews API methods not available');
+      }
+
+      const data = response?.data || response || {};
+      const reviewsData = data.reviews || data.data || [];
+      
+      setReviews(Array.isArray(reviewsData) ? reviewsData : []);
+      setTotalPages(Math.ceil((data.total || reviewsData.length || 0) / itemsPerPage));
+      setTotalReviews(data.total || reviewsData.length || 0);
+      
+      // Calculate stats from reviews
       calculateStatsFromReviews(reviewsData);
       
-      return response.data;
     } catch (error) {
       console.error('Error fetching reviews:', error);
-      toast.error('Failed to load reviews');
+      setError(error.message || 'Failed to load reviews');
       setReviews([]);
       setTotalPages(1);
       setTotalReviews(0);
-      return null;
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        toast.error('Failed to load reviews');
+      }
+    } finally {
+      if (showLoading) setLoading(false);
+      setRefreshing(false);
     }
   }, [currentPage, filter, sortBy, dateRange, calculateStatsFromReviews]);
 
-  // ✅ REMOVED: fetchStats - no longer needed, stats come from reviews
-
-  // Load all data - only fetch reviews
-  const loadAllData = async () => {
-    setLoading(true);
-    await fetchReviews();
-    setLoading(false);
-  };
-
+  // Refresh data
   const refreshData = async () => {
     setRefreshing(true);
-    await loadAllData();
-    setRefreshing(false);
+    await fetchReviews(false);
     toast.success('Reviews updated');
   };
 
+  // Polling functions for real-time updates
+  const startPolling = () => {
+    stopPolling();
+    pollingInterval.current = setInterval(() => {
+      if (!isPolling.current) {
+        isPolling.current = true;
+        fetchReviews(false).finally(() => {
+          isPolling.current = false;
+        });
+      }
+    }, 30000); // Poll every 30 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+    isPolling.current = false;
+  };
+
+  // Initial data load
   useEffect(() => {
-    loadAllData();
+    fetchReviews(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchReviews(false);
+    }
   }, [currentPage, filter, sortBy, dateRange]);
 
-  // Handle response submission
+  // Handle response submission with real API
   const handleSubmitResponse = async (reviewId) => {
+    if (!reviewId) return;
     if (!responseText.trim()) {
       toast.error('Please enter a response');
       return;
@@ -163,59 +224,116 @@ const ProviderReviews = () => {
 
     setSubmittingResponse(true);
     try {
-      await providerAPI.respondToReview(reviewId, responseText);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { response: responseText };
+
+      if (typeof providerAPI.respondToReview === 'function') {
+        await providerAPI.respondToReview(reviewId, payload);
+      } else if (typeof providerAPI.addReviewResponse === 'function') {
+        await providerAPI.addReviewResponse(reviewId, payload);
+      } else {
+        throw new Error('Review response API methods not available');
+      }
+      
       toast.success('Response posted successfully');
       setRespondingTo(null);
       setResponseText('');
-      await fetchReviews();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error posting response:', error);
-      toast.error('Failed to post response');
+      toast.error(error.message || 'Failed to post response');
     } finally {
       setSubmittingResponse(false);
     }
   };
 
-  // Handle report
+  // Handle report with real API
   const handleReport = async () => {
+    if (!selectedReview) return;
     if (!reportReason.trim()) {
       toast.error('Please provide a reason');
       return;
     }
 
+    const reviewId = selectedReview.id || selectedReview._id;
+    if (!reviewId) return;
+
     try {
-      await providerAPI.reportReview(selectedReview.id, reportReason);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const payload = { reason: reportReason };
+
+      if (typeof providerAPI.reportReview === 'function') {
+        await providerAPI.reportReview(reviewId, payload);
+      } else if (typeof providerAPI.reportReviewContent === 'function') {
+        await providerAPI.reportReviewContent(reviewId, payload);
+      } else {
+        throw new Error('Report review API methods not available');
+      }
+      
       toast.success('Review reported successfully');
       setShowReportModal(false);
       setReportReason('');
       setSelectedReview(null);
     } catch (error) {
       console.error('Error reporting review:', error);
-      toast.error('Failed to report review');
+      toast.error(error.message || 'Failed to report review');
     }
   };
 
-  // Handle helpful vote
+  // Handle helpful vote with real API
   const handleHelpful = async (reviewId) => {
+    if (!reviewId) return;
+    
     try {
-      await providerAPI.markReviewHelpful(reviewId);
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      if (typeof providerAPI.markReviewHelpful === 'function') {
+        await providerAPI.markReviewHelpful(reviewId);
+      } else if (typeof providerAPI.helpfulReview === 'function') {
+        await providerAPI.helpfulReview(reviewId);
+      } else {
+        throw new Error('Mark helpful API methods not available');
+      }
+      
       toast.success('Thanks for your feedback!');
-      await fetchReviews();
+      await fetchReviews(false);
     } catch (error) {
       console.error('Error marking helpful:', error);
-      toast.error('Failed to mark as helpful');
+      toast.error(error.message || 'Failed to mark as helpful');
     }
   };
 
-  // Export reviews
+  // Export reviews with real API
   const exportReviews = async () => {
     setExporting(true);
     try {
-      const response = await providerAPI.exportReviews({
+      if (!providerAPI) {
+        throw new Error('API service not available');
+      }
+
+      const params = {
         rating: filter !== 'all' ? parseInt(filter) : undefined,
         date_range: dateRange !== 'all' ? dateRange : undefined,
         format: 'csv'
-      });
+      };
+
+      let response = null;
+      
+      if (typeof providerAPI.exportReviews === 'function') {
+        response = await providerAPI.exportReviews(params);
+      } else if (typeof providerAPI.downloadReviews === 'function') {
+        response = await providerAPI.downloadReviews(params);
+      } else {
+        throw new Error('Export reviews API methods not available');
+      }
       
       const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
@@ -227,7 +345,7 @@ const ProviderReviews = () => {
       toast.success('Reviews exported successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export reviews');
+      toast.error(error.message || 'Failed to export reviews');
     } finally {
       setExporting(false);
     }
@@ -235,8 +353,9 @@ const ProviderReviews = () => {
 
   // Render stars
   const renderStars = (rating, size = 16) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+    const numRating = parseFloat(rating) || 0;
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
     return (
@@ -256,30 +375,38 @@ const ProviderReviews = () => {
 
   // Get rating color
   const getRatingColor = (rating) => {
-    if (rating >= 4) return 'success';
-    if (rating >= 3) return 'warning';
+    const numRating = parseFloat(rating) || 0;
+    if (numRating >= 4) return 'success';
+    if (numRating >= 3) return 'warning';
     return 'danger';
   };
 
   // Calculate response rate
   const responseRate = totalReviews > 0 
-    ? (reviews.filter(r => r.response).length / totalReviews) * 100 
+    ? (reviews.filter(r => r.response || r.provider_response).length / totalReviews) * 100 
     : 0;
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="text-center">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3 text-muted">Loading reviews...</p>
-        </div>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+            <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+              <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+                <Star size={18} className="me-2" />
+                {error}
+                <Button variant="outline-danger" size="sm" onClick={() => fetchReviews(false)} className="ms-3">
+                  Retry
+                </Button>
+              </Alert>
+            </Alert>
+          </Alert>
+        )}
+
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <div>
@@ -370,7 +497,7 @@ const ProviderReviews = () => {
           </Col>
         </Row>
 
-        {/* Additional Stats Cards - ✅ Fixed TrendingUp import */}
+        {/* Additional Stats Cards */}
         <Row className="mb-4 g-4">
           <Col md={4}>
             <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
@@ -398,7 +525,7 @@ const ProviderReviews = () => {
                   </div>
                   <div>
                     <small className="text-muted">Total Responses</small>
-                    <h6 className="mb-0 fw-bold">{reviews.filter(r => r.response).length}</h6>
+                    <h6 className="mb-0 fw-bold">{reviews.filter(r => r.response || r.provider_response).length}</h6>
                   </div>
                 </div>
               </Card.Body>
@@ -414,8 +541,8 @@ const ProviderReviews = () => {
                   <div>
                     <small className="text-muted">Average Response Time</small>
                     <h6 className="mb-0 fw-bold">
-                      {reviews.filter(r => r.response_date).length > 0
-                        ? formatDistanceToNow(new Date(reviews[0]?.response_date || new Date()), { addSuffix: true })
+                      {reviews.filter(r => r.response_date || r.responded_at).length > 0
+                        ? formatDistanceToNow(new Date(reviews[0]?.response_date || reviews[0]?.responded_at || new Date()), { addSuffix: true })
                         : 'N/A'}
                     </h6>
                   </div>
@@ -516,171 +643,189 @@ const ProviderReviews = () => {
             </Card.Body>
           </Card>
         ) : (
-          reviews.map((review) => (
-            <Card key={review.id} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex gap-3">
-                  {/* Avatar */}
-                  <div 
-                    className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
-                    style={{ 
-                      width: '56px', 
-                      height: '56px', 
-                      background: `linear-gradient(135deg, ${review.rating >= 4 ? '#10b981' : review.rating >= 3 ? '#f59e0b' : '#ef4444'} 0%, ${review.rating >= 4 ? '#059669' : review.rating >= 3 ? '#d97706' : '#dc2626'} 100%)`,
-                      fontSize: '18px',
-                      fontWeight: 'bold',
-                      color: 'white'
-                    }}
-                  >
-                    {review.customer_name?.charAt(0).toUpperCase() || 'C'}
-                  </div>
+          reviews.map((review) => {
+            const reviewId = review.id || review._id;
+            const customerName = getField(review, ['customer_name', 'customer.name', 'reviewer_name', 'user.name'], 'Customer');
+            const rating = parseFloat(review.rating) || 0;
+            const comment = getField(review, ['comment', 'content', 'review_text'], '');
+            const serviceName = getField(review, ['service_name', 'service.name', 'serviceTitle'], '');
+            const createdAt = review.created_at || review.createdAt || review.date || new Date().toISOString();
+            const helpfulCount = parseInt(review.helpful_count) || parseInt(review.helpful) || 0;
+            const isVerified = review.is_verified || review.verified || false;
+            const isEdited = review.is_edited || review.edited || false;
+            const response = getField(review, ['response', 'provider_response', 'admin_response'], '');
+            const responseDate = review.response_date || review.responded_at || review.updated_at;
 
-                  <div className="flex-grow-1">
-                    {/* Header */}
-                    <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-                      <div>
-                        <h6 className="fw-bold mb-1">{review.customer_name}</h6>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <div className="d-flex">
-                            {renderStars(review.rating, 16)}
-                          </div>
-                          <Badge bg="success" pill className="d-flex align-items-center gap-1">
-                            <CheckCircle size={10} />
-                            Verified
-                          </Badge>
-                          {review.is_edited && (
-                            <Badge bg="secondary" pill>Edited</Badge>
-                          )}
-                        </div>
-                        <div className="d-flex align-items-center gap-3 text-muted small mb-3">
-                          <span className="d-flex align-items-center gap-1">
-                            <Calendar size={12} />
-                            {format(new Date(review.created_at), 'MMM dd, yyyy')}
-                          </span>
-                          <span className="d-flex align-items-center gap-1">
-                            <Clock size={12} />
-                            {formatDistanceToNow(new Date(review.created_at), { addSuffix: true })}
-                          </span>
-                          {review.service_name && (
-                            <span className="d-flex align-items-center gap-1">
-                              <User size={12} />
-                              {review.service_name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+            return (
+              <Card key={reviewId} className="border-0 shadow-sm mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
+                <Card.Body className="p-4">
+                  <div className="d-flex gap-3">
+                    {/* Avatar */}
+                    <div 
+                      className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+                      style={{ 
+                        width: '56px', 
+                        height: '56px', 
+                        background: `linear-gradient(135deg, ${rating >= 4 ? '#10b981' : rating >= 3 ? '#f59e0b' : '#ef4444'} 0%, ${rating >= 4 ? '#059669' : rating >= 3 ? '#d97706' : '#dc2626'} 100%)`,
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        color: 'white'
+                      }}
+                    >
+                      {customerName.charAt(0).toUpperCase()}
                     </div>
 
-                    {/* Review Content */}
-                    <p className="mb-3" style={{ lineHeight: '1.6' }}>{review.comment}</p>
-
-                    {/* Actions */}
-                    <div className="d-flex gap-3 mb-3">
-                      <Button
-                        variant="link"
-                        size="sm"
-                        onClick={() => handleHelpful(review.id)}
-                        className="text-muted p-0 d-flex align-items-center gap-1"
-                      >
-                        <ThumbsUp size={14} />
-                        Helpful ({review.helpful_count || 0})
-                      </Button>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedReview(review);
-                          setShowReportModal(true);
-                        }}
-                        className="text-muted p-0 d-flex align-items-center gap-1"
-                      >
-                        <Flag size={14} />
-                        Report
-                      </Button>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        onClick={() => setRespondingTo(respondingTo === review.id ? null : review.id)}
-                        className="text-primary p-0 d-flex align-items-center gap-1"
-                      >
-                        <MessageCircle size={14} />
-                        {review.response ? 'Edit Response' : 'Respond'}
-                      </Button>
-                    </div>
-
-                    {/* Response Section */}
-                    {review.response && respondingTo !== review.id && (
-                      <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
-                        <div className="d-flex justify-content-between align-items-start mb-2">
-                          <strong className="small d-flex align-items-center gap-1">
-                            <MessageCircle size={12} />
-                            Your Response:
-                          </strong>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            onClick={() => {
-                              setRespondingTo(review.id);
-                              setResponseText(review.response);
-                            }}
-                            className="text-primary p-0"
-                          >
-                            <Edit2 size={12} />
-                          </Button>
-                        </div>
-                        <p className="mb-0 small">{review.response}</p>
-                        <small className="text-muted">
-                          {format(new Date(review.response_date), 'MMM dd, yyyy hh:mm a')}
-                        </small>
-                      </div>
-                    )}
-
-                    {/* Response Form */}
-                    {respondingTo === review.id && (
-                      <div className="mt-3">
-                        <Form.Group className="mb-2">
-                          <Form.Control
-                            as="textarea"
-                            rows={3}
-                            value={responseText}
-                            onChange={(e) => setResponseText(e.target.value)}
-                            placeholder="Write your response here..."
-                            style={{ borderRadius: '12px', fontSize: '14px' }}
-                          />
-                        </Form.Group>
-                        <div className="d-flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            onClick={() => handleSubmitResponse(review.id)}
-                            disabled={submittingResponse}
-                            className="d-flex align-items-center gap-2"
-                          >
-                            {submittingResponse ? (
-                              <Spinner as="span" animation="border" size="sm" />
-                            ) : (
-                              <Send size={14} />
+                    <div className="flex-grow-1">
+                      {/* Header */}
+                      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <div>
+                          <h6 className="fw-bold mb-1">{customerName}</h6>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            <div className="d-flex">
+                              {renderStars(rating, 16)}
+                            </div>
+                            {isVerified && (
+                              <Badge bg="success" pill className="d-flex align-items-center gap-1">
+                                <CheckCircle size={10} />
+                                Verified
+                              </Badge>
                             )}
-                            {submittingResponse ? 'Posting...' : 'Post Response'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="light"
-                            onClick={() => {
-                              setRespondingTo(null);
-                              setResponseText('');
-                            }}
-                          >
-                            Cancel
-                          </Button>
+                            {isEdited && (
+                              <Badge bg="secondary" pill>Edited</Badge>
+                            )}
+                          </div>
+                          <div className="d-flex align-items-center gap-3 text-muted small mb-3">
+                            <span className="d-flex align-items-center gap-1">
+                              <Calendar size={12} />
+                              {format(new Date(createdAt), 'MMM dd, yyyy')}
+                            </span>
+                            <span className="d-flex align-items-center gap-1">
+                              <Clock size={12} />
+                              {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                            </span>
+                            {serviceName && (
+                              <span className="d-flex align-items-center gap-1">
+                                <User size={12} />
+                                {serviceName}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    )}
+
+                      {/* Review Content */}
+                      <p className="mb-3" style={{ lineHeight: '1.6' }}>{comment}</p>
+
+                      {/* Actions */}
+                      <div className="d-flex gap-3 mb-3">
+                        <Button
+                          variant="link"
+                          size="sm"
+                          onClick={() => handleHelpful(reviewId)}
+                          className="text-muted p-0 d-flex align-items-center gap-1"
+                        >
+                          <ThumbsUp size={14} />
+                          Helpful ({helpfulCount})
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedReview(review);
+                            setShowReportModal(true);
+                          }}
+                          className="text-muted p-0 d-flex align-items-center gap-1"
+                        >
+                          <Flag size={14} />
+                          Report
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          onClick={() => setRespondingTo(respondingTo === reviewId ? null : reviewId)}
+                          className="text-primary p-0 d-flex align-items-center gap-1"
+                        >
+                          <MessageCircle size={14} />
+                          {response ? 'Edit Response' : 'Respond'}
+                        </Button>
+                      </div>
+
+                      {/* Response Section */}
+                      {response && respondingTo !== reviewId && (
+                        <div className="mt-3 p-3" style={{ backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
+                          <div className="d-flex justify-content-between align-items-start mb-2">
+                            <strong className="small d-flex align-items-center gap-1">
+                              <MessageCircle size={12} />
+                              Your Response:
+                            </strong>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              onClick={() => {
+                                setRespondingTo(reviewId);
+                                setResponseText(response);
+                              }}
+                              className="text-primary p-0"
+                            >
+                              <Edit2 size={12} />
+                            </Button>
+                          </div>
+                          <p className="mb-0 small">{response}</p>
+                          {responseDate && (
+                            <small className="text-muted">
+                              {format(new Date(responseDate), 'MMM dd, yyyy hh:mm a')}
+                            </small>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Response Form */}
+                      {respondingTo === reviewId && (
+                        <div className="mt-3">
+                          <Form.Group className="mb-2">
+                            <Form.Control
+                              as="textarea"
+                              rows={3}
+                              value={responseText}
+                              onChange={(e) => setResponseText(e.target.value)}
+                              placeholder="Write your response here..."
+                              style={{ borderRadius: '12px', fontSize: '14px' }}
+                            />
+                          </Form.Group>
+                          <div className="d-flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => handleSubmitResponse(reviewId)}
+                              disabled={submittingResponse}
+                              className="d-flex align-items-center gap-2"
+                            >
+                              {submittingResponse ? (
+                                <Spinner as="span" animation="border" size="sm" />
+                              ) : (
+                                <Send size={14} />
+                              )}
+                              {submittingResponse ? 'Posting...' : 'Post Response'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="light"
+                              onClick={() => {
+                                setRespondingTo(null);
+                                setResponseText('');
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card.Body>
-            </Card>
-          ))
+                </Card.Body>
+              </Card>
+            );
+          })
         )}
 
         {/* Pagination */}
