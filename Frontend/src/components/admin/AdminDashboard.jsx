@@ -565,7 +565,15 @@ const AdminDashboard = () => {
     return <span style={styles.badge(item.bg, item.color)}>{item.label}</span>;
   };
 
-  // ✅ API Calls with proper error handling
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // API Calls with proper error handling
   const fetchStats = useCallback(async () => {
     try {
       if (!adminAPI || typeof adminAPI.getStats !== 'function') {
@@ -656,7 +664,7 @@ const AdminDashboard = () => {
     }
   }, []);
 
-  // ✅ Fetch all data
+  // Fetch all data
   const fetchAllData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -680,14 +688,14 @@ const AdminDashboard = () => {
     }
   }, [selectedChartView, fetchStats, fetchChartData, fetchActivities, fetchTopProviders, fetchPopularServices, fetchPendingApprovals, fetchSystemHealth]);
 
-  // ✅ Manual refresh
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData(false);
     toast.success('Dashboard refreshed');
   };
 
-  // ✅ Polling functions
+  // Polling functions
   const startPolling = () => {
     stopPolling();
     pollingInterval.current = setInterval(() => {
@@ -697,7 +705,7 @@ const AdminDashboard = () => {
           isPolling.current = false;
         });
       }
-    }, 30000); // Poll every 30 seconds for real-time updates
+    }, 30000);
   };
 
   const stopPolling = () => {
@@ -767,38 +775,8 @@ const AdminDashboard = () => {
     return colors[type] || '#667eea';
   };
 
-  // Loading state
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
-          <p style={{ color: '#718096' }}>Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const statItems = [
-    { key: 'users', icon: FaUsers, label: 'Total Users', value: formatNumber(stats.users.total), color: '#667eea', bg: 'rgba(102, 126, 234, 0.1)', growth: stats.users.growth, detail: `${formatNumber(stats.users.active)} Active • +${stats.users.new} Today` },
-    { key: 'services', icon: FaServicestack, label: 'Total Services', value: formatNumber(stats.services.total), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', growth: stats.services.growth, detail: `${stats.services.approved} Approved • ${stats.services.pending} Pending` },
-    { key: 'bookings', icon: FaCalendarCheck, label: 'Total Bookings', value: formatNumber(stats.bookings.total), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', growth: stats.bookings.growth, detail: `${stats.bookings.active} Active • ${stats.bookings.completed} Completed` },
-    { key: 'revenue', icon: FaMoneyBillWave, label: 'Total Revenue', value: formatCompactNaira(stats.revenue.total), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', growth: stats.revenue.growth, detail: `${formatCompactNaira(stats.revenue.monthly)} This Month` },
-  ];
-
-  const achievements = [
-    { icon: FaAward, label: 'Total Bookings', value: formatNumber(stats.bookings.total), color: '#667eea' },
-    { icon: FaTrophy, label: 'Total Users', value: formatNumber(stats.users.total), color: '#f59e0b' },
-    { icon: FaMedal, label: 'Avg Rating', value: stats.ratings.average.toFixed(1), color: '#10b981' },
-    { icon: FaCrown, label: 'Revenue', value: formatCompactNaira(stats.revenue.total), color: '#8b5cf6' },
-  ];
-
-  const healthItems = [
-    { key: 'server', label: 'Server', status: systemHealth.server.status, details: [`Uptime: ${systemHealth.server.uptime}`, `Response: ${systemHealth.server.responseTime}ms`] },
-    { key: 'database', label: 'Database', status: systemHealth.database.status, details: [`Queries: ${systemHealth.database.queries}/s`, `Slow: ${systemHealth.database.slowQueries}`] },
-    { key: 'cache', label: 'Cache', status: systemHealth.cache.status, details: [`Hit Rate: ${systemHealth.cache.hitRate}%`] },
-    { key: 'api', label: 'API', status: systemHealth.api.status, details: [`Requests: ${systemHealth.api.requests}/min`, `Errors: ${systemHealth.api.errors}`] },
-  ];
+  // Loading state removed - component renders immediately with empty data
+  // Data loads in background via useEffect
 
   return (
     <div style={styles.container}>
@@ -849,21 +827,12 @@ const AdminDashboard = () => {
 
       {/* Error Alert */}
       {error && (
-        <div style={{ 
-          background: '#fee2e2', 
-          color: '#991b1b', 
-          padding: '12px 20px', 
-          borderRadius: '12px', 
-          marginBottom: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px'
-        }}>
-          <FaExclamationTriangle />
-          <span>{error}</span>
+        <div style={styles.errorAlert}>
+          <FaExclamationTriangle style={styles.errorIcon} />
+          <span style={styles.errorText}>{error}</span>
           <button 
             onClick={() => setError(null)}
-            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer' }}
+            style={styles.errorClose}
           >
             ✕
           </button>
@@ -1322,9 +1291,62 @@ const AdminDashboard = () => {
         ::-webkit-scrollbar-thumb:hover {
           background: #a0aec0;
         }
+        .stat-card-hover:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+        }
       `}</style>
     </div>
   );
 };
+
+// Additional styles not in the main styles object
+const statItems = [
+  { key: 'users', icon: FaUsers, label: 'Total Users', value: '0', color: '#667eea', bg: 'rgba(102, 126, 234, 0.1)', growth: 0, detail: '0 Active • +0 Today' },
+  { key: 'services', icon: FaServicestack, label: 'Total Services', value: '0', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', growth: 0, detail: '0 Approved • 0 Pending' },
+  { key: 'bookings', icon: FaCalendarCheck, label: 'Total Bookings', value: '0', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', growth: 0, detail: '0 Active • 0 Completed' },
+  { key: 'revenue', icon: FaMoneyBillWave, label: 'Total Revenue', value: '₦0', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', growth: 0, detail: '₦0 This Month' },
+];
+
+const achievements = [
+  { icon: FaAward, label: 'Total Bookings', value: '0', color: '#667eea' },
+  { icon: FaTrophy, label: 'Total Users', value: '0', color: '#f59e0b' },
+  { icon: FaMedal, label: 'Avg Rating', value: '0.0', color: '#10b981' },
+  { icon: FaCrown, label: 'Revenue', value: '₦0', color: '#8b5cf6' },
+];
+
+// Error alert styles
+const errorStyles = {
+  errorAlert: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '12px 20px',
+    borderRadius: '12px',
+    marginBottom: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+  },
+  errorIcon: {
+    flexShrink: 0
+  },
+  errorText: {
+    flex: 1
+  },
+  errorClose: {
+    marginLeft: 'auto',
+    background: 'none',
+    border: 'none',
+    color: '#991b1b',
+    cursor: 'pointer',
+    fontSize: '16px'
+  }
+};
+
+// Merge error styles into main styles
+styles.errorAlert = errorStyles.errorAlert;
+styles.errorIcon = errorStyles.errorIcon;
+styles.errorText = errorStyles.errorText;
+styles.errorClose = errorStyles.errorClose;
 
 export default AdminDashboard;

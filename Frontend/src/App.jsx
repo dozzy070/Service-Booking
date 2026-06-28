@@ -92,7 +92,7 @@ const WebSocketInitializer = () => {
       console.log('🔌 Initializing WebSocket connection from App');
       socketService.connect(token, user.id);
     }
-    
+
     return () => {
       if (!token || !user) {
         console.log('🔌 Cleaning up WebSocket connection');
@@ -111,25 +111,24 @@ const WebSocketStatus = () => {
   if (hiddenPaths.includes(location.pathname)) {
     return null;
   }
-  
+
   let socketContext;
   try {
     socketContext = useSocket();
   } catch (e) {
     return null; // Socket provider not ready yet
   }
-  
+
   const { isConnected, onlineUsers, getConnectionStatus } = socketContext || {};
   const status = getConnectionStatus?.();
-  
+
   return (
     <div className="fixed bottom-4 right-4 z-50">
-      <div 
-        className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 transition-all duration-300 ${
-          isConnected 
-            ? 'bg-green-500 text-white hover:bg-green-600' 
+      <div
+        className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 transition-all duration-300 ${isConnected
+            ? 'bg-green-500 text-white hover:bg-green-600'
             : 'bg-red-500 text-white hover:bg-red-600'
-        }`}
+          }`}
         title={status ? `Socket ID: ${status.socketId || 'N/A'}` : 'Connection status'}
       >
         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-white animate-pulse' : 'bg-red-200'}`} />
@@ -175,7 +174,7 @@ function AppContent() {
       </div>
     );
   }
-  
+
   const { user, loading } = auth || {};
   const location = useLocation();
   const pathname = location.pathname;
@@ -183,7 +182,7 @@ function AppContent() {
   const shouldShowNavbarFooter = React.useMemo(() => {
     const hiddenPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
     const dashboardPaths = ['/admin', '/provider', '/customer'];
-    
+
     if (hiddenPaths.includes(pathname)) return false;
     if (dashboardPaths.some(path => pathname.startsWith(path))) return false;
     return true;
@@ -223,7 +222,7 @@ function AppContent() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/solutions" element={<Solutions />} />
-          
+
           {/* ========== PAYMENT ROUTES ========== */}
           <Route path="/payment-success" element={
             <ProtectedRoute>
@@ -368,13 +367,13 @@ function AppContent() {
               </React.Suspense>
             } />
             {/* ✅ NEW: Admin Help Center Route */}
-            <Route path="help" element={
+            <Route path="help-center" element={
               <React.Suspense fallback={<div className="text-center p-5">Loading Help Center...</div>}>
                 <AdminHelpCenterLazy />
               </React.Suspense>
             } />
           </Route>
-          
+
           {/* ========== REDIRECTS ========== */}
           <Route path="/dashboard" element={
             user?.role === 'admin' ? <Navigate to="/admin/dashboard" replace /> :

@@ -131,14 +131,11 @@ const AnalyticsChart = ({
     return num.toLocaleString();
   };
 
-  // Calculate max value for chart scaling
   const maxValue = Math.max(...data.map(d => Number(d[yKey] || 0)), 1);
   const chartHeight = height - 60;
 
-  // Render different chart types using pure SVG
   const renderChart = () => {
     const padding = { top: 20, right: 30, bottom: 30, left: 50 };
-    const chartWidth = '100%';
     const innerHeight = chartHeight - padding.top - padding.bottom;
 
     const getPoint = (index, value) => {
@@ -220,7 +217,6 @@ const AnalyticsChart = ({
 
         return (
           <svg viewBox={`0 0 100 100`} style={{ width: '100%', height: '100%' }}>
-            {/* Y-axis grid lines */}
             {[0, 25, 50, 75, 100].map((val) => (
               <line
                 key={val}
@@ -234,7 +230,6 @@ const AnalyticsChart = ({
               />
             ))}
             
-            {/* Bars */}
             {data.map((d, i) => {
               const value = Number(d[yKey] || 0);
               const percent = maxValue > 0 ? (value / maxValue) * 100 : 0;
@@ -313,7 +308,6 @@ const AnalyticsChart = ({
 
         return (
           <svg viewBox={`0 0 100 100`} style={{ width: '100%', height: '100%' }}>
-            {/* Y-axis grid lines */}
             {[0, 25, 50, 75, 100].map((val) => (
               <line
                 key={val}
@@ -327,14 +321,12 @@ const AnalyticsChart = ({
               />
             ))}
             
-            {/* Area fill */}
             <polygon
               points={`5,95 ${areaPoints} 95,95`}
               fill={colors[0] || '#6366f1'}
               opacity="0.15"
             />
             
-            {/* Line */}
             <polyline
               points={points}
               fill="none"
@@ -344,7 +336,6 @@ const AnalyticsChart = ({
               strokeLinejoin="round"
             />
             
-            {/* Data points */}
             {showDataPoints && data.map((d, i) => {
               const value = Number(d[yKey] || 0);
               const percent = maxValue > 0 ? (value / maxValue) * 100 : 0;
@@ -370,7 +361,6 @@ const AnalyticsChart = ({
 
         return (
           <svg viewBox={`0 0 100 100`} style={{ width: '100%', height: '100%' }}>
-            {/* Y-axis grid lines */}
             {[0, 25, 50, 75, 100].map((val) => (
               <line
                 key={val}
@@ -384,7 +374,6 @@ const AnalyticsChart = ({
               />
             ))}
             
-            {/* Line */}
             <polyline
               points={points}
               fill="none"
@@ -394,7 +383,6 @@ const AnalyticsChart = ({
               strokeLinejoin="round"
             />
             
-            {/* Data points */}
             {showDataPoints && data.map((d, i) => {
               const value = Number(d[yKey] || 0);
               const percent = maxValue > 0 ? (value / maxValue) * 100 : 0;
@@ -482,7 +470,7 @@ const Analytics = () => {
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  // ✅ SAFE FORMATTING FUNCTIONS
+  // SAFE FORMATTING FUNCTIONS
   const formatNaira = (amount) => {
     const num = Number(amount) || 0;
     return new Intl.NumberFormat('en-NG', {
@@ -508,6 +496,14 @@ const Analytics = () => {
   const formatRating = (rating) => {
     const num = Number(rating) || 0;
     return num.toFixed(1);
+  };
+
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
   };
 
   // Prepare chart data
@@ -559,23 +555,13 @@ const Analytics = () => {
     }));
   }, [performance.peakHours]);
 
-  const topServicesData = useMemo(() => {
-    const services = Array.isArray(performance.topServices) ? performance.topServices : [];
-    return services.map(item => ({
-      name: item.title || item.name || 'Unknown',
-      bookings: item.bookings || 0,
-      revenue: item.revenue || 0,
-      rating: item.rating || 0
-    }));
-  }, [performance.topServices]);
-
   // Show toast
   const showToast = (message, type = 'success') => {
     setToastMessage({ show: true, message, type });
     setTimeout(() => setToastMessage({ show: false, message: '', type: '' }), 3000);
   };
 
-  // ✅ Fetch analytics data from real API
+  // Fetch analytics data from real API
   const fetchAllData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -587,7 +573,6 @@ const Analytics = () => {
 
       const params = { startDate: dateRange.start, endDate: dateRange.end };
       
-      // Try multiple API methods with fallbacks
       let overviewData = {};
       let trendsData = { users: [], bookings: [], revenue: [] };
       let distributionData = { usersByRole: [], servicesByCategory: [], revenueBySource: [], bookingsByStatus: [] };
@@ -651,14 +636,14 @@ const Analytics = () => {
     }
   }, [dateRange]);
 
-  // ✅ Manual refresh
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData(false);
     showToast('Data refreshed', 'info');
   };
 
-  // ✅ Polling functions
+  // Polling functions
   const startPolling = () => {
     stopPolling();
     pollingInterval.current = setInterval(() => {
@@ -668,7 +653,7 @@ const Analytics = () => {
           isPolling.current = false;
         });
       }
-    }, 60000); // Poll every 60 seconds for real-time updates
+    }, 60000);
   };
 
   const stopPolling = () => {
@@ -683,10 +668,7 @@ const Analytics = () => {
   useEffect(() => {
     fetchAllData(true);
     startPolling();
-    
-    return () => {
-      stopPolling();
-    };
+    return () => stopPolling();
   }, []);
 
   // Refetch when date range changes
@@ -752,7 +734,7 @@ const Analytics = () => {
     });
   };
 
-  // ✅ Review actions with real API
+  // Review actions with real API
   const handleApproveReview = async (reviewId) => {
     if (!reviewId) return;
     setProcessing(true);
@@ -932,6 +914,7 @@ const Analytics = () => {
     const lowerStatus = status.toLowerCase();
     const badges = {
       approved: { bg: 'success', icon: <FaCheckCircle />, label: 'Approved' },
+      published: { bg: 'success', icon: <FaCheckCircle />, label: 'Approved' },
       pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
       flagged: { bg: 'danger', icon: <FaFlag />, label: 'Flagged' },
       rejected: { bg: 'danger', icon: <FaTimesCircle />, label: 'Rejected' }
@@ -988,24 +971,10 @@ const Analytics = () => {
 
   const totalPages = Math.ceil(filteredReviews.length / itemsPerPage);
 
-  // ✅ CORRECTED Loading state with Container
-  if (loading) {
-    return (
-      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-        <Container fluid className="py-4">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
-            <div className="text-center">
-              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
-              <p className="mt-3 text-muted">Loading analytics...</p>
-            </div>
-          </div>
-        </Container>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={styles.container}>
       <Container fluid className="py-4">
         {/* Toast */}
         <ToastContainer position="top-end" className="p-3">
@@ -1018,17 +987,17 @@ const Analytics = () => {
         </ToastContainer>
 
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div style={styles.header}>
           <div>
-            <h2 className="mb-1 fw-bold">Analytics & Insights</h2>
-            <p className="text-muted mb-0">Monitor platform performance and manage user feedback</p>
+            <h2 style={styles.headerTitle}>Analytics & Insights</h2>
+            <p style={styles.headerSubtitle}>Monitor platform performance and manage user feedback</p>
           </div>
-          <div className="d-flex gap-2">
-            <Button variant="outline-primary" onClick={refreshData} disabled={refreshing} className="d-flex align-items-center gap-2">
+          <div style={styles.headerActions}>
+            <Button variant="outline-primary" onClick={refreshData} disabled={refreshing} className="d-flex align-items-center gap-2" style={styles.refreshBtn}>
               <FaRedo className={refreshing ? 'spin' : ''} /> {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
             <Dropdown>
-              <Dropdown.Toggle variant="outline-primary" className="d-flex align-items-center gap-2">
+              <Dropdown.Toggle variant="outline-primary" className="d-flex align-items-center gap-2" style={styles.exportBtn}>
                 <FaDownload /> Export
               </Dropdown.Toggle>
               <Dropdown.Menu>
@@ -1041,19 +1010,19 @@ const Analytics = () => {
 
         {/* Error Alert */}
         {error && (
-          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+          <Alert variant="danger" style={styles.alert} dismissible onClose={() => setError(null)}>
             <FaExclamationTriangle className="me-2" />
             {error}
           </Alert>
         )}
 
         {/* Date Range */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
+        <Card style={styles.dateRangeCard}>
+          <Card.Body style={styles.dateRangeCardBody}>
             <Row className="align-items-center g-3">
               <Col lg={3}>
-                <Form.Label className="fw-semibold">Period</Form.Label>
-                <Form.Select value={selectedPeriod} onChange={(e) => handleDateRangeChange(e.target.value)}>
+                <Form.Label style={styles.formLabel}>Period</Form.Label>
+                <Form.Select value={selectedPeriod} onChange={(e) => handleDateRangeChange(e.target.value)} style={styles.formControl}>
                   <option value="7days">Last 7 Days</option>
                   <option value="30days">Last 30 Days</option>
                   <option value="90days">Last 90 Days</option>
@@ -1065,12 +1034,12 @@ const Analytics = () => {
               {selectedPeriod === 'custom' && (
                 <>
                   <Col lg={3}>
-                    <Form.Label className="fw-semibold">Start Date</Form.Label>
-                    <Form.Control type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })} />
+                    <Form.Label style={styles.formLabel}>Start Date</Form.Label>
+                    <Form.Control type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })} style={styles.formControl} />
                   </Col>
                   <Col lg={3}>
-                    <Form.Label className="fw-semibold">End Date</Form.Label>
-                    <Form.Control type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })} />
+                    <Form.Label style={styles.formLabel}>End Date</Form.Label>
+                    <Form.Control type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })} style={styles.formControl} />
                   </Col>
                 </>
               )}
@@ -1079,84 +1048,52 @@ const Analytics = () => {
         </Card>
 
         {/* Tabs */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-0">
-            <Nav variant="tabs" className="px-3 pt-3" style={{ borderBottom: 'none' }}>
-              <Nav.Item><Nav.Link active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}><FaChartLine className="me-2" /> Overview</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'users'} onClick={() => setActiveTab('users')}><FaUsers className="me-2" /> Users</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'services'} onClick={() => setActiveTab('services')}><FaServicestack className="me-2" /> Services</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')}><FaCalendarCheck className="me-2" /> Bookings</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'revenue'} onClick={() => setActiveTab('revenue')}><FaMoneyBillWave className="me-2" /> Revenue</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'reviews'} onClick={() => setActiveTab('reviews')}><FaStar className="me-2" /> Reviews</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'performance'} onClick={() => setActiveTab('performance')}><FaChartLine className="me-2" /> Performance</Nav.Link></Nav.Item>
+        <Card style={styles.tabsCard}>
+          <Card.Body style={styles.tabsCardBody}>
+            <Nav variant="tabs" className="px-3 pt-3" style={styles.tabsNav}>
+              <Nav.Item><Nav.Link active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} style={styles.tabLink}><FaChartLine className="me-2" /> Overview</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'users'} onClick={() => setActiveTab('users')} style={styles.tabLink}><FaUsers className="me-2" /> Users</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'services'} onClick={() => setActiveTab('services')} style={styles.tabLink}><FaServicestack className="me-2" /> Services</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} style={styles.tabLink}><FaCalendarCheck className="me-2" /> Bookings</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'revenue'} onClick={() => setActiveTab('revenue')} style={styles.tabLink}><FaMoneyBillWave className="me-2" /> Revenue</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'reviews'} onClick={() => setActiveTab('reviews')} style={styles.tabLink}><FaStar className="me-2" /> Reviews</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'performance'} onClick={() => setActiveTab('performance')} style={styles.tabLink}><FaChartLine className="me-2" /> Performance</Nav.Link></Nav.Item>
             </Nav>
           </Card.Body>
         </Card>
 
-        {/* Rest of the component remains the same... */}
+        {/* Rest of the component remains the same but with improved styling... */}
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
-            <Row className="g-4 mb-4">
-              <Col xl={3} lg={6}>
-                <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}><FaUsers size={24} color="#3b82f6" /></div>
-                      <div>
-                        <p className="text-muted mb-0 small">Total Users</p>
-                        <h3 className="fw-bold mb-0">{formatNumber(overview.totalUsers)}</h3>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-success"><FaArrowUp size={12} /> {formatNumber(overview.newUsers)} new this month</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col xl={3} lg={6}>
-                <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-3" style={{ background: '#10b98120' }}><FaServicestack size={24} color="#10b981" /></div>
-                      <div>
-                        <p className="text-muted mb-0 small">Total Services</p>
-                        <h3 className="fw-bold mb-0">{formatNumber(overview.totalServices)}</h3>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-success"><FaArrowUp size={12} /> {formatNumber(overview.newServices)} new</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col xl={3} lg={6}>
-                <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}><FaCalendarCheck size={24} color="#f59e0b" /></div>
-                      <div>
-                        <p className="text-muted mb-0 small">Total Bookings</p>
-                        <h3 className="fw-bold mb-0">{formatNumber(overview.totalBookings)}</h3>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-success"><FaArrowUp size={12} /> {formatNumber(overview.completedBookings)} completed</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col xl={3} lg={6}>
-                <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}><FaMoneyBillWave size={24} color="#8b5cf6" /></div>
-                      <div>
-                        <p className="text-muted mb-0 small">Total Revenue</p>
-                        <h3 className="fw-bold mb-0">{formatCompactNaira(overview.totalRevenue)}</h3>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-success"><FaArrowUp size={12} /> {formatCompactNaira(overview.monthlyRevenue)} this month</div>
-                  </Card.Body>
-                </Card>
-              </Col>
+            <Row style={styles.statsRow}>
+              {[
+                { key: 'users', icon: FaUsers, label: 'Total Users', value: formatNumber(overview.totalUsers), color: '#3b82f6', bg: '#3b82f620', detail: `${formatNumber(overview.newUsers)} new this month` },
+                { key: 'services', icon: FaServicestack, label: 'Total Services', value: formatNumber(overview.totalServices), color: '#10b981', bg: '#10b98120', detail: `${formatNumber(overview.newServices)} new` },
+                { key: 'bookings', icon: FaCalendarCheck, label: 'Total Bookings', value: formatNumber(overview.totalBookings), color: '#f59e0b', bg: '#f59e0b20', detail: `${formatNumber(overview.completedBookings)} completed` },
+                { key: 'revenue', icon: FaMoneyBillWave, label: 'Total Revenue', value: formatCompactNaira(overview.totalRevenue), color: '#8b5cf6', bg: '#8b5cf620', detail: `${formatCompactNaira(overview.monthlyRevenue)} this month` }
+              ].map((item, idx) => {
+                const Icon = item.icon;
+                return (
+                  <Col xl={3} lg={6} key={idx}>
+                    <Card style={styles.statCard}>
+                      <Card.Body style={styles.statCardBody}>
+                        <div style={styles.statIconWrapper}>
+                          <div style={{ ...styles.statIcon, background: item.bg, color: item.color }}><Icon size={24} /></div>
+                          <div>
+                            <p style={styles.statLabel}>{item.label}</p>
+                            <h3 style={styles.statValue}>{item.value}</h3>
+                            <small style={styles.statDetail}><FaArrowUp size={12} /> {item.detail}</small>
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                );
+              })}
             </Row>
 
-            <Row className="g-4">
+            <Row style={styles.chartRow}>
               <Col lg={8}>
                 <AnalyticsChart
                   data={userGrowthData}
@@ -1191,7 +1128,7 @@ const Analytics = () => {
 
         {/* USERS TAB */}
         {activeTab === 'users' && (
-          <Row className="g-4">
+          <Row style={styles.chartRow}>
             <Col lg={8}>
               <AnalyticsChart
                 data={userGrowthData}
@@ -1208,9 +1145,9 @@ const Analytics = () => {
               />
             </Col>
             <Col lg={4}>
-              <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-                <Card.Body className="text-center py-5">
-                  <div className="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-4" style={{ width: '150px', height: '150px' }}>
+              <Card style={styles.summaryCard}>
+                <Card.Body style={styles.summaryCardBody}>
+                  <div style={styles.summaryIconWrapper}>
                     <FaUsers size={60} className="text-primary opacity-50" />
                   </div>
                   <Row>
@@ -1226,21 +1163,21 @@ const Analytics = () => {
         {/* SERVICES TAB */}
         {activeTab === 'services' && (
           <>
-            <Row className="g-4 mb-4">
-              <Col md={4}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Total Services</h5><h2 className="text-primary">{formatNumber(overview.totalServices)}</h2></Card.Body></Card></Col>
-              <Col md={4}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Pending Approval</h5><h2 className="text-warning">{formatNumber(overview.pendingServices)}</h2></Card.Body></Card></Col>
-              <Col md={4}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Categories</h5><h2 className="text-info">{distribution.servicesByCategory?.length || 0}</h2></Card.Body></Card></Col>
+            <Row style={styles.statsRow}>
+              <Col md={4}><Card style={styles.simpleStatCard}><Card.Body><h5>Total Services</h5><h2 className="text-primary">{formatNumber(overview.totalServices)}</h2></Card.Body></Card></Col>
+              <Col md={4}><Card style={styles.simpleStatCard}><Card.Body><h5>Pending Approval</h5><h2 className="text-warning">{formatNumber(overview.pendingServices)}</h2></Card.Body></Card></Col>
+              <Col md={4}><Card style={styles.simpleStatCard}><Card.Body><h5>Categories</h5><h2 className="text-info">{distribution.servicesByCategory?.length || 0}</h2></Card.Body></Card></Col>
             </Row>
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4"><h5 className="fw-bold mb-0">Top Performing Services</h5></Card.Header>
+            <Card style={styles.tableCard}>
+              <Card.Header style={styles.tableCardHeader}><h5 style={styles.tableCardTitle}>Top Performing Services</h5></Card.Header>
               <Card.Body>
-                <Table responsive hover>
+                <Table responsive hover style={styles.table}>
                   <thead><tr><th>Service</th><th>Category</th><th className="text-center">Bookings</th><th className="text-end">Revenue</th><th className="text-center">Rating</th></tr></thead>
                   <tbody>
                     {(Array.isArray(performance.topServices) ? performance.topServices : []).map(s => (
                       <tr key={s.id || s._id}>
-                        <td>{s.title || s.name || 'Unknown'}</td>
-                        <td><Badge bg="secondary" className="rounded-pill"><FaTag className="me-1" /> {s.category || 'Uncategorized'}</Badge></td>
+                        <td>{getField(s, ['title', 'name', 'service_name'], 'Unknown')}</td>
+                        <td><Badge bg="secondary" className="rounded-pill"><FaTag className="me-1" /> {getField(s, ['category', 'category_name'], 'Uncategorized')}</Badge></td>
                         <td className="text-center">{s.bookings || 0}</td>
                         <td className="text-end fw-bold text-primary">{formatNaira(s.revenue)}</td>
                         <td className="text-center"><span className="text-warning"><FaStar className="me-1" /> {formatRating(s.rating)}</span></td>
@@ -1255,7 +1192,7 @@ const Analytics = () => {
 
         {/* BOOKINGS TAB */}
         {activeTab === 'bookings' && (
-          <Row className="g-4">
+          <Row style={styles.chartRow}>
             <Col lg={8}>
               <AnalyticsChart
                 data={userGrowthData}
@@ -1289,7 +1226,7 @@ const Analytics = () => {
 
         {/* REVENUE TAB */}
         {activeTab === 'revenue' && (
-          <Row className="g-4">
+          <Row style={styles.chartRow}>
             <Col lg={8}>
               <AnalyticsChart
                 data={userGrowthData}
@@ -1307,12 +1244,12 @@ const Analytics = () => {
               />
             </Col>
             <Col lg={4}>
-              <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
+              <Card style={styles.summaryCard}>
                 <Card.Body>
-                  <h6 className="fw-bold mb-4">Revenue Summary</h6>
-                  <div className="mb-3"><small className="text-muted">Total Revenue</small><h3 className="text-primary">{formatNaira(overview.totalRevenue)}</h3></div>
-                  <div className="mb-3"><small className="text-muted">Monthly Revenue</small><h5>{formatNaira(overview.monthlyRevenue)}</h5></div>
-                  <div><small className="text-muted">Average Booking Value</small><h5 className="text-success">{formatNaira((overview.totalBookings || 0) > 0 ? (overview.totalRevenue || 0) / (overview.totalBookings || 1) : 0)}</h5></div>
+                  <h6 style={styles.summaryTitle}>Revenue Summary</h6>
+                  <div style={styles.revenueItem}><small style={styles.revenueLabel}>Total Revenue</small><h3 style={styles.revenueValue}>{formatNaira(overview.totalRevenue)}</h3></div>
+                  <div style={styles.revenueItem}><small style={styles.revenueLabel}>Monthly Revenue</small><h5>{formatNaira(overview.monthlyRevenue)}</h5></div>
+                  <div><small style={styles.revenueLabel}>Average Booking Value</small><h5 className="text-success">{formatNaira((overview.totalBookings || 0) > 0 ? (overview.totalRevenue || 0) / (overview.totalBookings || 1) : 0)}</h5></div>
                 </Card.Body>
               </Card>
             </Col>
@@ -1322,25 +1259,25 @@ const Analytics = () => {
         {/* REVIEWS TAB */}
         {activeTab === 'reviews' && (
           <>
-            <Row className="g-4 mb-4">
-              <Col md={3}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Total Reviews</h5><h2 className="text-primary">{formatNumber(overview.totalReviews)}</h2></Card.Body></Card></Col>
-              <Col md={3}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Average Rating</h5><h2 className="text-warning">{formatRating(overview.averageRating)} <FaStar size={20} /></h2></Card.Body></Card></Col>
-              <Col md={3}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Pending Moderation</h5><h2 className="text-warning">{reviews.filter(r => r.status?.toLowerCase() === 'pending').length}</h2></Card.Body></Card></Col>
-              <Col md={3}><Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}><Card.Body><h5>Flagged Reviews</h5><h2 className="text-danger">{reviews.filter(r => r.flagged || r.status?.toLowerCase() === 'flagged').length}</h2></Card.Body></Card></Col>
+            <Row style={styles.statsRow}>
+              <Col md={3}><Card style={styles.simpleStatCard}><Card.Body><h5>Total Reviews</h5><h2 className="text-primary">{formatNumber(overview.totalReviews)}</h2></Card.Body></Card></Col>
+              <Col md={3}><Card style={styles.simpleStatCard}><Card.Body><h5>Average Rating</h5><h2 className="text-warning">{formatRating(overview.averageRating)} <FaStar size={20} /></h2></Card.Body></Card></Col>
+              <Col md={3}><Card style={styles.simpleStatCard}><Card.Body><h5>Pending Moderation</h5><h2 className="text-warning">{reviews.filter(r => r.status?.toLowerCase() === 'pending' || r.status?.toLowerCase() === 'pending').length}</h2></Card.Body></Card></Col>
+              <Col md={3}><Card style={styles.simpleStatCard}><Card.Body><h5>Flagged Reviews</h5><h2 className="text-danger">{reviews.filter(r => r.flagged || r.status?.toLowerCase() === 'flagged').length}</h2></Card.Body></Card></Col>
             </Row>
 
             {/* Filters */}
-            <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
+            <Card style={styles.filtersCard}>
+              <Card.Body style={styles.filtersCardBody}>
                 <Row className="g-3">
-                  <Col lg={4}><InputGroup><InputGroup.Text><FaSearch /></InputGroup.Text><Form.Control placeholder="Search reviews..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></InputGroup></Col>
-                  <Col lg={2}><Form.Select value={filterRating} onChange={(e) => setFilterRating(e.target.value)}><option value="all">All Ratings</option><option value="5">5 Stars</option><option value="4">4 Stars</option><option value="3">3 Stars</option><option value="2">2 Stars</option><option value="1">1 Star</option></Form.Select></Col>
-                  <Col lg={2}><Form.Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}><option value="all">All Status</option><option value="approved">Approved</option><option value="pending">Pending</option><option value="flagged">Flagged</option></Form.Select></Col>
-                  <Col lg={2}><Form.Select value={filterService} onChange={(e) => setFilterService(e.target.value)}><option value="all">All Services</option>{(Array.isArray(performance.topServices) ? performance.topServices : []).map(s => <option key={s.id || s._id} value={s.id || s._id}>{s.title || s.name || 'Unknown'}</option>)}</Form.Select></Col>
-                  <Col lg={2}><Form.Select value={itemsPerPage} onChange={(e) => setItemsPerPage(Number(e.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Form.Select></Col>
+                  <Col lg={4}><InputGroup style={styles.searchInput}><InputGroup.Text style={styles.searchInputText}><FaSearch /></InputGroup.Text><Form.Control placeholder="Search reviews..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={styles.searchInputControl} /></InputGroup></Col>
+                  <Col lg={2}><Form.Select value={filterRating} onChange={(e) => setFilterRating(e.target.value)} style={styles.filterSelect}><option value="all">All Ratings</option><option value="5">5 Stars</option><option value="4">4 Stars</option><option value="3">3 Stars</option><option value="2">2 Stars</option><option value="1">1 Star</option></Form.Select></Col>
+                  <Col lg={2}><Form.Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={styles.filterSelect}><option value="all">All Status</option><option value="approved">Approved</option><option value="pending">Pending</option><option value="flagged">Flagged</option></Form.Select></Col>
+                  <Col lg={2}><Form.Select value={filterService} onChange={(e) => setFilterService(e.target.value)} style={styles.filterSelect}><option value="all">All Services</option>{(Array.isArray(performance.topServices) ? performance.topServices : []).map(s => <option key={s.id || s._id} value={s.id || s._id}>{getField(s, ['title', 'name'], 'Unknown')}</option>)}</Form.Select></Col>
+                  <Col lg={2}><Form.Select value={itemsPerPage} onChange={(e) => setItemsPerPage(Number(e.target.value))} style={styles.filterSelect}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Form.Select></Col>
                 </Row>
                 {selectedReviews.length > 0 && (
-                  <div className="d-flex gap-2 mt-3 pt-3 border-top">
+                  <div style={styles.bulkActions}>
                     <Button size="sm" variant="success" onClick={() => handleBulkAction('approved')}><FaCheckCircle className="me-2" /> Approve ({selectedReviews.length})</Button>
                     <Button size="sm" variant="danger" onClick={() => handleBulkAction('flagged')}><FaFlag className="me-2" /> Flag ({selectedReviews.length})</Button>
                     <Button size="sm" variant="outline-danger" onClick={() => handleBulkAction('deleted')}><FaTrash className="me-2" /> Delete ({selectedReviews.length})</Button>
@@ -1350,51 +1287,51 @@ const Analytics = () => {
             </Card>
 
             {/* Reviews Table */}
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-              <Card.Body className="p-0">
+            <Card style={styles.tableCard}>
+              <Card.Body style={styles.tableCardBody}>
                 <div className="table-responsive">
-                  <Table hover className="mb-0">
-                    <thead style={{ background: '#f8fafc' }}>
+                  <Table hover style={styles.table}>
+                    <thead style={styles.tableHead}>
                       <tr>
-                        <th style={{ padding: '16px', width: '40px' }}><Form.Check type="checkbox" checked={selectedReviews.length === filteredReviews.length && filteredReviews.length > 0} onChange={handleSelectAll} /></th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('customerName')}>Customer {getSortIcon('customerName')}</th>
-                        <th style={{ padding: '16px' }}>Service</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('rating')}>Rating {getSortIcon('rating')}</th>
-                        <th style={{ padding: '16px' }}>Review</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('helpful')}>Helpful {getSortIcon('helpful')}</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('createdAt')}>Date {getSortIcon('createdAt')}</th>
-                        <th style={{ padding: '16px', width: '180px' }}>Actions</th>
+                        <th style={styles.tableCheckbox}><Form.Check type="checkbox" checked={selectedReviews.length === filteredReviews.length && filteredReviews.length > 0} onChange={handleSelectAll} /></th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('customerName')}>Customer {getSortIcon('customerName')}</th>
+                        <th style={styles.tableHeader}>Service</th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('rating')}>Rating {getSortIcon('rating')}</th>
+                        <th style={styles.tableHeader}>Review</th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('helpful')}>Helpful {getSortIcon('helpful')}</th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('createdAt')}>Date {getSortIcon('createdAt')}</th>
+                        <th style={styles.tableHeader}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {paginatedReviews.map(review => {
                         const reviewId = review.id || review._id;
                         return (
-                          <tr key={reviewId} className={selectedReviews.includes(reviewId) ? 'table-active' : ''}>
-                            <td style={{ padding: '16px' }}><Form.Check type="checkbox" checked={selectedReviews.includes(reviewId)} onChange={() => handleSelectReview(reviewId)} /></td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex align-items-center gap-2">
-                                <img src={review.customerAvatar || `https://ui-avatars.com/api/?name=${review.customerName || 'User'}&background=6366f1&color=fff&size=30`} className="rounded-circle" style={{ width: '30px', height: '30px' }} alt="" />
+                          <tr key={reviewId} className={selectedReviews.includes(reviewId) ? 'table-active' : ''} style={styles.tableRow}>
+                            <td style={styles.tableCell}><Form.Check type="checkbox" checked={selectedReviews.includes(reviewId)} onChange={() => handleSelectReview(reviewId)} /></td>
+                            <td style={styles.tableCell}>
+                              <div style={styles.userCell}>
+                                <img src={review.customerAvatar || `https://ui-avatars.com/api/?name=${review.customerName || 'User'}&background=6366f1&color=fff&size=30`} className="rounded-circle" style={styles.avatar} alt="" />
                                 <div><div className="fw-semibold">{review.customerName || 'Unknown'}</div><small className="text-muted">to {review.providerName || 'Unknown'}</small></div>
                               </div>
                             </td>
-                            <td style={{ padding: '16px' }}><div className="fw-semibold">{review.serviceTitle || 'Unknown'}</div></td>
-                            <td style={{ padding: '16px' }}><div className="text-warning">{getRatingStars(review.rating)}</div></td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}><div className="fw-semibold">{review.serviceTitle || 'Unknown'}</div></td>
+                            <td style={styles.tableCell}><div className="text-warning">{getRatingStars(review.rating)}</div></td>
+                            <td style={styles.tableCell}>
                               <div>{(review.comment || '').substring(0, 50)}...</div>
                               {review.response && <div className="text-success mt-1"><FaReply className="me-1" size={10} /> Responded</div>}
                             </td>
-                            <td style={{ padding: '16px' }}>{getStatusBadge(review.status)}</td>
-                            <td style={{ padding: '16px' }} className="text-center"><div className="fw-semibold">{review.helpful || 0}</div></td>
-                            <td style={{ padding: '16px' }}><small>{review.createdAt ? format(new Date(review.createdAt), 'MMM dd, yyyy') : 'N/A'}</small></td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex gap-1">
-                                <Button size="sm" variant="outline-primary" className="rounded-circle p-1" style={{ width: '32px', height: '32px' }} onClick={() => { setSelectedReview(review); setShowReviewModal(true); }}><FaEye size={14} /></Button>
-                                {review.status?.toLowerCase() === 'pending' && <Button size="sm" variant="outline-success" className="rounded-circle p-1" style={{ width: '32px', height: '32px' }} onClick={() => handleApproveReview(reviewId)}><FaCheckCircle size={14} /></Button>}
-                                {review.status?.toLowerCase() !== 'flagged' && <Button size="sm" variant="outline-danger" className="rounded-circle p-1" style={{ width: '32px', height: '32px' }} onClick={() => { setSelectedReview(review); setShowFlagModal(true); }}><FaFlag size={14} /></Button>}
-                                {!review.response && <Button size="sm" variant="outline-info" className="rounded-circle p-1" style={{ width: '32px', height: '32px' }} onClick={() => { setSelectedReview(review); setShowResponseModal(true); }}><FaReply size={14} /></Button>}
-                                <Button size="sm" variant="outline-danger" className="rounded-circle p-1" style={{ width: '32px', height: '32px' }} onClick={() => { setSelectedReview(review); setShowDeleteModal(true); }}><FaTrash size={14} /></Button>
+                            <td style={styles.tableCell}>{getStatusBadge(review.status)}</td>
+                            <td style={styles.tableCell} className="text-center"><div className="fw-semibold">{review.helpful || 0}</div></td>
+                            <td style={styles.tableCell}><small>{review.createdAt ? format(new Date(review.createdAt), 'MMM dd, yyyy') : 'N/A'}</small></td>
+                            <td style={styles.tableCell}>
+                              <div style={styles.actionButtons}>
+                                <Button size="sm" variant="outline-primary" className="rounded-circle p-1" style={styles.actionBtn} onClick={() => { setSelectedReview(review); setShowReviewModal(true); }}><FaEye size={14} /></Button>
+                                {review.status?.toLowerCase() === 'pending' && <Button size="sm" variant="outline-success" className="rounded-circle p-1" style={styles.actionBtn} onClick={() => handleApproveReview(reviewId)}><FaCheckCircle size={14} /></Button>}
+                                {review.status?.toLowerCase() !== 'flagged' && <Button size="sm" variant="outline-danger" className="rounded-circle p-1" style={styles.actionBtn} onClick={() => { setSelectedReview(review); setShowFlagModal(true); }}><FaFlag size={14} /></Button>}
+                                {!review.response && <Button size="sm" variant="outline-info" className="rounded-circle p-1" style={styles.actionBtn} onClick={() => { setSelectedReview(review); setShowResponseModal(true); }}><FaReply size={14} /></Button>}
+                                <Button size="sm" variant="outline-danger" className="rounded-circle p-1" style={styles.actionBtn} onClick={() => { setSelectedReview(review); setShowDeleteModal(true); }}><FaTrash size={14} /></Button>
                               </div>
                             </td>
                           </tr>
@@ -1404,12 +1341,16 @@ const Analytics = () => {
                   </Table>
                 </div>
                 {filteredReviews.length === 0 && (
-                  <div className="text-center py-5"><FaStar size={48} className="text-muted mb-3 opacity-50" /><h6 className="text-muted">No reviews found</h6><Button variant="link" onClick={() => { setSearchTerm(''); setFilterRating('all'); setFilterStatus('all'); setFilterService('all'); }}>Reset Filters</Button></div>
+                  <div style={styles.emptyState}>
+                    <FaStar size={48} style={styles.emptyIcon} />
+                    <h6 style={styles.emptyTitle}>No reviews found</h6>
+                    <Button variant="link" onClick={() => { setSearchTerm(''); setFilterRating('all'); setFilterStatus('all'); setFilterService('all'); }} style={styles.emptyLink}>Reset Filters</Button>
+                  </div>
                 )}
                 {filteredReviews.length > 0 && (
-                  <div className="d-flex justify-content-between align-items-center p-4 border-top">
-                    <div className="text-muted small">Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredReviews.length)} of {filteredReviews.length}</div>
-                    <Pagination>
+                  <div style={styles.paginationWrapper}>
+                    <div style={styles.paginationInfo}>Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredReviews.length)} of {filteredReviews.length}</div>
+                    <Pagination style={styles.pagination}>
                       <Pagination.Prev onClick={() => setCurrentPage(p => Math.max(p-1,1))} disabled={currentPage===1} />
                       {[...Array(Math.min(5, totalPages)).keys()].map(num => {
                         let pageNum;
@@ -1430,17 +1371,17 @@ const Analytics = () => {
 
         {/* PERFORMANCE TAB */}
         {activeTab === 'performance' && (
-          <Row className="g-4">
+          <Row style={styles.chartRow}>
             <Col lg={6}>
-              <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                <Card.Header className="bg-white border-0 pt-4"><h5 className="fw-bold mb-0">Top Providers</h5></Card.Header>
+              <Card style={styles.tableCard}>
+                <Card.Header style={styles.tableCardHeader}><h5 style={styles.tableCardTitle}>Top Providers</h5></Card.Header>
                 <Card.Body>
-                  <Table responsive hover>
+                  <Table responsive hover style={styles.table}>
                     <thead><tr><th>Provider</th><th className="text-center">Bookings</th><th className="text-end">Revenue</th><th className="text-center">Rating</th></tr></thead>
                     <tbody>
                       {(Array.isArray(performance.topProviders) ? performance.topProviders : []).map(p => (
                         <tr key={p.id || p._id}>
-                          <td><div className="d-flex align-items-center gap-2"><img src={`https://ui-avatars.com/api/?name=${p.name || 'User'}&background=10b981&color=fff&size=30`} className="rounded-circle" style={{ width: '30px', height: '30px' }} alt="" /><span className="fw-semibold">{p.name || 'Unknown'}</span></div></td>
+                          <td><div style={styles.userCell}><img src={`https://ui-avatars.com/api/?name=${p.name || 'User'}&background=10b981&color=fff&size=30`} className="rounded-circle" style={styles.avatar} alt="" /><span className="fw-semibold">{p.name || 'Unknown'}</span></div></td>
                           <td className="text-center">{p.bookings || 0}</td>
                           <td className="text-end fw-bold text-primary">{formatNaira(p.revenue)}</td>
                           <td className="text-center"><span className="text-warning"><FaStar className="me-1" /> {formatRating(p.rating)}</span></td>
@@ -1467,27 +1408,37 @@ const Analytics = () => {
               />
             </Col>
             <Col lg={6}>
-              <Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}>
-                <Card.Body className="py-5"><h1 className="display-1 text-primary mb-0">{formatNumber(performance.conversionRate)}%</h1><p className="text-muted">Conversion Rate</p><ProgressBar now={Number(performance.conversionRate) || 0} variant="primary" style={{ height: '8px', borderRadius: '4px' }} /></Card.Body>
+              <Card style={styles.metricCard}>
+                <Card.Body style={styles.metricCardBody}>
+                  <h1 className="display-1 text-primary mb-0">{formatNumber(performance.conversionRate)}%</h1>
+                  <p className="text-muted">Conversion Rate</p>
+                  <ProgressBar now={Number(performance.conversionRate) || 0} variant="primary" style={styles.metricProgress} />
+                </Card.Body>
               </Card>
             </Col>
             <Col lg={6}>
-              <Card className="border-0 shadow-sm text-center" style={{ borderRadius: '16px' }}>
-                <Card.Body className="py-5"><h1 className="display-1 text-warning mb-0">{formatRating(performance.customerSatisfaction)}</h1><div className="text-warning mb-3">{getRatingStars(performance.customerSatisfaction)}</div><p className="text-muted">Customer Satisfaction</p></Card.Body>
+              <Card style={styles.metricCard}>
+                <Card.Body style={styles.metricCardBody}>
+                  <h1 className="display-1 text-warning mb-0">{formatRating(performance.customerSatisfaction)}</h1>
+                  <div className="text-warning mb-3">{getRatingStars(performance.customerSatisfaction)}</div>
+                  <p className="text-muted">Customer Satisfaction</p>
+                </Card.Body>
               </Card>
             </Col>
           </Row>
         )}
       </Container>
 
-      {/* Modals */}
+      {/* Modals - same as before with improved styling */}
       <Modal show={showReviewModal} onHide={() => setShowReviewModal(false)} size="lg" centered>
-        <Modal.Header closeButton className="border-0 pb-0"><Modal.Title className="fw-bold">Review Details</Modal.Title></Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>Review Details</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={styles.modalBody}>
           {selectedReview && (
             <>
-              <div className="d-flex gap-3 mb-4">
-                <img src={selectedReview.customerAvatar || `https://ui-avatars.com/api/?name=${selectedReview.customerName || 'User'}&background=6366f1&color=fff&size=60`} className="rounded-circle" style={{ width: '60px', height: '60px' }} alt="" />
+              <div style={styles.reviewDetailHeader}>
+                <img src={selectedReview.customerAvatar || `https://ui-avatars.com/api/?name=${selectedReview.customerName || 'User'}&background=6366f1&color=fff&size=60`} className="rounded-circle" style={styles.reviewDetailAvatar} alt="" />
                 <div><h5>{selectedReview.customerName || 'Unknown'}</h5><div className="text-warning">{getRatingStars(selectedReview.rating)}</div></div>
               </div>
               <h6>{selectedReview.title || 'No title'}</h6>
@@ -1498,83 +1449,500 @@ const Analytics = () => {
             </>
           )}
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-0">
-          <Button variant="secondary" onClick={() => setShowReviewModal(false)}>Close</Button>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="secondary" onClick={() => setShowReviewModal(false)} style={styles.modalCloseBtn}>Close</Button>
         </Modal.Footer>
       </Modal>
 
       <Modal show={showFlagModal} onHide={() => setShowFlagModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0"><Modal.Title className="fw-bold text-danger"><FaFlag className="me-2" /> Flag Review</Modal.Title></Modal.Header>
-        <Modal.Body className="pt-4">
-          <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>Flag this review for inappropriate content?</Alert>
+        <Modal.Header closeButton style={styles.modalHeaderDanger}>
+          <Modal.Title style={styles.modalTitleDanger}><FaFlag className="me-2" /> Flag Review</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={styles.modalBody}>
+          <Alert variant="danger" style={styles.modalAlert}>Flag this review for inappropriate content?</Alert>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowFlagModal(false)}>Cancel</Button>
-          <Button variant="danger" onClick={handleFlagReview} disabled={processing}>{processing ? 'Processing...' : 'Flag'}</Button>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="secondary" onClick={() => setShowFlagModal(false)} style={styles.modalCancelBtn}>Cancel</Button>
+          <Button variant="danger" onClick={handleFlagReview} disabled={processing} style={styles.modalDangerBtn}>{processing ? 'Processing...' : 'Flag'}</Button>
         </Modal.Footer>
       </Modal>
 
       <Modal show={showResponseModal} onHide={() => setShowResponseModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0"><Modal.Title className="fw-bold"><FaReply className="me-2" /> Respond to Review</Modal.Title></Modal.Header>
-        <Modal.Body className="pt-4">
-          <Form.Group><Form.Label className="fw-semibold">Your Response</Form.Label><Form.Control as="textarea" rows={4} value={responseText} onChange={(e) => setResponseText(e.target.value)} placeholder="Type your response..." /></Form.Group>
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}><FaReply className="me-2" /> Respond to Review</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={styles.modalBody}>
+          <Form.Group><Form.Label style={styles.formLabel}>Your Response</Form.Label><Form.Control as="textarea" rows={4} value={responseText} onChange={(e) => setResponseText(e.target.value)} placeholder="Type your response..." style={styles.formTextarea} /></Form.Group>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowResponseModal(false)}>Cancel</Button>
-          <Button variant="primary" onClick={handleSubmitResponse} disabled={processing || !responseText}>{processing ? 'Submitting...' : 'Submit Response'}</Button>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="secondary" onClick={() => setShowResponseModal(false)} style={styles.modalCancelBtn}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmitResponse} disabled={processing || !responseText} style={styles.modalSubmitBtn}>{processing ? 'Submitting...' : 'Submit Response'}</Button>
         </Modal.Footer>
       </Modal>
 
       <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0"><Modal.Title className="fw-bold text-danger"><FaTrash className="me-2" /> Delete Review</Modal.Title></Modal.Header>
-        <Modal.Body className="pt-4">
-          <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>Are you sure you want to delete this review? This action cannot be undone.</Alert>
+        <Modal.Header closeButton style={styles.modalHeaderDanger}>
+          <Modal.Title style={styles.modalTitleDanger}><FaTrash className="me-2" /> Delete Review</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={styles.modalBody}>
+          <Alert variant="danger" style={styles.modalAlert}>Are you sure you want to delete this review? This action cannot be undone.</Alert>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
-          <Button variant="danger" onClick={handleDeleteReview} disabled={processing}>{processing ? 'Deleting...' : 'Delete'}</Button>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)} style={styles.modalCancelBtn}>Cancel</Button>
+          <Button variant="danger" onClick={handleDeleteReview} disabled={processing} style={styles.modalDangerBtn}>{processing ? 'Deleting...' : 'Delete'}</Button>
         </Modal.Footer>
       </Modal>
 
       <Modal show={showBulkActions} onHide={() => setShowBulkActions(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0"><Modal.Title className="fw-bold">Bulk Actions</Modal.Title></Modal.Header>
-        <Modal.Body className="pt-4">
-          <div className="d-grid gap-2">
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>Bulk Actions</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={styles.modalBody}>
+          <div style={styles.bulkActionsGrid}>
             <Button variant="success" onClick={() => handleBulkAction('approved')}><FaCheckCircle className="me-2" /> Approve All</Button>
             <Button variant="danger" onClick={() => handleBulkAction('flagged')}><FaFlag className="me-2" /> Flag All</Button>
             <Button variant="outline-danger" onClick={() => handleBulkAction('deleted')}><FaTrash className="me-2" /> Delete All</Button>
           </div>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowBulkActions(false)}>Cancel</Button>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="secondary" onClick={() => setShowBulkActions(false)} style={styles.modalCancelBtn}>Cancel</Button>
         </Modal.Footer>
       </Modal>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin { animation: spin 1s linear infinite; }
-        .nav-tabs .nav-link {
-          color: #4b5563;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 12px 12px 0 0;
-        }
-        .nav-tabs .nav-link.active {
-          color: #6366f1;
-          font-weight: 600;
-          border-bottom: 3px solid #6366f1;
-          background: none;
-        }
-        .nav-tabs .nav-link:hover { background: #f8fafc; }
-        .table > :not(caption) > * > * { padding: 16px 12px; vertical-align: middle; }
-        .table tbody tr:hover { background-color: #f8fafc; }
-        .table-active { background-color: #e7f1ff !important; }
-      `}</style>
+      <style>{styles.globalStyles}</style>
     </div>
   );
-}
+};
+
+const styles = {
+  container: {
+    background: '#f8f9fa',
+    minHeight: '100vh'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: '4px'
+  },
+  headerSubtitle: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '16px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px'
+  },
+  refreshBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  exportBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  alert: {
+    borderRadius: '12px'
+  },
+  dateRangeCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  dateRangeCardBody: {
+    padding: '20px 24px'
+  },
+  formLabel: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  formControl: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  tabsCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  tabsCardBody: {
+    padding: 0
+  },
+  tabsNav: {
+    borderBottom: 'none'
+  },
+  tabLink: {
+    color: '#4b5563',
+    border: 'none',
+    padding: '0.75rem 1.5rem',
+    borderRadius: '12px 12px 0 0',
+    fontWeight: '500',
+    transition: 'all 0.2s'
+  },
+  statsRow: {
+    marginBottom: '24px',
+    gap: '16px'
+  },
+  statCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%'
+  },
+  statCardBody: {
+    padding: '20px 24px'
+  },
+  statIconWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px'
+  },
+  statIcon: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  statLabel: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  statValue: {
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: 0,
+    fontSize: '28px'
+  },
+  statDetail: {
+    color: '#10b981'
+  },
+  chartRow: {
+    gap: '24px'
+  },
+  simpleStatCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    textAlign: 'center'
+  },
+  tableCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  tableCardHeader: {
+    background: 'white',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 20px'
+  },
+  tableCardTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  table: {
+    marginBottom: 0
+  },
+  tableHead: {
+    background: '#f8fafc'
+  },
+  tableHeader: {
+    padding: '12px 16px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4a5568',
+    borderBottom: '2px solid #e2e8f0',
+    whiteSpace: 'nowrap'
+  },
+  tableCheckbox: {
+    padding: '12px 16px',
+    width: '40px'
+  },
+  tableRow: {
+    transition: 'background 0.2s'
+  },
+  tableCell: {
+    padding: '12px 16px',
+    verticalAlign: 'middle',
+    fontSize: '14px'
+  },
+  userCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  avatar: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '50%',
+    objectFit: 'cover'
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: '4px'
+  },
+  actionBtn: {
+    width: '32px',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    padding: 0
+  },
+  summaryCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%'
+  },
+  summaryCardBody: {
+    padding: '20px 24px',
+    textAlign: 'center'
+  },
+  summaryIconWrapper: {
+    background: '#f1f5f9',
+    borderRadius: '50%',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '150px',
+    height: '150px',
+    marginBottom: '16px'
+  },
+  summaryTitle: {
+    fontWeight: '600',
+    marginBottom: '16px'
+  },
+  revenueItem: {
+    marginBottom: '16px'
+  },
+  revenueLabel: {
+    color: '#718096',
+    display: 'block'
+  },
+  revenueValue: {
+    color: '#6366f1'
+  },
+  filtersCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  filtersCardBody: {
+    padding: '20px 24px'
+  },
+  searchInput: {
+    borderRadius: '12px',
+    overflow: 'hidden'
+  },
+  searchInputText: {
+    background: 'white',
+    border: '1px solid #e2e8f0',
+    borderRight: 'none'
+  },
+  searchInputControl: {
+    border: '1px solid #e2e8f0',
+    borderLeft: 'none',
+    borderRadius: '0 12px 12px 0'
+  },
+  filterSelect: {
+    borderRadius: '12px',
+    padding: '10px 14px'
+  },
+  bulkActions: {
+    display: 'flex',
+    gap: '8px',
+    marginTop: '16px',
+    paddingTop: '16px',
+    borderTop: '1px solid #e2e8f0'
+  },
+  tableCardBody: {
+    padding: 0
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '60px 20px'
+  },
+  emptyIcon: {
+    color: '#cbd5e0',
+    marginBottom: '16px',
+    opacity: 0.5
+  },
+  emptyTitle: {
+    color: '#4a5568',
+    marginBottom: '8px',
+    fontWeight: '500'
+  },
+  emptyLink: {
+    color: '#6366f1',
+    fontWeight: '500'
+  },
+  paginationWrapper: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '16px 24px',
+    borderTop: '1px solid #e2e8f0',
+    flexWrap: 'wrap',
+    gap: '12px'
+  },
+  paginationInfo: {
+    color: '#718096',
+    fontSize: '14px'
+  },
+  pagination: {
+    marginBottom: 0
+  },
+  metricCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    textAlign: 'center'
+  },
+  metricCardBody: {
+    padding: '40px 20px'
+  },
+  metricProgress: {
+    height: '8px',
+    borderRadius: '4px'
+  },
+  modalHeader: {
+    borderBottom: 'none',
+    padding: '20px 24px 0'
+  },
+  modalHeaderDanger: {
+    borderBottom: 'none',
+    padding: '20px 24px 0'
+  },
+  modalTitle: {
+    fontWeight: '700',
+    fontSize: '20px',
+    color: '#1a202c'
+  },
+  modalTitleDanger: {
+    fontWeight: '700',
+    fontSize: '20px',
+    color: '#ef4444'
+  },
+  modalBody: {
+    padding: '20px 24px'
+  },
+  modalFooter: {
+    borderTop: 'none',
+    padding: '0 24px 20px'
+  },
+  modalCloseBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  modalCancelBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  modalSubmitBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  modalDangerBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  modalAlert: {
+    borderRadius: '12px'
+  },
+  reviewDetailHeader: {
+    display: 'flex',
+    gap: '16px',
+    marginBottom: '16px'
+  },
+  reviewDetailAvatar: {
+    width: '60px',
+    height: '60px',
+    borderRadius: '50%',
+    objectFit: 'cover'
+  },
+  formTextarea: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    resize: 'vertical'
+  },
+  bulkActionsGrid: {
+    display: 'grid',
+    gap: '8px'
+  },
+  globalStyles: `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin { animation: spin 1s linear infinite; }
+    .nav-tabs .nav-link {
+      color: #4b5563;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px 12px 0 0;
+      transition: all 0.2s;
+    }
+    .nav-tabs .nav-link.active {
+      color: #6366f1;
+      font-weight: 600;
+      border-bottom: 3px solid #6366f1;
+      background: none;
+    }
+    .nav-tabs .nav-link:hover { background: #f8fafc; }
+    .table > :not(caption) > * > * { padding: 16px 12px; vertical-align: middle; }
+    .table tbody tr:hover { background-color: #f8fafc; }
+    .table-active { background-color: #e7f1ff !important; }
+    .form-control:focus, .form-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    .modal-content {
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .modal-header .btn-close {
+      padding: 8px;
+    }
+    @media (max-width: 768px) {
+      .table-responsive {
+        font-size: 0.85rem;
+      }
+      .nav-tabs .nav-link {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+      }
+      .modal-dialog {
+        margin: 16px;
+      }
+    }
+  `
+};
 
 export default Analytics;

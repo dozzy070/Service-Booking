@@ -20,6 +20,9 @@ import {
   FaCrown,
   FaSignOutAlt,
   FaUserShield,
+  FaHeadset,
+  FaBook,
+  FaBullhorn,
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -56,7 +59,7 @@ const AdminSidebar = ({
     await logout();
   };
 
-  // ✅ ALL admin navigation items
+  // ✅ ALL admin navigation items - INCLUDING HELP CENTER
   const navItems = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: FaTachometerAlt, description: 'Overview', badge: null },
     { path: '/admin/users', label: 'Users', icon: FaUsers, description: 'Manage users', badge: totalUsers },
@@ -66,6 +69,8 @@ const AdminSidebar = ({
     { path: '/admin/categories', label: 'Categories', icon: FaTags, description: 'Manage categories', badge: null },
     { path: '/admin/analytics', label: 'Analytics', icon: FaChartLine, description: 'View analytics', badge: null },
     { path: '/admin/reports', label: 'Reports', icon: FaFileAlt, description: 'Generate reports', badge: null },
+    // ✅ HELP CENTER - Added here
+    { path: '/admin/help-center', label: 'Help Center', icon: FaHeadset, description: 'FAQs & Support', badge: null },
     { path: '/admin/settings', label: 'Settings', icon: FaCog, description: 'System settings', badge: null },
   ];
 

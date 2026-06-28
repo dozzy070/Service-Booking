@@ -602,7 +602,7 @@ const CustomerDashboard = () => {
     else setGreeting('Good Evening');
   }, []);
 
-  // ✅ Fetch dashboard data from real API
+  // ✅ Fetch dashboard data from real API with improved error handling
   const fetchDashboardData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -639,11 +639,13 @@ const CustomerDashboard = () => {
         setRecommendedServices([]);
       }
       
+      // ✅ Silently handle reminders error - don't show toast for 404
       try {
         remindersRes = await customerAPI.getReminders();
         setUpcomingReminders(remindersRes?.data || []);
       } catch (err) {
-        console.error('Error fetching reminders:', err);
+        // Silently fail - reminders are optional
+        console.log('ℹ️ Reminders endpoint not available, skipping...');
         setUpcomingReminders([]);
       }
       
@@ -1122,7 +1124,7 @@ const CustomerDashboard = () => {
             </div>
           )}
 
-          {/* Reminders */}
+          {/* Reminders - Show only if there are reminders */}
           {upcomingReminders && upcomingReminders.length > 0 && (
             <div style={styles.card}>
               <div style={styles.cardHeader}>

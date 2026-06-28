@@ -143,7 +143,15 @@ const AdminCategories = () => {
   const generateSlug = (name) =>
     name.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
 
-  // ✅ Fetch categories from real API
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Fetch categories from real API
   const fetchCategories = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -164,7 +172,6 @@ const AdminCategories = () => {
 
       const response = await adminAPI.getCategories(params);
       
-      // Handle different response formats
       let data = response?.data || [];
       let total = 0;
       
@@ -209,7 +216,7 @@ const AdminCategories = () => {
     }
   }, [searchTerm, filterStatus, sortConfig, itemsPerPage, currentPage]);
 
-  // ✅ Calculate stats with safety
+  // Calculate stats with safety
   const calculateStats = (categoryList) => {
     const list = Array.isArray(categoryList) ? categoryList : [];
     
@@ -238,38 +245,33 @@ const AdminCategories = () => {
     setStats(newStats);
   };
 
-  // ✅ Fetch all data
+  // Fetch all data
   const fetchAllData = useCallback(async () => {
     await fetchCategories(true);
   }, [fetchCategories]);
 
-  // ✅ Manual refresh
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchAllData();
     toast.success('Categories refreshed');
   };
 
-  // ✅ Initial data load
+  // Initial data load
   useEffect(() => {
     fetchAllData();
-    
-    // Set up real-time polling
     startPolling();
-    
-    return () => {
-      stopPolling();
-    };
+    return () => stopPolling();
   }, []);
 
-  // ✅ Refetch when filters change
+  // Refetch when filters change
   useEffect(() => {
     if (!loading) {
       fetchCategories(false);
     }
   }, [searchTerm, filterStatus, sortConfig, itemsPerPage, currentPage]);
 
-  // ✅ Polling functions
+  // Polling functions
   const startPolling = () => {
     stopPolling();
     pollingInterval.current = setInterval(() => {
@@ -279,7 +281,7 @@ const AdminCategories = () => {
           isPolling.current = false;
         });
       }
-    }, 30000); // Poll every 30 seconds for real-time updates
+    }, 30000);
   };
 
   const stopPolling = () => {
@@ -295,7 +297,7 @@ const AdminCategories = () => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus]);
 
-  // ✅ CRUD operations with real API
+  // CRUD operations with real API
   const handleViewCategory = (category) => {
     setSelectedCategory(category);
     setModalMode('view');
@@ -416,7 +418,7 @@ const AdminCategories = () => {
     }
   };
 
-  // ✅ Bulk actions with real API
+  // Bulk actions with real API
   const handleBulkStatusChange = async (status) => {
     if (selectedCategories.length === 0) return;
     
@@ -465,7 +467,7 @@ const AdminCategories = () => {
     }
   };
 
-  // ✅ Export with real API
+  // Export with real API
   const handleExport = async () => {
     setIsExporting(true);
     try {
@@ -534,11 +536,10 @@ const AdminCategories = () => {
     return sortConfig.direction === 'asc' ? <FaSortUp /> : <FaSortDown />;
   };
 
-  // ✅ Filter categories (already filtered by API, but we keep client-side filtering for safety)
+  // Filter categories (already filtered by API, but we keep client-side filtering for safety)
   const filteredCategories = useMemo(() => {
     let filtered = [...categories];
     
-    // Client-side filtering as backup
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(cat =>
@@ -551,7 +552,6 @@ const AdminCategories = () => {
       filtered = filtered.filter(cat => cat.status?.toLowerCase() === filterStatus);
     }
     
-    // Sorting
     filtered.sort((a, b) => {
       let aVal = a[sortConfig.key] ?? '';
       let bVal = b[sortConfig.key] ?? '';
@@ -606,43 +606,41 @@ const AdminCategories = () => {
     return category?.id || category?._id || null;
   };
 
-  // ✅ Loading state
-  if (loading) {
-    return (
-      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-        <Container fluid className="py-4">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
-            <div className="text-center">
-              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
-              <p className="mt-3 text-muted">Loading categories...</p>
-            </div>
-          </div>
-        </Container>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={styles.container}>
       <Container fluid className="py-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={styles.alert}>
+            <FaExclamationTriangle className="me-2" />
+            {error}
+            <Button variant="outline-danger" size="sm" onClick={() => fetchCategories(false)} className="ms-3">
+              Retry
+            </Button>
+          </Alert>
+        )}
+
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div style={styles.header}>
           <div>
-            <h2 className="mb-1 fw-bold">Category Management</h2>
-            <p className="text-muted mb-0">Manage service categories and subcategories</p>
+            <h2 style={styles.headerTitle}>Category Management</h2>
+            <p style={styles.headerSubtitle}>Manage service categories and subcategories</p>
           </div>
-          <div className="d-flex gap-2">
+          <div style={styles.headerActions}>
             <Button
               variant="outline-primary"
               onClick={refreshData}
               disabled={refreshing}
               className="d-flex align-items-center gap-2"
+              style={styles.refreshBtn}
             >
               <FaSync className={refreshing ? 'spin' : ''} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
             <Dropdown>
-              <Dropdown.Toggle variant="outline-primary" className="d-flex align-items-center gap-2">
+              <Dropdown.Toggle variant="outline-primary" className="d-flex align-items-center gap-2" style={styles.exportBtn}>
                 <FaDownload /> Export
               </Dropdown.Toggle>
               <Dropdown.Menu>
@@ -658,154 +656,84 @@ const AdminCategories = () => {
               variant="primary"
               onClick={() => handleAddCategory()}
               className="d-flex align-items-center gap-2"
+              style={styles.addBtn}
             >
               <FaPlus /> Add Category
             </Button>
           </div>
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
-            <FaExclamationTriangle className="me-2" />
-            {error}
-          </Alert>
-        )}
-
         {/* Stats Cards */}
-        <Row className="g-4 mb-4">
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
-                    <FaTags size={24} color="#3b82f6" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Total Categories</p>
-                    <h3 className="fw-bold mb-0">{stats.total}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <FaCheckCircle size={24} color="#10b981" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Active</p>
-                    <h3 className="fw-bold mb-0">{stats.active}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
-                    <FaStar size={24} color="#f59e0b" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Featured</p>
-                    <h3 className="fw-bold mb-0">{stats.featured}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#ef444420' }}>
-                    <FaFire size={24} color="#ef4444" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Popular</p>
-                    <h3 className="fw-bold mb-0">{stats.popular}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
-                    <FaServicestack size={24} color="#8b5cf6" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Services</p>
-                    <h3 className="fw-bold mb-0">{stats.totalServices}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <FaMoneyBillWave size={24} color="#10b981" />
-                  </div>
-                  <div>
-                    <p className="text-muted mb-0 small">Revenue</p>
-                    <h3 className="fw-bold mb-0">{formatCompactNaira(stats.totalRevenue)}</h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
+        <Row style={styles.statsRow}>
+          {[
+            { key: 'total', icon: FaTags, label: 'Total Categories', value: stats.total, color: '#3b82f6', bg: '#3b82f620' },
+            { key: 'active', icon: FaCheckCircle, label: 'Active', value: stats.active, color: '#10b981', bg: '#10b98120' },
+            { key: 'featured', icon: FaStar, label: 'Featured', value: stats.featured, color: '#f59e0b', bg: '#f59e0b20' },
+            { key: 'popular', icon: FaFire, label: 'Popular', value: stats.popular, color: '#ef4444', bg: '#ef444420' },
+            { key: 'services', icon: FaServicestack, label: 'Services', value: stats.totalServices, color: '#8b5cf6', bg: '#8b5cf620' },
+            { key: 'revenue', icon: FaMoneyBillWave, label: 'Revenue', value: formatCompactNaira(stats.totalRevenue), color: '#10b981', bg: '#10b98120' }
+          ].map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <Col xl={2} lg={4} md={6} key={idx}>
+                <Card style={styles.statCard}>
+                  <Card.Body style={styles.statCardBody}>
+                    <div style={{ ...styles.statIconWrapper, background: item.bg, color: item.color }}>
+                      <Icon size={24} />
+                    </div>
+                    <div>
+                      <p style={styles.statLabel}>{item.label}</p>
+                      <h3 style={styles.statValue}>{item.value}</h3>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+            );
+          })}
         </Row>
 
         {/* Filters */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
-            <div className="d-flex flex-wrap gap-3 align-items-center">
-              <InputGroup style={{ maxWidth: '300px' }}>
-                <InputGroup.Text className="bg-white border-end-0">
-                  <FaSearch className="text-muted" />
-                </InputGroup.Text>
-                <Form.Control
-                  placeholder="Search categories..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="border-start-0"
-                />
-              </InputGroup>
-              <Form.Select
-                style={{ width: '150px' }}
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </Form.Select>
-              <Form.Select
-                style={{ width: '120px' }}
-                value={itemsPerPage}
-                onChange={(e) => setItemsPerPage(Number(e.target.value))}
-              >
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-              </Form.Select>
-              <Button variant="outline-secondary" onClick={resetFilters}>
-                Reset
-              </Button>
+        <Card style={styles.filtersCard}>
+          <Card.Body style={styles.filtersCardBody}>
+            <div style={styles.filtersWrapper}>
+              <div style={styles.filtersGroup}>
+                <InputGroup style={styles.searchInput}>
+                  <InputGroup.Text style={styles.searchInputText}>
+                    <FaSearch className="text-muted" />
+                  </InputGroup.Text>
+                  <Form.Control
+                    placeholder="Search categories..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={styles.searchInputControl}
+                  />
+                </InputGroup>
+                <Form.Select
+                  style={styles.filterSelect}
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </Form.Select>
+                <Form.Select
+                  style={styles.filterSelect}
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                >
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                </Form.Select>
+                <Button variant="outline-secondary" onClick={resetFilters} style={styles.resetBtn}>
+                  Reset
+                </Button>
+              </div>
             </div>
 
             {selectedCategories.length > 0 && (
-              <div className="d-flex gap-2 mt-3 pt-3 border-top">
+              <div style={styles.bulkActions}>
                 <Button
                   size="sm"
                   variant="success"
@@ -836,14 +764,14 @@ const AdminCategories = () => {
         </Card>
 
         {/* Categories Table */}
-        <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-          <Card.Body className="p-0">
+        <Card style={styles.tableCard}>
+          <Card.Body style={styles.tableCardBody}>
             {currentCategories.length === 0 ? (
-              <div className="text-center py-5">
-                <FaTags size={48} className="text-muted mb-3 opacity-50" />
-                <h6 className="text-muted">No categories found</h6>
+              <div style={styles.emptyState}>
+                <FaTags size={48} style={styles.emptyIcon} />
+                <h6 style={styles.emptyTitle}>No categories found</h6>
                 {!error && (
-                  <Button variant="primary" onClick={() => handleAddCategory()} className="mt-2">
+                  <Button variant="primary" onClick={() => handleAddCategory()} style={styles.emptyBtn}>
                     <FaPlus className="me-2" /> Add Category
                   </Button>
                 )}
@@ -851,49 +779,49 @@ const AdminCategories = () => {
             ) : (
               <>
                 <div className="table-responsive">
-                  <Table hover className="mb-0" style={{ minWidth: '1000px' }}>
-                    <thead style={{ background: '#f8fafc' }}>
+                  <Table hover style={styles.table}>
+                    <thead style={styles.tableHead}>
                       <tr>
-                        <th style={{ padding: '16px', width: '40px' }}>
+                        <th style={styles.tableCheckbox}>
                           <Form.Check
                             type="checkbox"
                             checked={selectedCategories.length === categories.length && categories.length > 0}
                             onChange={handleSelectAll}
                           />
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('name')}>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('name')}>
                           Category {getSortIcon('name')}
                         </th>
-                        <th style={{ padding: '16px' }}>Icon</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('serviceCount')}>
+                        <th style={styles.tableHeader}>Icon</th>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('serviceCount')}>
                           Services {getSortIcon('serviceCount')}
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('totalBookings')}>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('totalBookings')}>
                           Bookings {getSortIcon('totalBookings')}
                         </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('totalRevenue')}>
+                        <th style={{ ...styles.tableHeader, cursor: 'pointer' }} onClick={() => handleSort('totalRevenue')}>
                           Revenue {getSortIcon('totalRevenue')}
                         </th>
-                        <th style={{ padding: '16px' }}>Status</th>
-                        <th style={{ padding: '16px' }}>Featured</th>
-                        <th style={{ padding: '16px' }}>Popular</th>
-                        <th style={{ padding: '16px', width: '160px' }}>Actions</th>
+                        <th style={styles.tableHeader}>Status</th>
+                        <th style={styles.tableHeader}>Featured</th>
+                        <th style={styles.tableHeader}>Popular</th>
+                        <th style={styles.tableHeader}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {currentCategories.map(category => {
                         const categoryId = getCategoryId(category);
                         return (
-                          <tr key={categoryId} className={selectedCategories.includes(categoryId) ? 'table-active' : ''}>
-                            <td style={{ padding: '16px' }}>
+                          <tr key={categoryId} className={selectedCategories.includes(categoryId) ? 'table-active' : ''} style={styles.tableRow}>
+                            <td style={styles.tableCell}>
                               <Form.Check
                                 type="checkbox"
                                 checked={selectedCategories.includes(categoryId)}
                                 onChange={() => handleSelectCategory(categoryId)}
                               />
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex align-items-center gap-3">
+                            <td style={styles.tableCell}>
+                              <div style={styles.categoryCell}>
                                 <div
                                   className="rounded-circle"
                                   style={{ width: '12px', height: '12px', backgroundColor: category.color || '#6366f1' }}
@@ -903,51 +831,51 @@ const AdminCategories = () => {
                                     src={category.image}
                                     alt={category.name}
                                     className="rounded"
-                                    style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                                    style={styles.categoryImage}
                                   />
                                 )}
                                 <div>
-                                  <div className="fw-semibold">{category.name || 'Unnamed'}</div>
-                                  <small className="text-muted">{category.slug || ''}</small>
+                                  <div style={styles.categoryName}>{category.name || 'Unnamed'}</div>
+                                  <small style={styles.categorySlug}>{category.slug || ''}</small>
                                 </div>
                               </div>
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <span className="fs-4">{category.icon || '📁'}</span>
+                            <td style={styles.tableCell}>
+                              <span style={styles.categoryIcon}>{category.icon || '📁'}</span>
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="fw-semibold">{category.serviceCount || 0}</div>
+                            <td style={styles.tableCell}>
+                              <div style={styles.categoryCount}>{category.serviceCount || 0}</div>
                             </td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}>
                               {(category.totalBookings || 0).toLocaleString()}
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <span className="fw-semibold text-primary">
+                            <td style={styles.tableCell}>
+                              <span style={styles.categoryRevenue}>
                                 {formatNaira(category.totalRevenue || 0)}
                               </span>
                             </td>
-                            <td style={{ padding: '16px' }}>{getStatusBadge(category.status)}</td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}>{getStatusBadge(category.status)}</td>
+                            <td style={styles.tableCell}>
                               {category.featured ? (
                                 <FaStar className="text-warning" size={18} />
                               ) : (
                                 <FaStar className="text-muted opacity-25" size={18} />
                               )}
                             </td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}>
                               {category.popular ? (
                                 <FaFire className="text-danger" size={18} />
                               ) : (
                                 <FaFire className="text-muted opacity-25" size={18} />
                               )}
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex gap-1">
+                            <td style={styles.tableCell}>
+                              <div style={styles.actionButtons}>
                                 <Button
                                   size="sm"
                                   variant="outline-primary"
                                   className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
+                                  style={styles.actionBtn}
                                   onClick={() => handleViewCategory(category)}
                                 >
                                   <FaEye size={14} />
@@ -956,7 +884,7 @@ const AdminCategories = () => {
                                   size="sm"
                                   variant="outline-info"
                                   className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
+                                  style={styles.actionBtn}
                                   onClick={() => handleEditCategory(category)}
                                 >
                                   <FaEdit size={14} />
@@ -965,7 +893,7 @@ const AdminCategories = () => {
                                   size="sm"
                                   variant="outline-success"
                                   className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
+                                  style={styles.actionBtn}
                                   onClick={() => handleAddCategory(categoryId)}
                                 >
                                   <FaPlus size={14} />
@@ -974,7 +902,7 @@ const AdminCategories = () => {
                                   size="sm"
                                   variant="outline-danger"
                                   className="rounded-circle p-1"
-                                  style={{ width: '32px', height: '32px' }}
+                                  style={styles.actionBtn}
                                   onClick={() => {
                                     setSelectedCategory(category);
                                     setShowDeleteModal(true);
@@ -993,11 +921,11 @@ const AdminCategories = () => {
 
                 {/* Pagination */}
                 {filteredCategories.length > 0 && (
-                  <div className="d-flex justify-content-between align-items-center p-4 border-top">
-                    <div className="text-muted small">
+                  <div style={styles.paginationWrapper}>
+                    <div style={styles.paginationInfo}>
                       Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredCategories.length)} of {filteredCategories.length} categories
                     </div>
-                    <Pagination>
+                    <Pagination style={styles.pagination}>
                       <Pagination.Prev
                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                         disabled={currentPage === 1}
@@ -1033,8 +961,8 @@ const AdminCategories = () => {
 
       {/* Category Modal */}
       <Modal show={showCategoryModal} onHide={() => setShowCategoryModal(false)} size="lg" centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>
             {modalMode === 'view' ? <FaEye className="me-2" /> :
              modalMode === 'edit' ? <FaEdit className="me-2" /> :
              <FaPlus className="me-2" />}
@@ -1042,36 +970,36 @@ const AdminCategories = () => {
              modalMode === 'edit' ? 'Edit Category' : 'Add New Category'}
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Body style={styles.modalBody}>
           {modalMode === 'view' && selectedCategory && (
             <div>
-              <div className="d-flex align-items-center gap-3 mb-4">
-                <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '60px', height: '60px', backgroundColor: selectedCategory.color || '#6366f1' }}>
+              <div style={styles.viewCategoryHeader}>
+                <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ ...styles.viewCategoryAvatar, backgroundColor: selectedCategory.color || '#6366f1' }}>
                   <span className="fs-2">{selectedCategory.icon || '📁'}</span>
                 </div>
                 <div>
-                  <h5 className="mb-1">{selectedCategory.name}</h5>
-                  <div className="text-muted small">{selectedCategory.slug}</div>
+                  <h5 style={styles.viewCategoryName}>{selectedCategory.name}</h5>
+                  <div style={styles.viewCategorySlug}>{selectedCategory.slug}</div>
                 </div>
               </div>
               {selectedCategory.description && (
-                <p className="mb-3">{selectedCategory.description}</p>
+                <p style={styles.viewCategoryDesc}>{selectedCategory.description}</p>
               )}
-              <Row className="g-3">
+              <Row style={styles.viewCategoryRow}>
                 <Col md={6}>
-                  <div className="info-section">
-                    <h6 className="fw-bold mb-3">Statistics</h6>
-                    <div className="info-item"><FaServicestack className="text-muted" /> Services: {selectedCategory.serviceCount || 0}</div>
-                    <div className="info-item"><FaShoppingCart className="text-muted" /> Bookings: {selectedCategory.totalBookings || 0}</div>
-                    <div className="info-item"><FaMoneyBillWave className="text-muted" /> Revenue: {formatNaira(selectedCategory.totalRevenue || 0)}</div>
+                  <div style={styles.infoSection}>
+                    <h6 style={styles.infoTitle}>Statistics</h6>
+                    <div style={styles.infoItem}><FaServicestack className="text-muted" /> Services: {selectedCategory.serviceCount || 0}</div>
+                    <div style={styles.infoItem}><FaShoppingCart className="text-muted" /> Bookings: {selectedCategory.totalBookings || 0}</div>
+                    <div style={styles.infoItem}><FaMoneyBillWave className="text-muted" /> Revenue: {formatNaira(selectedCategory.totalRevenue || 0)}</div>
                   </div>
                 </Col>
                 <Col md={6}>
-                  <div className="info-section">
-                    <h6 className="fw-bold mb-3">Details</h6>
-                    <div className="info-item"><FaTag className="text-muted" /> Status: {getStatusBadge(selectedCategory.status)}</div>
-                    <div className="info-item"><FaStar className="text-muted" /> Featured: {selectedCategory.featured ? 'Yes' : 'No'}</div>
-                    <div className="info-item"><FaFire className="text-muted" /> Popular: {selectedCategory.popular ? 'Yes' : 'No'}</div>
+                  <div style={styles.infoSection}>
+                    <h6 style={styles.infoTitle}>Details</h6>
+                    <div style={styles.infoItem}><FaTag className="text-muted" /> Status: {getStatusBadge(selectedCategory.status)}</div>
+                    <div style={styles.infoItem}><FaStar className="text-muted" /> Featured: {selectedCategory.featured ? 'Yes' : 'No'}</div>
+                    <div style={styles.infoItem}><FaFire className="text-muted" /> Popular: {selectedCategory.popular ? 'Yes' : 'No'}</div>
                   </div>
                 </Col>
               </Row>
@@ -1083,7 +1011,7 @@ const AdminCategories = () => {
               <Row>
                 <Col md={6}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Name *</Form.Label>
+                    <Form.Label style={styles.formLabel}>Name *</Form.Label>
                     <Form.Control
                       value={formData.name}
                       onChange={(e) => {
@@ -1095,68 +1023,74 @@ const AdminCategories = () => {
                         });
                       }}
                       placeholder="Enter category name"
+                      style={styles.formControl}
                     />
                   </Form.Group>
                 </Col>
                 <Col md={6}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Slug</Form.Label>
+                    <Form.Label style={styles.formLabel}>Slug</Form.Label>
                     <Form.Control
                       value={formData.slug}
                       onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
                       placeholder="URL-friendly name"
+                      style={styles.formControl}
                     />
                   </Form.Group>
                 </Col>
               </Row>
 
               <Form.Group className="mb-3">
-                <Form.Label className="fw-semibold">Description</Form.Label>
+                <Form.Label style={styles.formLabel}>Description</Form.Label>
                 <Form.Control
                   as="textarea"
                   rows={3}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Describe the category"
+                  style={styles.formTextarea}
                 />
               </Form.Group>
 
               <Row>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Icon (Emoji)</Form.Label>
+                    <Form.Label style={styles.formLabel}>Icon (Emoji)</Form.Label>
                     <Form.Control
                       value={formData.icon}
                       onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
                       placeholder="📁"
+                      style={styles.formControl}
                     />
                   </Form.Group>
                 </Col>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Color</Form.Label>
-                    <div className="d-flex gap-2">
+                    <Form.Label style={styles.formLabel}>Color</Form.Label>
+                    <div style={styles.colorPickerWrapper}>
                       <Form.Control
                         type="color"
                         value={formData.color}
                         onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                        style={{ width: '60px', padding: '4px' }}
+                        style={styles.colorPicker}
                       />
                       <Form.Control
                         type="text"
                         value={formData.color}
                         onChange={(e) => setFormData({ ...formData, color: e.target.value })}
                         placeholder="#6366f1"
+                        style={styles.colorInput}
                       />
                     </div>
                   </Form.Group>
                 </Col>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Status</Form.Label>
+                    <Form.Label style={styles.formLabel}>Status</Form.Label>
                     <Form.Select
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      style={styles.formControl}
                     >
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
@@ -1190,13 +1124,13 @@ const AdminCategories = () => {
             </Form>
           )}
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-0">
-          <Button variant="light" onClick={() => setShowCategoryModal(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowCategoryModal(false)} style={styles.modalCancelBtn}>
             Close
           </Button>
           {(modalMode === 'edit' || modalMode === 'add') && (
-            <Button variant="primary" onClick={handleSaveCategory} disabled={processing}>
-              {processing ? <><Spinner animation="border" size="sm" /> Saving...</> : (modalMode === 'edit' ? 'Update' : 'Create')}
+            <Button variant="primary" onClick={handleSaveCategory} disabled={processing} style={styles.modalSubmitBtn}>
+              {processing ? 'Saving...' : (modalMode === 'edit' ? 'Update' : 'Create')}
             </Button>
           )}
         </Modal.Footer>
@@ -1204,35 +1138,35 @@ const AdminCategories = () => {
 
       {/* Delete Confirmation Modal */}
       <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-danger">
+        <Modal.Header closeButton style={styles.modalHeaderDanger}>
+          <Modal.Title style={styles.modalTitleDanger}>
             <FaExclamationTriangle className="me-2" /> Delete Category
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
-          <Alert variant="danger" className="mb-0" style={{ borderRadius: '12px' }}>
+        <Modal.Body style={styles.modalBody}>
+          <Alert variant="danger" style={styles.deleteAlert}>
             Are you sure you want to delete <strong>{selectedCategory?.name}</strong>?
-            <p className="mb-0 mt-2 small text-danger">This action cannot be undone.</p>
+            <p style={styles.deleteWarning}>This action cannot be undone.</p>
           </Alert>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowDeleteModal(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowDeleteModal(false)} style={styles.modalCancelBtn}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={handleDeleteCategory} disabled={processing}>
-            {processing ? <><Spinner animation="border" size="sm" /> Deleting...</> : 'Delete'}
+          <Button variant="danger" onClick={handleDeleteCategory} disabled={processing} style={styles.modalDeleteBtn}>
+            {processing ? 'Deleting...' : 'Delete'}
           </Button>
         </Modal.Footer>
       </Modal>
 
       {/* Bulk Actions Modal */}
       <Modal show={showBulkActions} onHide={() => setShowBulkActions(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">Bulk Actions</Modal.Title>
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>Bulk Actions</Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
-          <p className="mb-4">Selected categories: <strong className="text-primary">{selectedCategories.length}</strong></p>
-          <div className="d-grid gap-2">
+        <Modal.Body style={styles.modalBody}>
+          <p style={styles.bulkText}>Selected categories: <strong className="text-primary">{selectedCategories.length}</strong></p>
+          <div style={styles.bulkActionsGrid}>
             <Button variant="success" onClick={() => handleBulkStatusChange('active')} disabled={processing}>
               <FaCheckCircle className="me-2" /> Activate All
             </Button>
@@ -1244,8 +1178,8 @@ const AdminCategories = () => {
             </Button>
           </div>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowBulkActions(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowBulkActions(false)} style={styles.modalCancelBtn}>
             Cancel
           </Button>
         </Modal.Footer>
@@ -1253,62 +1187,455 @@ const AdminCategories = () => {
 
       {/* Export Modal */}
       <Modal show={showExportModal} onHide={() => setShowExportModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>
             <FaDownload className="me-2" /> Export Categories
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
-          <p className="mb-4">Exporting <strong>{categories.length}</strong> categories as <strong>{exportFormat.toUpperCase()}</strong></p>
+        <Modal.Body style={styles.modalBody}>
+          <p style={styles.exportText}>Exporting <strong>{categories.length}</strong> categories as <strong>{exportFormat.toUpperCase()}</strong></p>
           {isExporting && (
-            <div className="text-center py-3">
+            <div style={styles.exportLoading}>
               <Spinner animation="border" variant="primary" />
-              <p className="mt-2 text-muted small">Generating export...</p>
+              <p style={styles.exportLoadingText}>Generating export...</p>
             </div>
           )}
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-3">
-          <Button variant="light" onClick={() => setShowExportModal(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowExportModal(false)} style={styles.modalCancelBtn}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={handleExport} disabled={isExporting}>
+          <Button variant="primary" onClick={handleExport} disabled={isExporting} style={styles.modalSubmitBtn}>
             {isExporting ? 'Exporting...' : 'Export Now'}
           </Button>
         </Modal.Footer>
       </Modal>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin { animation: spin 1s linear infinite; }
-        .info-section {
-          background: #f8fafc;
-          padding: 16px;
-          border-radius: 12px;
-        }
-        .info-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 6px 0;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        .info-item:last-child { border-bottom: none; }
-        .table > :not(caption) > * > * {
-          padding: 16px 12px;
-          vertical-align: middle;
-        }
-        .table tbody tr:hover {
-          background-color: #f8fafc;
-        }
-        .table-active {
-          background-color: #e7f1ff !important;
-        }
-      `}</style>
+      <style>{styles.globalStyles}</style>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    background: '#f8f9fa',
+    minHeight: '100vh'
+  },
+  alert: {
+    borderRadius: '12px'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: '4px'
+  },
+  headerSubtitle: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '16px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px',
+    flexWrap: 'wrap'
+  },
+  refreshBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  exportBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  addBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  statsRow: {
+    marginBottom: '28px',
+    gap: '16px'
+  },
+  statCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%',
+    transition: 'all 0.3s ease'
+  },
+  statCardBody: {
+    padding: '20px 24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px'
+  },
+  statIconWrapper: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  statLabel: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  statValue: {
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: 0,
+    fontSize: '24px'
+  },
+  filtersCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  filtersCardBody: {
+    padding: '20px 24px'
+  },
+  filtersWrapper: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    alignItems: 'center'
+  },
+  filtersGroup: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    flex: 1
+  },
+  searchInput: {
+    maxWidth: '300px',
+    borderRadius: '12px',
+    overflow: 'hidden'
+  },
+  searchInputText: {
+    background: 'white',
+    border: '1px solid #e2e8f0',
+    borderRight: 'none'
+  },
+  searchInputControl: {
+    border: '1px solid #e2e8f0',
+    borderLeft: 'none',
+    borderRadius: '0 12px 12px 0',
+    padding: '10px 16px'
+  },
+  filterSelect: {
+    width: '150px',
+    borderRadius: '12px',
+    padding: '10px 16px'
+  },
+  resetBtn: {
+    borderRadius: '12px',
+    padding: '10px 16px'
+  },
+  bulkActions: {
+    display: 'flex',
+    gap: '8px',
+    marginTop: '16px',
+    paddingTop: '16px',
+    borderTop: '1px solid #e2e8f0'
+  },
+  tableCard: {
+    border: 'none',
+    borderRadius: '20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  tableCardBody: {
+    padding: 0
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '60px 20px'
+  },
+  emptyIcon: {
+    color: '#cbd5e0',
+    marginBottom: '16px',
+    opacity: 0.5
+  },
+  emptyTitle: {
+    color: '#4a5568',
+    marginBottom: '16px',
+    fontWeight: '500'
+  },
+  emptyBtn: {
+    borderRadius: '12px',
+    padding: '8px 20px'
+  },
+  table: {
+    minWidth: '1000px',
+    marginBottom: 0
+  },
+  tableHead: {
+    background: '#f8fafc'
+  },
+  tableHeader: {
+    padding: '16px 12px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4a5568',
+    borderBottom: '2px solid #e2e8f0',
+    whiteSpace: 'nowrap'
+  },
+  tableCheckbox: {
+    padding: '16px 12px',
+    width: '40px'
+  },
+  tableRow: {
+    transition: 'background 0.2s'
+  },
+  tableCell: {
+    padding: '16px 12px',
+    verticalAlign: 'middle'
+  },
+  categoryCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
+  },
+  categoryImage: {
+    width: '40px',
+    height: '40px',
+    objectFit: 'cover',
+    borderRadius: '10px'
+  },
+  categoryName: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  categorySlug: {
+    color: '#718096',
+    fontSize: '12px'
+  },
+  categoryIcon: {
+    fontSize: '24px'
+  },
+  categoryCount: {
+    fontWeight: '600',
+    fontSize: '14px'
+  },
+  categoryRevenue: {
+    fontWeight: '600',
+    color: '#6366f1'
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: '4px'
+  },
+  actionBtn: {
+    width: '32px',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%'
+  },
+  paginationWrapper: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '16px 24px',
+    borderTop: '1px solid #e2e8f0',
+    flexWrap: 'wrap',
+    gap: '12px'
+  },
+  paginationInfo: {
+    color: '#718096',
+    fontSize: '14px'
+  },
+  pagination: {
+    marginBottom: 0
+  },
+  modalHeader: {
+    borderBottom: 'none',
+    padding: '20px 24px 0'
+  },
+  modalHeaderDanger: {
+    borderBottom: 'none',
+    padding: '20px 24px 0'
+  },
+  modalTitle: {
+    fontWeight: '700',
+    fontSize: '20px',
+    color: '#1a202c'
+  },
+  modalTitleDanger: {
+    fontWeight: '700',
+    fontSize: '20px',
+    color: '#ef4444'
+  },
+  modalBody: {
+    padding: '20px 24px'
+  },
+  modalFooter: {
+    borderTop: 'none',
+    padding: '0 24px 20px'
+  },
+  modalCancelBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  modalSubmitBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  modalDeleteBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  formLabel: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  formControl: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  formTextarea: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    resize: 'vertical'
+  },
+  colorPickerWrapper: {
+    display: 'flex',
+    gap: '8px'
+  },
+  colorPicker: {
+    width: '60px',
+    padding: '4px',
+    borderRadius: '10px'
+  },
+  colorInput: {
+    flex: 1,
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  deleteAlert: {
+    borderRadius: '12px'
+  },
+  deleteWarning: {
+    marginTop: '8px',
+    fontSize: '14px',
+    color: '#ef4444'
+  },
+  bulkActionsGrid: {
+    display: 'grid',
+    gap: '8px'
+  },
+  bulkText: {
+    marginBottom: '16px'
+  },
+  exportText: {
+    marginBottom: '16px'
+  },
+  exportLoading: {
+    textAlign: 'center',
+    padding: '20px 0'
+  },
+  exportLoadingText: {
+    marginTop: '8px',
+    color: '#718096',
+    fontSize: '14px'
+  },
+  viewCategoryHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    marginBottom: '20px'
+  },
+  viewCategoryAvatar: {
+    width: '60px',
+    height: '60px'
+  },
+  viewCategoryName: {
+    fontWeight: '600',
+    marginBottom: '2px'
+  },
+  viewCategorySlug: {
+    color: '#718096',
+    fontSize: '14px'
+  },
+  viewCategoryDesc: {
+    marginBottom: '20px'
+  },
+  viewCategoryRow: {
+    gap: '16px'
+  },
+  infoSection: {
+    background: '#f8fafc',
+    padding: '16px',
+    borderRadius: '12px'
+  },
+  infoTitle: {
+    fontWeight: '600',
+    marginBottom: '12px',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  infoItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '6px 0',
+    borderBottom: '1px solid #e2e8f0'
+  },
+  globalStyles: `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin { animation: spin 1s linear infinite; }
+    .info-item:last-child { border-bottom: none; }
+    .table > :not(caption) > * > * {
+      padding: 16px 12px;
+      vertical-align: middle;
+    }
+    .table tbody tr:hover {
+      background-color: #f8fafc;
+    }
+    .table-active {
+      background-color: #e7f1ff !important;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    .modal-content {
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .modal-header .btn-close {
+      padding: 8px;
+    }
+    @media (max-width: 768px) {
+      .table-responsive {
+        font-size: 0.85rem;
+      }
+    }
+  `
 };
 
 export default AdminCategories;

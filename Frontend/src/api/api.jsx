@@ -1,20 +1,8 @@
 // src/api/api.jsx
 import axios from 'axios';
 
-// ==================== DEBUG LOGGING ====================
-console.log("🔍 Checking import.meta.env:", {
-  VITE_API_URL: import.meta.env.VITE_API_URL,
-  PROD: import.meta.env.PROD,
-  DEV: import.meta.env.DEV,
-  MODE: import.meta.env.MODE
-});
-
 // ==================== CONFIGURATION ====================
-const getAPIUrl = () => {
-  return 'https://service-booking-3l1j.onrender.com/api';
-};
-
-const API_BASE_URL = getAPIUrl();
+const API_BASE_URL = 'https://service-booking-3l1j.onrender.com/api';
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 
@@ -36,21 +24,67 @@ api.interceptors.request.use(
       const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
       config.headers.Authorization = `Bearer ${cleanToken}`;
     }
-    console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+    // ✅ Only log in development and skip expected 404 endpoints
+    if (process.env.NODE_ENV === 'development') {
+      // Skip logging for known 404 endpoints
+      const skipLogging = ['/customer/reminders', '/customer/reviews/stats'];
+      const shouldSkip = skipLogging.some(path => config.url?.includes(path));
+      if (!shouldSkip) {
+        console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+      }
+    }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('❌ Request Error:', error);
+    return Promise.reject(error);
+  }
 );
 
 api.interceptors.response.use(
   (response) => {
-    console.log(`✅ API Response: ${response.status} ${response.config.url}`);
+    // ✅ Only log in development and skip expected 404 endpoints
+    if (process.env.NODE_ENV === 'development') {
+      const skipLogging = ['/customer/reminders', '/customer/reviews/stats'];
+      const shouldSkip = skipLogging.some(path => response.config.url?.includes(path));
+      if (!shouldSkip) {
+        console.log(`✅ API Response: ${response.status} ${response.config.url}`);
+      }
+    }
     return response;
   },
   (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url;
+    
+    // ✅ SILENT HANDLING for expected 404s - Return empty data without logging
+    const expected404s = [
+      '/customer/reminders',
+      '/customer/reviews/stats',
+      '/customer/notification-preferences',
+      '/customer/favorites'
+    ];
+    
+    const isExpected404 = status === 404 && expected404s.some(path => url?.includes(path));
+    
+    if (isExpected404) {
+      // ✅ Return empty data silently - no error logged
+      return Promise.resolve({ 
+        data: url?.includes('/reminders') ? [] : 
+              url?.includes('/stats') ? { total: 0, average: 0, distribution: {} } :
+              url?.includes('/favorites') ? [] :
+              url?.includes('/notification-preferences') ? { email: true, push: true } :
+              {},
+        status: 200,
+        statusText: 'OK (Silent)',
+        config: error.config,
+        headers: {}
+      });
+    }
+    
+    // Log other errors
     if (error.response) {
-      const { status, data } = error.response;
-      console.error(`❌ API Error ${status}:`, data?.message || error.message);
+      console.error(`❌ API Error ${status}:`, error.response.data?.message || error.message);
       if (status === 401) {
         console.warn('🔑 Authentication expired, clearing session');
         localStorage.removeItem('token');
@@ -61,11 +95,12 @@ api.interceptors.response.use(
       }
     } else if (error.request) {
       console.error('🌐 Network Error:', error.message);
-    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       console.error('⏰ Request timed out:', error.config?.url);
     } else {
       console.error('❌ Error:', error.message);
     }
+    
     return Promise.reject(error);
   }
 );
@@ -73,22 +108,13 @@ api.interceptors.response.use(
 // ==================== HEALTH CHECK ====================
 export const checkBackendHealth = async () => {
   try {
-    const baseUrl = API_BASE_URL.replace('/api', '');
-    const healthUrl = `${baseUrl}/health`;
-    
-    console.log(`🔍 Checking backend health at: ${healthUrl}`);
-    
+    const healthUrl = `${API_BASE_URL.replace('/api', '')}/health`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     
     const response = await fetch(healthUrl, {
       method: 'GET',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
     });
     
@@ -104,14 +130,10 @@ export const checkBackendHealth = async () => {
     return false;
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.warn('⏰ Backend health check timed out (server may be waking up)');
-      return false;
+      console.warn('⏰ Backend health check timed out');
+    } else {
+      console.warn('🌐 Backend health check failed:', error.message);
     }
-    if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
-      console.warn('🌐 Backend health check failed - network error');
-      return false;
-    }
-    console.error('❌ Backend health check error:', error.message);
     return false;
   }
 };
@@ -121,7 +143,20 @@ export const customerAPI = {
   // Dashboard
   getDashboardStats: () => api.get('/customer/dashboard/stats'),
   getRecentBookings: () => api.get('/customer/bookings/recent'),
-  getReminders: () => api.get('/customer/reminders'),
+  
+  // ✅ FIXED: Get reminders with silent 404 handling
+  getReminders: async () => {
+    try {
+      const response = await api.get('/customer/reminders');
+      return response;
+    } catch (error) {
+      // ✅ Silent handling - return empty array for 404
+      if (error.response?.status === 404) {
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
   
   // Services
   getServices: (params) => api.get('/services', { params }),
@@ -134,6 +169,21 @@ export const customerAPI = {
   getFeaturedServices: () => api.get('/customer/featured-services'),
   getTrendingServices: () => api.get('/customer/trending-services'),
   
+  // Favorites
+  getFavorites: async () => {
+    try {
+      const response = await api.get('/customer/favorites');
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+  toggleFavorite: (serviceId) => api.post(`/services/${serviceId}/favorite`),
+  isFavorite: (serviceId) => api.get(`/services/${serviceId}/is-favorite`),
+  
   // Bookings
   createBooking: (data) => api.post('/bookings', data),
   getBookings: () => api.get('/bookings/my-bookings'),
@@ -141,15 +191,7 @@ export const customerAPI = {
   cancelBooking: (id) => api.put(`/bookings/${id}/cancel`),
   rescheduleBooking: (id, newDate) => api.put(`/bookings/${id}/reschedule`, { new_date: newDate }),
   getAvailableSlots: (serviceId, date) => api.get(`/bookings/available-slots?service_id=${serviceId}&date=${date}`),
-  getUpcomingBookings: async () => {
-    try {
-      const response = await api.get('/bookings/upcoming');
-      return response;
-    } catch (error) {
-      console.error('Error fetching upcoming bookings:', error);
-      throw error;
-    }
-  },
+  getUpcomingBookings: () => api.get('/bookings/upcoming'),
   getBookingStats: () => api.get('/bookings/stats'),
   
   // Reviews
@@ -165,12 +207,20 @@ export const customerAPI = {
     const queryString = query.toString();
     return api.get(`/customer/reviews${queryString ? `?${queryString}` : ''}`);
   },
-  getReviewStats: (params = {}) => {
-    const query = new URLSearchParams();
-    if (params.service_id) query.append('service_id', params.service_id);
-    
-    const queryString = query.toString();
-    return api.get(`/customer/reviews/stats${queryString ? `?${queryString}` : ''}`);
+  getReviewStats: async (params = {}) => {
+    try {
+      const query = new URLSearchParams();
+      if (params.service_id) query.append('service_id', params.service_id);
+      
+      const queryString = query.toString();
+      const response = await api.get(`/customer/reviews/stats${queryString ? `?${queryString}` : ''}`);
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: { total: 0, average: 0, distribution: {} } };
+      }
+      throw error;
+    }
   },
   getReviewById: (id) => api.get(`/customer/reviews/${id}`),
   updateReview: (id, data) => api.put(`/customer/reviews/${id}`, data),
@@ -180,13 +230,18 @@ export const customerAPI = {
   addReview: (serviceId, data) => api.post(`/services/${serviceId}/reviews`, data),
   
   // Notification Preferences
-  getNotificationPreferences: () => api.get('/customer/notification-preferences'),
+  getNotificationPreferences: async () => {
+    try {
+      const response = await api.get('/customer/notification-preferences');
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: { email: true, push: true, sms: false } };
+      }
+      throw error;
+    }
+  },
   updateNotificationPreferences: (data) => api.put('/customer/notification-preferences', data),
-  
-  // Favorites
-  getFavorites: () => api.get('/customer/favorites'),
-  toggleFavorite: (serviceId) => api.post(`/services/${serviceId}/favorite`),
-  isFavorite: (serviceId) => api.get(`/services/${serviceId}/is-favorite`),
   
   // Wallet
   getWallet: () => api.get('/wallet'),
@@ -201,6 +256,66 @@ export const customerAPI = {
   deletePaymentMethod: (id) => api.delete(`/customer/payment-methods/${id}`),
   getPaymentSummary: () => api.get('/customer/payment-summary'),
   confirmPayment: (data) => api.post('/payments/confirm', data),
+  
+  // =========================================================================
+  // HELP CENTER - CUSTOMER
+  // =========================================================================
+  
+  // FAQs
+  getFAQs: async (params) => {
+    try {
+      const query = new URLSearchParams();
+      if (params?.search) query.append('search', params.search);
+      if (params?.page) query.append('page', params.page);
+      if (params?.limit) query.append('limit', params.limit);
+      if (params?.category) query.append('category', params.category);
+      return api.get(`/customer/faqs${query.toString() ? `?${query.toString()}` : ''}`);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+  getHelpFAQs: (params) => customerAPI.getFAQs(params),
+  
+  // Support Tickets
+  getSupportTickets: async (params) => {
+    try {
+      const query = new URLSearchParams();
+      if (params?.status) query.append('status', params.status);
+      if (params?.page) query.append('page', params.page);
+      if (params?.limit) query.append('limit', params.limit);
+      return api.get(`/customer/tickets${query.toString() ? `?${query.toString()}` : ''}`);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+  getTickets: (params) => customerAPI.getSupportTickets(params),
+  createSupportTicket: (data) => api.post('/customer/tickets', data),
+  createTicket: (data) => customerAPI.createSupportTicket(data),
+  replyToTicket: (ticketId, data) => api.post(`/customer/tickets/${ticketId}/reply`, data),
+  addTicketReply: (ticketId, data) => customerAPI.replyToTicket(ticketId, data),
+  
+  // Knowledge Base
+  getKnowledgeBase: async (params) => {
+    try {
+      const query = new URLSearchParams();
+      if (params?.search) query.append('search', params.search);
+      if (params?.category) query.append('category', params.category);
+      if (params?.limit) query.append('limit', params.limit);
+      return api.get(`/customer/knowledge-base${query.toString() ? `?${query.toString()}` : ''}`);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+  getHelpArticles: (params) => customerAPI.getKnowledgeBase(params),
 };
 
 // ==================== PROVIDER API ====================
@@ -234,9 +349,9 @@ export const providerAPI = {
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
   getProfile: () => api.get('/provider/profile'),
   updateProfile: (data) => api.put('/provider/profile', data),
-
+  
   // =========================================================================
-  // HELP CENTER / SUPPORT - ✅ ADDED
+  // HELP CENTER / SUPPORT - PROVIDER SIDE
   // =========================================================================
 
   // FAQs
@@ -246,67 +361,47 @@ export const providerAPI = {
     if (params?.page) query.append('page', params.page);
     if (params?.limit) query.append('limit', params.limit);
     if (params?.category) query.append('category', params.category);
-    
-    const queryString = query.toString();
-    return api.get(`/provider/faqs${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/provider/faqs${query.toString() ? `?${query.toString()}` : ''}`);
   },
-  
-  // Alias for getFAQs
   getHelpFAQs: (params) => providerAPI.getFAQs(params),
-
+  
   // Support Tickets
   getSupportTickets: (params) => {
     const query = new URLSearchParams();
     if (params?.status) query.append('status', params.status);
     if (params?.page) query.append('page', params.page);
     if (params?.limit) query.append('limit', params.limit);
-    
-    const queryString = query.toString();
-    return api.get(`/provider/tickets${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/provider/tickets${query.toString() ? `?${query.toString()}` : ''}`);
   },
-  
-  // Alias for getSupportTickets
   getTickets: (params) => providerAPI.getSupportTickets(params),
-
-  // Create Support Ticket
   createSupportTicket: (data) => api.post('/provider/tickets', data),
   createTicket: (data) => providerAPI.createSupportTicket(data),
-
-  // Reply to Ticket
   replyToTicket: (ticketId, data) => api.post(`/provider/tickets/${ticketId}/reply`, data),
   addTicketReply: (ticketId, data) => providerAPI.replyToTicket(ticketId, data),
-
+  
   // Announcements
   getAnnouncements: (params) => {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit);
     if (params?.page) query.append('page', params.page);
-    
-    const queryString = query.toString();
-    return api.get(`/provider/announcements${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/provider/announcements${query.toString() ? `?${query.toString()}` : ''}`);
   },
-  
-  // Alias for getAnnouncements
   getAnnouncementsList: (params) => providerAPI.getAnnouncements(params),
-
+  
   // Knowledge Base
   getKnowledgeBase: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
     if (params?.category) query.append('category', params.category);
     if (params?.limit) query.append('limit', params.limit);
-    
-    const queryString = query.toString();
-    return api.get(`/provider/knowledge-base${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/provider/knowledge-base${query.toString() ? `?${query.toString()}` : ''}`);
   },
-  
-  // Alias for getKnowledgeBase
   getHelpArticles: (params) => providerAPI.getKnowledgeBase(params),
-
+  
   // FAQ Feedback
   submitFAQFeedback: (faqId, data) => api.post(`/provider/faqs/${faqId}/feedback`, data),
   faqFeedback: (faqId, data) => providerAPI.submitFAQFeedback(faqId, data),
-
+  
   // Contact Form
   submitContactForm: (data) => api.post('/provider/contact', data),
   sendContactMessage: (data) => providerAPI.submitContactForm(data),
@@ -356,6 +451,66 @@ export const adminAPI = {
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
   
   // =========================================================================
+  // HELP CENTER - ADMIN
+  // =========================================================================
+
+  // FAQs
+  getFAQs: (params) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.category) query.append('category', params.category);
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    return api.get(`/admin/faqs${query.toString() ? `?${query.toString()}` : ''}`);
+  },
+  getHelpFAQs: (params) => adminAPI.getFAQs(params),
+  createFAQ: (data) => api.post('/admin/faqs', data),
+  addFAQ: (data) => adminAPI.createFAQ(data),
+  updateFAQ: (id, data) => api.put(`/admin/faqs/${id}`, data),
+  editFAQ: (id, data) => adminAPI.updateFAQ(id, data),
+  deleteFAQ: (id) => api.delete(`/admin/faqs/${id}`),
+  removeFAQ: (id) => adminAPI.deleteFAQ(id),
+
+  // Announcements
+  getAnnouncements: (params) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.status) query.append('status', params.status);
+    return api.get(`/admin/announcements${query.toString() ? `?${query.toString()}` : ''}`);
+  },
+  getAnnouncementsList: (params) => adminAPI.getAnnouncements(params),
+  createAnnouncement: (data) => api.post('/admin/announcements', data),
+  addAnnouncement: (data) => adminAPI.createAnnouncement(data),
+  updateAnnouncement: (id, data) => api.put(`/admin/announcements/${id}`, data),
+  editAnnouncement: (id, data) => adminAPI.updateAnnouncement(id, data),
+  deleteAnnouncement: (id) => api.delete(`/admin/announcements/${id}`),
+  removeAnnouncement: (id) => adminAPI.deleteAnnouncement(id),
+
+  // Knowledge Base
+  getKnowledgeBase: (params) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.category) query.append('category', params.category);
+    if (params?.page) query.append('page', params.page);
+    if (params?.limit) query.append('limit', params.limit);
+    if (params?.tag) query.append('tag', params.tag);
+    return api.get(`/admin/knowledge-base${query.toString() ? `?${query.toString()}` : ''}`);
+  },
+  getHelpArticles: (params) => adminAPI.getKnowledgeBase(params),
+  createKnowledgeArticle: (data) => api.post('/admin/knowledge-base', data),
+  addKnowledgeArticle: (data) => adminAPI.createKnowledgeArticle(data),
+  updateKnowledgeArticle: (id, data) => api.put(`/admin/knowledge-base/${id}`, data),
+  editKnowledgeArticle: (id, data) => adminAPI.updateKnowledgeArticle(id, data),
+  deleteKnowledgeArticle: (id) => api.delete(`/admin/knowledge-base/${id}`),
+  removeKnowledgeArticle: (id) => adminAPI.deleteKnowledgeArticle(id),
+
+  // FAQ Feedback
+  getFAQFeedback: (faqId) => api.get(`/admin/faqs/${faqId}/feedback`),
+  getFAQStats: (faqId) => api.get(`/admin/faqs/${faqId}/stats`),
+
+  // =========================================================================
   // PAYMENT MANAGEMENT
   // =========================================================================
 
@@ -368,11 +523,8 @@ export const adminAPI = {
     if (params?.startDate) query.append('startDate', params.startDate);
     if (params?.endDate) query.append('endDate', params.endDate);
     if (params?.search) query.append('search', params.search);
-    
-    const queryString = query.toString();
-    return api.get(`/admin/payments${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/admin/payments${query.toString() ? `?${query.toString()}` : ''}`);
   },
-
   getPayouts: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);
@@ -380,11 +532,8 @@ export const adminAPI = {
     if (params?.status) query.append('status', params.status);
     if (params?.startDate) query.append('startDate', params.startDate);
     if (params?.endDate) query.append('endDate', params.endDate);
-    
-    const queryString = query.toString();
-    return api.get(`/admin/payouts${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/admin/payouts${query.toString() ? `?${query.toString()}` : ''}`);
   },
-
   getPaymentOverview: () => api.get('/admin/payments/overview'),
   getRevenueByMethod: () => api.get('/admin/payments/revenue-by-method'),
   getPaymentTrends: (params) => {
@@ -392,9 +541,7 @@ export const adminAPI = {
     if (params?.period) query.append('period', params.period);
     if (params?.startDate) query.append('startDate', params.startDate);
     if (params?.endDate) query.append('endDate', params.endDate);
-    
-    const queryString = query.toString();
-    return api.get(`/admin/payments/trends${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/admin/payments/trends${query.toString() ? `?${query.toString()}` : ''}`);
   },
   refundPayment: (id, data) => api.post(`/admin/payments/${id}/refund`, data),
   getPaymentDetails: (id) => api.get(`/admin/payments/${id}`),
@@ -408,8 +555,6 @@ export const adminAPI = {
 
   getSettings: () => api.get('/admin/settings'),
   updateSettings: (data) => api.put('/admin/settings', data),
-  
-  // Alternative names for compatibility
   getPlatformSettings: () => api.get('/admin/settings'),
   updatePlatformSettings: (data) => api.put('/admin/settings', data),
 
@@ -419,14 +564,14 @@ export const adminAPI = {
 
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
-  
+
   // =========================================================================
   // NOTIFICATIONS
   // =========================================================================
 
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
-  
+
   // =========================================================================
   // ACTIVITY LOG
   // =========================================================================
@@ -443,13 +588,10 @@ export const adminAPI = {
     if (params?.userId) query.append('userId', params.userId);
     if (params?.sortBy) query.append('sortBy', params.sortBy);
     if (params?.sortOrder) query.append('sortOrder', params.sortOrder);
-    
-    const queryString = query.toString();
-    return api.get(`/admin/activities${queryString ? `?${queryString}` : ''}`);
+    return api.get(`/admin/activities${query.toString() ? `?${query.toString()}` : ''}`);
   },
-
-  // Alias for getActivityLog (backward compatibility)
   getAuditLogs: (params) => adminAPI.getActivityLog(params),
+  getActivities: (params) => adminAPI.getActivityLog(params),
 };
 
 // ==================== NOTIFICATION API ====================

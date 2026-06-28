@@ -5,15 +5,351 @@ import pool from '../config/db.js';
 
 const router = express.Router();
 
-// All routes require authentication and provider/admin role
+console.log('🔧 Loading provider routes...');
+
+// =========================================================================
+// GLOBAL MIDDLEWARE - Apply to all routes
+// =========================================================================
 router.use(protect);
 router.use(authorize('provider', 'admin'));
+
+// =========================================================================
+// HEALTH CHECK ROUTE (for debugging)
+// =========================================================================
+router.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Provider routes are working',
+    userId: req.user?.id,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// =========================================================================
+// PROVIDER TICKETS - ✅ FIXED
+// =========================================================================
+
+// GET /api/provider/tickets - Get provider's tickets with pagination
+router.get('/tickets', async (req, res) => {
+  console.log('📋 GET /tickets - Request received');
+  try {
+    const userId = req.user.id;
+    const { limit = 10, page = 1, status } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    console.log(`📋 Fetching tickets for user ${userId}, page ${page}, limit ${limit}`);
+    
+    // Check if support_tickets table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('⚠️ support_tickets table does not exist - returning empty array');
+      return res.json({
+        tickets: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['user_id = $1'];
+    let params = [userId];
+    let paramIndex = 2;
+    
+    if (status && status !== 'all') {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    // Get total count
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM support_tickets WHERE ${whereClause}
+    `, params.slice(0, paramIndex - 1));
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    // Get paginated tickets
+    const result = await pool.query(`
+      SELECT * FROM support_tickets 
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, [...params, parseInt(limit), offset]);
+    
+    // Get messages for each ticket
+    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
+      const messages = await pool.query(
+        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
+        [ticket.id]
+      );
+      return { ...ticket, messages: messages.rows };
+    }));
+    
+    console.log(`✅ Found ${ticketsWithMessages.length} tickets`);
+    
+    res.json({
+      tickets: ticketsWithMessages,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('❌ Error fetching provider tickets:', error);
+    res.status(500).json({
+      tickets: [],
+      total: 0,
+      page: 1,
+      totalPages: 0,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /api/provider/tickets - Create ticket
+router.post('/tickets', async (req, res) => {
+  console.log('📝 POST /tickets - Request received');
+  try {
+    const userId = req.user.id;
+    const { subject, category, priority = 'medium', message } = req.body;
+    
+    if (!subject || !message) {
+      return res.status(400).json({ 
+        message: 'Subject and message are required' 
+      });
+    }
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        message: 'Support tickets table not available' 
+      });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
+      RETURNING *
+    `, [userId, subject, category || 'general', priority]);
+    
+    const ticket = result.rows[0];
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticket.id, userId, message]);
+    
+    console.log(`✅ Ticket created: ${ticket.id}`);
+    res.status(201).json(ticket);
+  } catch (error) {
+    console.error('❌ Error creating ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to create ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /api/provider/tickets/:id/reply - Reply to ticket
+router.post('/tickets/:id/reply', async (req, res) => {
+  console.log('📝 POST /tickets/:id/reply - Request received');
+  try {
+    const userId = req.user.id;
+    const ticketId = req.params.id;
+    const { message } = req.body;
+    
+    if (!message || !message.trim()) {
+      return res.status(400).json({ message: 'Reply message is required' });
+    }
+    
+    const ticketCheck = await pool.query(
+      'SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2',
+      [ticketId, userId]
+    );
+    
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticketId, userId, message.trim()]);
+    
+    await pool.query(`
+      UPDATE support_tickets 
+      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [ticketId]);
+    
+    console.log(`✅ Reply sent to ticket: ${ticketId}`);
+    res.status(201).json({ message: 'Reply sent successfully' });
+  } catch (error) {
+    console.error('❌ Error replying to ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to reply to ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// =========================================================================
+// PROVIDER KNOWLEDGE BASE - ✅ FIXED
+// =========================================================================
+
+// GET /api/provider/knowledge-base - Get knowledge base for providers
+router.get('/knowledge-base', async (req, res) => {
+  console.log('📚 GET /knowledge-base - Request received');
+  try {
+    const { search, category, limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'knowledge_base'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('⚠️ knowledge_base table does not exist - returning empty array');
+      return res.json({
+        articles: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['is_published = true'];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM knowledge_base WHERE ${whereClause}
+    `, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT id, title, content, category, tags, read_time, created_at, updated_at
+      FROM knowledge_base
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    const articles = result.rows.map(article => ({
+      ...article,
+      read_time: article.read_time || Math.ceil((article.content || '').length / 1000) + 1
+    }));
+    
+    console.log(`✅ Found ${articles.length} knowledge base articles`);
+    
+    res.json({
+      articles: articles,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('❌ Error fetching provider knowledge base:', error);
+    res.status(500).json({
+      articles: [],
+      total: 0,
+      page: 1,
+      totalPages: 0,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// =========================================================================
+// PROVIDER FAQs - ✅ FIXED
+// =========================================================================
+
+router.get('/faqs', async (req, res) => {
+  console.log('❓ GET /faqs - Request received');
+  try {
+    const { limit = 20, category, search } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'faqs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    let conditions = ["status = 'published'"];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const query = `
+      SELECT id, question, answer, category, icon, helpful_count, created_at
+      FROM faqs
+      WHERE ${whereClause}
+      ORDER BY helpful_count DESC, created_at DESC
+      LIMIT $${paramIndex}
+    `;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('❌ Error fetching provider FAQs:', error);
+    res.json([]);
+  }
+});
 
 // =========================================================================
 // PROVIDER STATISTICS
 // =========================================================================
 
-// GET /api/provider/stats - Simple provider stats
 router.get('/stats', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1206,317 +1542,8 @@ router.delete('/withdrawal-methods/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER HELP CENTER - ✅ FIXED: TICKETS & KNOWLEDGE BASE
+// EXPORT ROUTER
 // =========================================================================
 
-// ========================
-// PROVIDER FAQs
-// ========================
-
-router.get('/faqs', async (req, res) => {
-  try {
-    const { limit = 20, category, search } = req.query;
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'faqs'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.json([]);
-    }
-    
-    let conditions = ["status = 'published'"];
-    let params = [];
-    let paramIndex = 1;
-    
-    if (category) {
-      conditions.push(`category = $${paramIndex}`);
-      params.push(category);
-      paramIndex++;
-    }
-    if (search) {
-      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    const query = `
-      SELECT id, question, answer, category, icon, helpful_count, created_at
-      FROM faqs
-      WHERE ${whereClause}
-      ORDER BY helpful_count DESC, created_at DESC
-      LIMIT $${paramIndex}
-    `;
-    params.push(parseInt(limit));
-    
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching provider FAQs:', error);
-    res.json([]);
-  }
-});
-
-// ========================
-// PROVIDER TICKETS - ✅ FIXED
-// ========================
-
-// GET /api/provider/tickets - Get provider's tickets
-router.get('/tickets', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { limit = 10, page = 1, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Check if support_tickets table exists
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'support_tickets'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.json({
-        tickets: [],
-        total: 0,
-        page: parseInt(page),
-        totalPages: 0
-      });
-    }
-    
-    let conditions = ['user_id = $1'];
-    let params = [userId];
-    let paramIndex = 2;
-    
-    if (status && status !== 'all') {
-      conditions.push(`status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    // Get total count
-    const countResult = await pool.query(`
-      SELECT COUNT(*) as total FROM support_tickets WHERE ${whereClause}
-    `, params.slice(0, paramIndex - 1));
-    const total = parseInt(countResult.rows[0]?.total || 0);
-    
-    // Get paginated tickets
-    const result = await pool.query(`
-      SELECT * FROM support_tickets 
-      WHERE ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, [...params, parseInt(limit), offset]);
-    
-    // Get messages for each ticket
-    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
-      const messages = await pool.query(
-        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
-        [ticket.id]
-      );
-      return { ...ticket, messages: messages.rows };
-    }));
-    
-    res.json({
-      tickets: ticketsWithMessages,
-      total: total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)) || 1
-    });
-  } catch (error) {
-    console.error('Error fetching provider tickets:', error);
-    res.json({
-      tickets: [],
-      total: 0,
-      page: 1,
-      totalPages: 0
-    });
-  }
-});
-
-// POST /api/provider/tickets - Create ticket
-router.post('/tickets', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { subject, category, priority = 'medium', message } = req.body;
-    
-    if (!subject || !message) {
-      return res.status(400).json({ 
-        message: 'Subject and message are required' 
-      });
-    }
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'support_tickets'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.status(400).json({ 
-        message: 'Support tickets table not available' 
-      });
-    }
-    
-    const result = await pool.query(`
-      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
-      RETURNING *
-    `, [userId, subject, category || 'general', priority]);
-    
-    const ticket = result.rows[0];
-    
-    await pool.query(`
-      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
-      VALUES ($1, $2, 'user', $3, NOW())
-    `, [ticket.id, userId, message]);
-    
-    res.status(201).json(ticket);
-  } catch (error) {
-    console.error('Error creating ticket:', error);
-    res.status(500).json({ 
-      message: 'Failed to create ticket',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// POST /api/provider/tickets/:id/reply - Reply to ticket
-router.post('/tickets/:id/reply', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const ticketId = req.params.id;
-    const { message } = req.body;
-    
-    if (!message || !message.trim()) {
-      return res.status(400).json({ message: 'Reply message is required' });
-    }
-    
-    const ticketCheck = await pool.query(
-      'SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2',
-      [ticketId, userId]
-    );
-    
-    if (ticketCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Ticket not found' });
-    }
-    
-    await pool.query(`
-      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
-      VALUES ($1, $2, 'user', $3, NOW())
-    `, [ticketId, userId, message.trim()]);
-    
-    await pool.query(`
-      UPDATE support_tickets 
-      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
-          updated_at = NOW()
-      WHERE id = $1
-    `, [ticketId]);
-    
-    res.status(201).json({ message: 'Reply sent successfully' });
-  } catch (error) {
-    console.error('Error replying to ticket:', error);
-    res.status(500).json({ 
-      message: 'Failed to reply to ticket',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// ========================
-// PROVIDER KNOWLEDGE BASE - ✅ FIXED
-// ========================
-
-// GET /api/provider/knowledge-base - Get knowledge base for providers
-router.get('/knowledge-base', async (req, res) => {
-  try {
-    const { search, category, limit = 10, page = 1 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'knowledge_base'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.json({
-        articles: [],
-        total: 0,
-        page: parseInt(page),
-        totalPages: 0
-      });
-    }
-    
-    let conditions = ['is_published = true'];
-    let params = [];
-    let paramIndex = 1;
-    
-    if (search) {
-      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-    if (category) {
-      conditions.push(`category = $${paramIndex}`);
-      params.push(category);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    // Get total count
-    const countResult = await pool.query(`
-      SELECT COUNT(*) as total FROM knowledge_base WHERE ${whereClause}
-    `, params);
-    const total = parseInt(countResult.rows[0]?.total || 0);
-    
-    // Get paginated articles
-    const query = `
-      SELECT id, title, content, category, tags, read_time, created_at, updated_at
-      FROM knowledge_base
-      WHERE ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-    params.push(parseInt(limit), offset);
-    
-    const result = await pool.query(query, params);
-    
-    const articles = result.rows.map(article => ({
-      ...article,
-      read_time: article.read_time || Math.ceil((article.content || '').length / 1000) + 1
-    }));
-    
-    res.json({
-      articles: articles,
-      total: total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)) || 1
-    });
-  } catch (error) {
-    console.error('Error fetching provider knowledge base:', error);
-    res.json({
-      articles: [],
-      total: 0,
-      page: 1,
-      totalPages: 0
-    });
-  }
-});
-
-// =========================================================================
-// EXPORT ROUTER - ✅ MAKE SURE THIS IS AT THE END
-// =========================================================================
-
+console.log('✅ Provider routes loaded successfully');
 export default router;

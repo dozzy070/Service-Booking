@@ -141,7 +141,15 @@ const AdminReports = () => {
     return `${num.toFixed(1)}%`;
   };
 
-  // ✅ Fetch report data from real API
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Fetch report data from real API
   const fetchReportData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -158,21 +166,16 @@ const AdminReports = () => {
 
       let response = null;
       
-      // Try getReport first
       if (typeof adminAPI.getReport === 'function') {
         response = await adminAPI.getReport(params);
-      } 
-      // Fallback to getReports
-      else if (typeof adminAPI.getReports === 'function') {
+      } else if (typeof adminAPI.getReports === 'function') {
         response = await adminAPI.getReports(params);
-      } 
-      else {
+      } else {
         throw new Error('Report API methods not available');
       }
 
       const data = response?.data || {};
       
-      // Set report data with safe defaults
       setReportData({
         revenue: data.revenue || { total: 0, growth: 0, data: [] },
         bookings: data.bookings || { total: 0, growth: 0, data: [] },
@@ -195,7 +198,6 @@ const AdminReports = () => {
       console.error('Error fetching report data:', error);
       setError(error.message || 'Failed to load report data');
       
-      // Set empty states
       setReportData({
         revenue: { total: 0, growth: 0, data: [] },
         bookings: { total: 0, growth: 0, data: [] },
@@ -221,14 +223,14 @@ const AdminReports = () => {
     }
   }, [reportType, dateRange]);
 
-  // ✅ Manual refresh
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await fetchReportData(false);
     toast.success('Report data refreshed');
   };
 
-  // ✅ Polling functions
+  // Polling functions
   const startPolling = () => {
     stopPolling();
     pollingInterval.current = setInterval(() => {
@@ -238,7 +240,7 @@ const AdminReports = () => {
           isPolling.current = false;
         });
       }
-    }, 60000); // Poll every 60 seconds for report updates
+    }, 60000);
   };
 
   const stopPolling = () => {
@@ -253,10 +255,7 @@ const AdminReports = () => {
   useEffect(() => {
     fetchReportData(true);
     startPolling();
-    
-    return () => {
-      stopPolling();
-    };
+    return () => stopPolling();
   }, []);
 
   // Refetch when report type or date range changes
@@ -266,7 +265,7 @@ const AdminReports = () => {
     }
   }, [reportType, dateRange]);
 
-  // ✅ Export report with real API
+  // Export report with real API
   const exportReport = async () => {
     setExporting(true);
     try {
@@ -282,19 +281,13 @@ const AdminReports = () => {
 
       let response = null;
       
-      // Try exportReport first
       if (typeof adminAPI.exportReport === 'function') {
         response = await adminAPI.exportReport(params);
-      } 
-      // Fallback to generateReport
-      else if (typeof adminAPI.generateReport === 'function') {
+      } else if (typeof adminAPI.generateReport === 'function') {
         response = await adminAPI.generateReport(params);
-      }
-      // Fallback to downloadReport
-      else if (typeof adminAPI.downloadReport === 'function') {
+      } else if (typeof adminAPI.downloadReport === 'function') {
         response = await adminAPI.downloadReport(params);
-      }
-      else {
+      } else {
         // Generate PDF using jsPDF as fallback
         const doc = new jsPDF();
         doc.setFontSize(18);
@@ -303,7 +296,6 @@ const AdminReports = () => {
         doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 32);
         doc.text(`Period: ${dateRange}`, 14, 38);
         
-        // Add summary data
         doc.setFontSize(12);
         doc.text('Summary', 14, 50);
         doc.setFontSize(10);
@@ -355,6 +347,7 @@ const AdminReports = () => {
       return <Badge bg="secondary" className="rounded-pill">Unknown</Badge>;
     }
     
+    const lowerStatus = status.toLowerCase();
     const config = {
       completed: { variant: 'success', label: 'Completed' },
       pending: { variant: 'warning', label: 'Pending' },
@@ -362,46 +355,34 @@ const AdminReports = () => {
       active: { variant: 'info', label: 'Active' },
       inactive: { variant: 'secondary', label: 'Inactive' },
       success: { variant: 'success', label: 'Success' },
-      failed: { variant: 'danger', label: 'Failed' }
+      failed: { variant: 'danger', label: 'Failed' },
+      approved: { variant: 'success', label: 'Approved' }
     };
-    const item = config[status.toLowerCase()] || config.pending;
+    const item = config[lowerStatus] || config.pending;
     return <Badge bg={item.variant} className="rounded-pill">{item.label}</Badge>;
   };
 
   // Chart colors
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-  // Loading state
-  if (loading) {
-    return (
-      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-        <Container fluid className="py-4">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
-            <div className="text-center">
-              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
-              <p className="mt-3 text-muted">Loading report data...</p>
-            </div>
-          </div>
-        </Container>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={styles.container}>
       <Container fluid className="py-4">
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div style={styles.header}>
           <div>
-            <h2 className="mb-1 fw-bold">Reports & Analytics</h2>
-            <p className="text-muted mb-0">Generate and analyze platform performance reports</p>
+            <h2 style={styles.headerTitle}>Reports & Analytics</h2>
+            <p style={styles.headerSubtitle}>Generate and analyze platform performance reports</p>
           </div>
-          <div className="d-flex gap-2">
+          <div style={styles.headerActions}>
             <Button
               variant="outline-primary"
               onClick={refreshData}
               disabled={refreshing}
               className="d-flex align-items-center gap-2"
+              style={styles.refreshBtn}
             >
               <RefreshCw size={18} className={refreshing ? 'spin' : ''} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -410,6 +391,7 @@ const AdminReports = () => {
               variant="primary"
               onClick={() => setShowExportModal(true)}
               className="d-flex align-items-center gap-2"
+              style={styles.exportBtn}
             >
               <Download size={18} />
               Export Report
@@ -419,23 +401,23 @@ const AdminReports = () => {
 
         {/* Error Alert */}
         {error && (
-          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+          <Alert variant="danger" style={styles.alert} dismissible onClose={() => setError(null)}>
             <AlertCircle size={18} className="me-2" />
             {error}
           </Alert>
         )}
 
         {/* Report Controls */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
+        <Card style={styles.controlsCard}>
+          <Card.Body style={styles.controlsCardBody}>
             <Row className="align-items-end g-3">
               <Col md={4}>
                 <Form.Group>
-                  <Form.Label className="fw-semibold">Report Type</Form.Label>
+                  <Form.Label style={styles.formLabel}>Report Type</Form.Label>
                   <Form.Select 
                     value={reportType} 
                     onChange={(e) => setReportType(e.target.value)}
-                    className="py-2"
+                    style={styles.formControl}
                   >
                     <option value="revenue">Revenue Report</option>
                     <option value="bookings">Bookings Report</option>
@@ -445,11 +427,11 @@ const AdminReports = () => {
               </Col>
               <Col md={3}>
                 <Form.Group>
-                  <Form.Label className="fw-semibold">Date Range</Form.Label>
+                  <Form.Label style={styles.formLabel}>Date Range</Form.Label>
                   <Form.Select 
                     value={dateRange} 
                     onChange={(e) => setDateRange(e.target.value)}
-                    className="py-2"
+                    style={styles.formControl}
                   >
                     <option value="week">Last 7 Days</option>
                     <option value="month">Last 30 Days</option>
@@ -459,8 +441,8 @@ const AdminReports = () => {
                 </Form.Group>
               </Col>
               <Col md={2}>
-                <Button variant="outline-secondary" className="w-100 d-flex align-items-center justify-content-center gap-2">
-                  <Filter size={16} />
+                <Button variant="outline-secondary" style={styles.filterBtn}>
+                  <Filter size={16} className="me-2" />
                   More Filters
                 </Button>
               </Col>
@@ -468,9 +450,9 @@ const AdminReports = () => {
                 <Button 
                   variant="primary" 
                   onClick={() => setShowExportModal(true)} 
-                  className="w-100 d-flex align-items-center justify-content-center gap-2"
+                  style={styles.exportNowBtn}
                 >
-                  <Download size={16} />
+                  <Download size={16} className="me-2" />
                   Export Now
                 </Button>
               </Col>
@@ -479,102 +461,47 @@ const AdminReports = () => {
         </Card>
 
         {/* Stats Overview */}
-        <Row className="g-4 mb-4">
-          <Col xl={3} lg={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex justify-content-between align-items-start">
-                  <div>
-                    <p className="text-muted mb-1">Total {reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'Users'}</p>
-                    <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' ? formatNaira(currentReport.total) : formatNumber(currentReport.total)}
-                    </h2>
-                    <small className={`text-${getGrowthColor(currentReport.growth)} d-flex align-items-center gap-1 mt-1`}>
-                      {Number(currentReport.growth) > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-                      {Math.abs(Number(currentReport.growth) || 0)}% from last period
-                    </small>
-                  </div>
-                  <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
-                    {reportType === 'revenue' && <DollarSign size={24} color="#3b82f6" />}
-                    {reportType === 'bookings' && <ShoppingCart size={24} color="#3b82f6" />}
-                    {reportType === 'users' && <Users size={24} color="#3b82f6" />}
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={3} lg={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex justify-content-between align-items-start">
-                  <div>
-                    <p className="text-muted mb-1">Average / Month</p>
-                    <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' 
-                        ? formatNaira((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1))
-                        : formatNumber((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1))
-                      }
-                    </h2>
-                    <small className="text-muted">Per month average</small>
-                  </div>
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <BarChart3 size={24} color="#10b981" />
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={3} lg={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex justify-content-between align-items-start">
-                  <div>
-                    <p className="text-muted mb-1">Highest Month</p>
-                    <h2 className="fw-bold mb-0">
-                      {reportType === 'revenue' 
-                        ? formatNaira(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))
-                        : formatNumber(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))
-                      }
-                    </h2>
-                    <small className="text-muted">
-                      {(currentReport.data || []).find(d => d.value === Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))?.month || 'N/A'}
-                    </small>
-                  </div>
-                  <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
-                    <Trophy size={24} color="#f59e0b" />
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col xl={3} lg={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex justify-content-between align-items-start">
-                  <div>
-                    <p className="text-muted mb-1">Growth Rate</p>
-                    <h2 className={`fw-bold mb-0 text-${getGrowthColor(currentReport.growth)}`}>
-                      {Number(currentReport.growth) > 0 ? '+' : ''}{Number(currentReport.growth) || 0}%
-                    </h2>
-                    <small className="text-muted">Period over period</small>
-                  </div>
-                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
-                    <TrendingUp size={24} color="#8b5cf6" />
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
+        <Row style={styles.statsRow}>
+          {[
+            { key: 'total', label: `Total ${reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'Users'}`, value: reportType === 'revenue' ? formatNaira(currentReport.total) : formatNumber(currentReport.total), color: '#3b82f6', bg: '#3b82f620', icon: reportType === 'revenue' ? <DollarSign size={24} color="#3b82f6" /> : reportType === 'bookings' ? <ShoppingCart size={24} color="#3b82f6" /> : <Users size={24} color="#3b82f6" />, growth: currentReport.growth },
+            { key: 'average', label: 'Average / Month', value: reportType === 'revenue' ? formatNaira((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1)) : formatNumber((currentReport.data || []).reduce((sum, d) => sum + (d.value || 0), 0) / Math.max((currentReport.data || []).length, 1)), color: '#10b981', bg: '#10b98120', icon: <BarChart3 size={24} color="#10b981" /> },
+            { key: 'highest', label: 'Highest Month', value: reportType === 'revenue' ? formatNaira(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0)) : formatNumber(Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0)), color: '#f59e0b', bg: '#f59e0b20', icon: <Trophy size={24} color="#f59e0b" />, detail: (currentReport.data || []).find(d => d.value === Math.max(...((currentReport.data || []).map(d => d.value || 0)), 0))?.month || 'N/A' },
+            { key: 'growth', label: 'Growth Rate', value: `${Number(currentReport.growth) > 0 ? '+' : ''}${Number(currentReport.growth) || 0}%`, color: '#8b5cf6', bg: '#8b5cf620', icon: <TrendingUp size={24} color="#8b5cf6" />, growth: currentReport.growth }
+          ].map((item, idx) => {
+            const isUp = Number(item.growth) >= 0;
+            return (
+              <Col xl={3} lg={6} key={idx}>
+                <Card style={styles.statCard}>
+                  <Card.Body style={styles.statCardBody}>
+                    <div>
+                      <p style={styles.statLabel}>{item.label}</p>
+                      <h2 style={styles.statValue}>{item.value}</h2>
+                      {item.growth !== undefined && (
+                        <small className={`text-${getGrowthColor(item.growth)} d-flex align-items-center gap-1 mt-1`}>
+                          {Number(item.growth) > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                          {Math.abs(Number(item.growth) || 0)}% from last period
+                        </small>
+                      )}
+                      {item.detail && <small style={styles.statDetail}>{item.detail}</small>}
+                    </div>
+                    <div style={{ ...styles.statIconWrapper, background: item.bg, color: item.color }}>
+                      {item.icon}
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+            );
+          })}
         </Row>
 
         {/* Tabs */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-0">
-            <Nav variant="tabs" className="px-3 pt-3" style={{ borderBottom: 'none' }}>
-              <Nav.Item><Nav.Link active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}><Eye size={16} className="me-2" /> Overview</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'chart'} onClick={() => setActiveTab('chart')}><PieChart size={16} className="me-2" /> Chart View</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'table'} onClick={() => setActiveTab('table')}><Table size={16} className="me-2" /> Table View</Nav.Link></Nav.Item>
-              <Nav.Item><Nav.Link active={activeTab === 'top'} onClick={() => setActiveTab('top')}><Award size={16} className="me-2" /> Top Performers</Nav.Link></Nav.Item>
+        <Card style={styles.tabsCard}>
+          <Card.Body style={styles.tabsCardBody}>
+            <Nav variant="tabs" className="px-3 pt-3" style={styles.tabsNav}>
+              <Nav.Item><Nav.Link active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} style={styles.tabLink}><Eye size={16} className="me-2" /> Overview</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'chart'} onClick={() => setActiveTab('chart')} style={styles.tabLink}><PieChart size={16} className="me-2" /> Chart View</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'table'} onClick={() => setActiveTab('table')} style={styles.tabLink}><Table size={16} className="me-2" /> Table View</Nav.Link></Nav.Item>
+              <Nav.Item><Nav.Link active={activeTab === 'top'} onClick={() => setActiveTab('top')} style={styles.tabLink}><Award size={16} className="me-2" /> Top Performers</Nav.Link></Nav.Item>
             </Nav>
           </Card.Body>
         </Card>
@@ -582,62 +509,54 @@ const AdminReports = () => {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
-            <Row className="g-4 mb-4">
+            <Row style={styles.summaryRow}>
               <Col md={3}>
-                <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-2" style={{ background: '#3b82f620' }}>
-                        <DollarSign size={18} color="#3b82f6" />
-                      </div>
+                <Card style={styles.summaryCard}>
+                  <Card.Body style={styles.summaryCardBody}>
+                    <div style={styles.summaryIconWrapper}>
+                      <div style={{ ...styles.summaryIcon, background: '#3b82f620' }}><DollarSign size={18} color="#3b82f6" /></div>
                       <div>
-                        <small className="text-muted d-block">Total Revenue</small>
-                        <span className="fw-bold">{formatNaira(summary.totalRevenue)}</span>
+                        <small style={styles.summaryLabel}>Total Revenue</small>
+                        <span style={styles.summaryValue}>{formatNaira(summary.totalRevenue)}</span>
                       </div>
                     </div>
                   </Card.Body>
                 </Card>
               </Col>
               <Col md={3}>
-                <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-2" style={{ background: '#f59e0b20' }}>
-                        <ShoppingCart size={18} color="#f59e0b" />
-                      </div>
+                <Card style={styles.summaryCard}>
+                  <Card.Body style={styles.summaryCardBody}>
+                    <div style={styles.summaryIconWrapper}>
+                      <div style={{ ...styles.summaryIcon, background: '#f59e0b20' }}><ShoppingCart size={18} color="#f59e0b" /></div>
                       <div>
-                        <small className="text-muted d-block">Total Bookings</small>
-                        <span className="fw-bold">{formatNumber(summary.totalBookings)}</span>
+                        <small style={styles.summaryLabel}>Total Bookings</small>
+                        <span style={styles.summaryValue}>{formatNumber(summary.totalBookings)}</span>
                       </div>
                     </div>
                   </Card.Body>
                 </Card>
               </Col>
               <Col md={3}>
-                <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-2" style={{ background: '#10b98120' }}>
-                        <Users size={18} color="#10b981" />
-                      </div>
+                <Card style={styles.summaryCard}>
+                  <Card.Body style={styles.summaryCardBody}>
+                    <div style={styles.summaryIconWrapper}>
+                      <div style={{ ...styles.summaryIcon, background: '#10b98120' }}><Users size={18} color="#10b981" /></div>
                       <div>
-                        <small className="text-muted d-block">Total Users</small>
-                        <span className="fw-bold">{formatNumber(summary.totalUsers)}</span>
+                        <small style={styles.summaryLabel}>Total Users</small>
+                        <span style={styles.summaryValue}>{formatNumber(summary.totalUsers)}</span>
                       </div>
                     </div>
                   </Card.Body>
                 </Card>
               </Col>
               <Col md={3}>
-                <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                  <Card.Body className="p-4">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="rounded-circle p-2" style={{ background: '#8b5cf620' }}>
-                        <Target size={18} color="#8b5cf6" />
-                      </div>
+                <Card style={styles.summaryCard}>
+                  <Card.Body style={styles.summaryCardBody}>
+                    <div style={styles.summaryIconWrapper}>
+                      <div style={{ ...styles.summaryIcon, background: '#8b5cf620' }}><Target size={18} color="#8b5cf6" /></div>
                       <div>
-                        <small className="text-muted d-block">Conversion Rate</small>
-                        <span className="fw-bold">{formatPercent(summary.conversionRate)}</span>
+                        <small style={styles.summaryLabel}>Conversion Rate</small>
+                        <span style={styles.summaryValue}>{formatPercent(summary.conversionRate)}</span>
                       </div>
                     </div>
                   </Card.Body>
@@ -645,28 +564,28 @@ const AdminReports = () => {
               </Col>
             </Row>
 
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Header className="bg-white border-0 pt-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <h6 className="fw-bold mb-0">Recent Activity</h6>
-                  <Button variant="link" size="sm" className="text-muted">View All</Button>
+            <Card style={styles.activityCard}>
+              <Card.Header style={styles.activityCardHeader}>
+                <div style={styles.activityHeader}>
+                  <h6 style={styles.activityTitle}>Recent Activity</h6>
+                  <Button variant="link" size="sm" style={styles.activityViewAll}>View All</Button>
                 </div>
               </Card.Header>
               <Card.Body>
                 {(recentActivity || []).length === 0 ? (
-                  <div className="text-center py-4">
-                    <Activity size={32} className="text-muted opacity-50" />
-                    <p className="text-muted mb-0">No recent activity</p>
+                  <div style={styles.emptyState}>
+                    <Activity size={32} style={styles.emptyIcon} />
+                    <p style={styles.emptyText}>No recent activity</p>
                   </div>
                 ) : (
                   (recentActivity || []).slice(0, 5).map((activity, idx) => (
-                    <div key={activity.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
-                      <div className="rounded-circle p-2" style={{ background: '#f1f5f9' }}>
-                        <Activity size={16} className="text-muted" />
+                    <div key={activity.id || idx} style={styles.activityItem}>
+                      <div style={styles.activityIconWrapper}>
+                        <Activity size={16} style={styles.activityIcon} />
                       </div>
-                      <div className="flex-grow-1">
-                        <p className="mb-0 small">{activity.message || activity.action || 'Activity'}</p>
-                        <small className="text-muted">{activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Recent'}</small>
+                      <div style={styles.activityContent}>
+                        <p style={styles.activityMessage}>{getField(activity, ['message', 'action', 'description'], 'Activity')}</p>
+                        <small style={styles.activityTime}>{activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Recent'}</small>
                       </div>
                       {activity.status && getStatusBadge(activity.status)}
                     </div>
@@ -679,15 +598,15 @@ const AdminReports = () => {
 
         {/* CHART TAB */}
         {activeTab === 'chart' && (
-          <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-            <Card.Header className="bg-white border-0 pt-4">
-              <h6 className="fw-bold mb-0">Monthly {reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'User Registrations'}</h6>
+          <Card style={styles.chartCard}>
+            <Card.Header style={styles.chartCardHeader}>
+              <h6 style={styles.chartCardTitle}>Monthly {reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'User Registrations'}</h6>
             </Card.Header>
             <Card.Body>
               {(currentReport.data || []).length === 0 ? (
-                <div className="text-center py-5">
-                  <BarChart3 size={48} className="text-muted opacity-25" />
-                  <p className="text-muted mt-2">No data available for the selected period</p>
+                <div style={styles.noDataState}>
+                  <BarChart3 size={48} style={styles.noDataIcon} />
+                  <p style={styles.noDataText}>No data available for the selected period</p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={350}>
@@ -707,32 +626,32 @@ const AdminReports = () => {
 
         {/* TABLE TAB */}
         {activeTab === 'table' && (
-          <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-            <Card.Header className="bg-white border-0 pt-4">
-              <div className="d-flex justify-content-between align-items-center">
-                <h6 className="fw-bold mb-0">Monthly Data</h6>
-                <div className="d-flex gap-2">
-                  <Form.Control type="text" placeholder="Search..." size="sm" style={{ width: '200px' }} />
-                  <Button variant="outline-secondary" size="sm"><Filter size={14} /></Button>
+          <Card style={styles.tableCard}>
+            <Card.Header style={styles.tableCardHeader}>
+              <div style={styles.tableHeaderContent}>
+                <h6 style={styles.tableCardTitle}>Monthly Data</h6>
+                <div style={styles.tableActions}>
+                  <Form.Control type="text" placeholder="Search..." size="sm" style={styles.tableSearch} />
+                  <Button variant="outline-secondary" size="sm" style={styles.tableFilterBtn}><Filter size={14} /></Button>
                 </div>
               </div>
             </Card.Header>
-            <Card.Body className="p-0">
+            <Card.Body style={styles.tableCardBody}>
               <div className="table-responsive">
-                <Table hover className="mb-0">
-                  <thead style={{ background: '#f8fafc' }}>
+                <Table hover style={styles.table}>
+                  <thead style={styles.tableHead}>
                     <tr>
-                      <th style={{ padding: '16px' }}>Month</th>
-                      <th style={{ padding: '16px' }}>{reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'Users'}</th>
-                      <th style={{ padding: '16px' }}>Growth</th>
-                      <th style={{ padding: '16px' }}>Trend</th>
+                      <th style={styles.tableHeader}>Month</th>
+                      <th style={styles.tableHeader}>{reportType === 'revenue' ? 'Revenue' : reportType === 'bookings' ? 'Bookings' : 'Users'}</th>
+                      <th style={styles.tableHeader}>Growth</th>
+                      <th style={styles.tableHeader}>Trend</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(currentReport.data || []).length === 0 ? (
                       <tr>
-                        <td colSpan="4" style={{ padding: '30px', textAlign: 'center' }}>
-                          <p className="text-muted mb-0">No data available</p>
+                        <td colSpan="4" style={styles.noDataRow}>
+                          <p style={styles.noDataText}>No data available</p>
                         </td>
                       </tr>
                     ) : (
@@ -740,17 +659,17 @@ const AdminReports = () => {
                         const prevValue = idx > 0 ? (currentReport.data || [])[idx-1]?.value || item.value : item.value;
                         const growth = prevValue > 0 ? ((item.value - prevValue) / prevValue * 100) : 0;
                         return (
-                          <tr key={idx}>
-                            <td style={{ padding: '16px' }} className="fw-semibold">{item.month || 'N/A'}</td>
-                            <td style={{ padding: '16px' }}>
+                          <tr key={idx} style={styles.tableRow}>
+                            <td style={styles.tableCell} className="fw-semibold">{item.month || 'N/A'}</td>
+                            <td style={styles.tableCell}>
                               {reportType === 'revenue' ? formatNaira(item.value) : formatNumber(item.value)}
                             </td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}>
                               <span className={growth >= 0 ? 'text-success' : 'text-danger'}>
                                 {growth >= 0 ? '+' : ''}{growth.toFixed(1)}%
                               </span>
                             </td>
-                            <td style={{ padding: '16px' }}>
+                            <td style={styles.tableCell}>
                               {growth >= 0 ? (
                                 <Badge bg="success" className="rounded-pill"><ArrowUp size={12} className="me-1" /> Upward</Badge>
                               ) : (
@@ -770,68 +689,82 @@ const AdminReports = () => {
 
         {/* TOP PERFORMERS TAB */}
         {activeTab === 'top' && (
-          <Row className="g-4">
+          <Row style={styles.topRow}>
             <Col lg={6}>
-              <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                <Card.Header className="bg-white border-0 pt-4">
-                  <h6 className="fw-bold mb-0">Top Providers</h6>
+              <Card style={styles.topCard}>
+                <Card.Header style={styles.topCardHeader}>
+                  <h6 style={styles.topCardTitle}>Top Providers</h6>
                 </Card.Header>
                 <Card.Body>
                   {(topPerformers || []).length === 0 ? (
-                    <div className="text-center py-4">
-                      <Award size={32} className="text-muted opacity-50" />
-                      <p className="text-muted mb-0">No top performers found</p>
+                    <div style={styles.emptyState}>
+                      <Award size={32} style={styles.emptyIcon} />
+                      <p style={styles.emptyText}>No top performers found</p>
                     </div>
                   ) : (
-                    (topPerformers || []).slice(0, 5).map((performer, idx) => (
-                      <div key={performer.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
-                        <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px', background: '#f1f5f9' }}>
-                          {idx === 0 ? <Crown size={20} className="text-warning" /> :
-                           idx === 1 ? <Medal size={20} className="text-secondary" /> :
-                           idx === 2 ? <Medal size={20} className="text-orange" /> :
-                           <StarIcon size={20} className="text-muted" />}
+                    (topPerformers || []).slice(0, 5).map((performer, idx) => {
+                      const performerName = getField(performer, ['name', 'provider', 'full_name'], 'Unknown');
+                      const category = getField(performer, ['category', 'service_category'], 'General');
+                      const revenue = performer.revenue || 0;
+                      const bookings = performer.bookings || 0;
+                      
+                      return (
+                        <div key={performer.id || idx} style={styles.performerItem}>
+                          <div style={styles.performerAvatar}>
+                            {idx === 0 ? <Crown size={20} className="text-warning" /> :
+                             idx === 1 ? <Medal size={20} className="text-secondary" /> :
+                             idx === 2 ? <Medal size={20} className="text-orange" /> :
+                             <StarIcon size={20} className="text-muted" />}
+                          </div>
+                          <div style={styles.performerInfo}>
+                            <p style={styles.performerName}>{performerName}</p>
+                            <small style={styles.performerCategory}>{category}</small>
+                          </div>
+                          <div style={styles.performerStats}>
+                            <div style={styles.performerRevenue}>{formatNaira(revenue)}</div>
+                            <small style={styles.performerBookings}>{formatNumber(bookings)} bookings</small>
+                          </div>
                         </div>
-                        <div className="flex-grow-1">
-                          <p className="mb-0 fw-semibold">{performer.name || performer.provider || 'Unknown'}</p>
-                          <small className="text-muted">{performer.category || 'General'}</small>
-                        </div>
-                        <div className="text-end">
-                          <div className="fw-bold text-primary">{formatNaira(performer.revenue || 0)}</div>
-                          <small className="text-muted">{formatNumber(performer.bookings || 0)} bookings</small>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </Card.Body>
               </Card>
             </Col>
             <Col lg={6}>
-              <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-                <Card.Header className="bg-white border-0 pt-4">
-                  <h6 className="fw-bold mb-0">Top Services</h6>
+              <Card style={styles.topCard}>
+                <Card.Header style={styles.topCardHeader}>
+                  <h6 style={styles.topCardTitle}>Top Services</h6>
                 </Card.Header>
                 <Card.Body>
                   {(topPerformers || []).length === 0 ? (
-                    <div className="text-center py-4">
-                      <ShoppingCart size={32} className="text-muted opacity-50" />
-                      <p className="text-muted mb-0">No top services found</p>
+                    <div style={styles.emptyState}>
+                      <ShoppingCart size={32} style={styles.emptyIcon} />
+                      <p style={styles.emptyText}>No top services found</p>
                     </div>
                   ) : (
-                    (topPerformers || []).slice(0, 5).map((performer, idx) => (
-                      <div key={performer.id || idx} className="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
-                        <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px', background: '#f1f5f9' }}>
-                          <ShoppingCart size={20} className="text-primary" />
+                    (topPerformers || []).slice(0, 5).map((performer, idx) => {
+                      const serviceName = getField(performer, ['service', 'name', 'title'], 'Unknown');
+                      const category = getField(performer, ['category', 'service_category'], 'General');
+                      const revenue = performer.revenue || 0;
+                      const bookings = performer.bookings || 0;
+                      
+                      return (
+                        <div key={performer.id || idx} style={styles.performerItem}>
+                          <div style={styles.performerAvatar}>
+                            <ShoppingCart size={20} className="text-primary" />
+                          </div>
+                          <div style={styles.performerInfo}>
+                            <p style={styles.performerName}>{serviceName}</p>
+                            <small style={styles.performerCategory}>{category}</small>
+                          </div>
+                          <div style={styles.performerStats}>
+                            <div style={styles.performerRevenue}>{formatNaira(revenue)}</div>
+                            <small style={styles.performerBookings}>{formatNumber(bookings)} bookings</small>
+                          </div>
                         </div>
-                        <div className="flex-grow-1">
-                          <p className="mb-0 fw-semibold">{performer.service || performer.name || 'Unknown'}</p>
-                          <small className="text-muted">{performer.category || 'General'}</small>
-                        </div>
-                        <div className="text-end">
-                          <div className="fw-bold text-primary">{formatNaira(performer.revenue || 0)}</div>
-                          <small className="text-muted">{formatNumber(performer.bookings || 0)} bookings</small>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </Card.Body>
               </Card>
@@ -840,51 +773,51 @@ const AdminReports = () => {
         )}
 
         {/* Quick Actions */}
-        <Row className="mt-4 g-4">
+        <Row style={styles.quickActionsRow}>
           <Col md={4}>
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
+            <Card style={styles.quickActionCard}>
+              <Card.Body style={styles.quickActionCardBody}>
+                <div style={styles.quickActionContent}>
+                  <div style={{ ...styles.quickActionIcon, background: '#3b82f620' }}>
                     <Clock size={24} color="#3b82f6" />
                   </div>
-                  <div className="flex-grow-1">
-                    <h6 className="mb-1">Scheduled Reports</h6>
-                    <p className="text-muted small mb-0">Set up automated report delivery</p>
+                  <div style={styles.quickActionInfo}>
+                    <h6 style={styles.quickActionTitle}>Scheduled Reports</h6>
+                    <p style={styles.quickActionText}>Set up automated report delivery</p>
                   </div>
-                  <Button variant="outline-primary" size="sm">Configure</Button>
+                  <Button variant="outline-primary" size="sm" style={styles.quickActionBtn}>Configure</Button>
                 </div>
               </Card.Body>
             </Card>
           </Col>
           <Col md={4}>
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
+            <Card style={styles.quickActionCard}>
+              <Card.Body style={styles.quickActionCardBody}>
+                <div style={styles.quickActionContent}>
+                  <div style={{ ...styles.quickActionIcon, background: '#10b98120' }}>
                     <Calendar size={24} color="#10b981" />
                   </div>
-                  <div className="flex-grow-1">
-                    <h6 className="mb-1">Custom Date Range</h6>
-                    <p className="text-muted small mb-0">Generate reports for custom periods</p>
+                  <div style={styles.quickActionInfo}>
+                    <h6 style={styles.quickActionTitle}>Custom Date Range</h6>
+                    <p style={styles.quickActionText}>Generate reports for custom periods</p>
                   </div>
-                  <Button variant="outline-success" size="sm">Create</Button>
+                  <Button variant="outline-success" size="sm" style={styles.quickActionBtn}>Create</Button>
                 </div>
               </Card.Body>
             </Card>
           </Col>
           <Col md={4}>
-            <Card className="border-0 shadow-sm" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
+            <Card style={styles.quickActionCard}>
+              <Card.Body style={styles.quickActionCardBody}>
+                <div style={styles.quickActionContent}>
+                  <div style={{ ...styles.quickActionIcon, background: '#8b5cf620' }}>
                     <Mail size={24} color="#8b5cf6" />
                   </div>
-                  <div className="flex-grow-1">
-                    <h6 className="mb-1">Email Report</h6>
-                    <p className="text-muted small mb-0">Send report to email recipients</p>
+                  <div style={styles.quickActionInfo}>
+                    <h6 style={styles.quickActionTitle}>Email Report</h6>
+                    <p style={styles.quickActionText}>Send report to email recipients</p>
                   </div>
-                  <Button variant="outline-primary" size="sm">Send</Button>
+                  <Button variant="outline-primary" size="sm" style={styles.quickActionBtn}>Send</Button>
                 </div>
               </Card.Body>
             </Card>
@@ -894,74 +827,584 @@ const AdminReports = () => {
 
       {/* Export Modal */}
       <Modal show={showExportModal} onHide={() => setShowExportModal(false)} centered>
-        <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
+        <Modal.Header closeButton style={styles.modalHeader}>
+          <Modal.Title style={styles.modalTitle}>
             <Download className="me-2" size={18} />
             Export Report
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Body style={styles.modalBody}>
           <Form>
             <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Report Type</Form.Label>
-              <Form.Control type="text" value={reportType.charAt(0).toUpperCase() + reportType.slice(1)} disabled className="bg-light" />
+              <Form.Label style={styles.formLabel}>Report Type</Form.Label>
+              <Form.Control type="text" value={reportType.charAt(0).toUpperCase() + reportType.slice(1)} disabled style={{ ...styles.formControl, background: '#f8f9fa' }} />
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Date Range</Form.Label>
-              <Form.Control type="text" value={dateRange.replace('_', ' ').toUpperCase()} disabled className="bg-light" />
+              <Form.Label style={styles.formLabel}>Date Range</Form.Label>
+              <Form.Control type="text" value={dateRange.replace('_', ' ').toUpperCase()} disabled style={{ ...styles.formControl, background: '#f8f9fa' }} />
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label className="fw-semibold">Export Format</Form.Label>
-              <Form.Select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
+              <Form.Label style={styles.formLabel}>Export Format</Form.Label>
+              <Form.Select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)} style={styles.formControl}>
                 <option value="pdf">PDF Document</option>
                 <option value="csv">CSV Spreadsheet</option>
               </Form.Select>
             </Form.Group>
           </Form>
         </Modal.Body>
-        <Modal.Footer className="border-0 pt-0">
-          <Button variant="light" onClick={() => setShowExportModal(false)}>
+        <Modal.Footer style={styles.modalFooter}>
+          <Button variant="light" onClick={() => setShowExportModal(false)} style={styles.modalCancelBtn}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={exportReport} disabled={exporting}>
+          <Button variant="primary" onClick={exportReport} disabled={exporting} style={styles.modalSubmitBtn}>
             {exporting ? 'Exporting...' : <><Download size={16} className="me-2" /> Export</>}
           </Button>
         </Modal.Footer>
       </Modal>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-        .nav-tabs .nav-link {
-          color: #4b5563;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 12px 12px 0 0;
-        }
-        .nav-tabs .nav-link.active {
-          color: #6366f1;
-          font-weight: 600;
-          border-bottom: 3px solid #6366f1;
-          background: none;
-        }
-        .nav-tabs .nav-link:hover {
-          background: #f8fafc;
-        }
-        .table > :not(caption) > * > * {
-          padding: 16px 12px;
-          vertical-align: middle;
-        }
-        .text-orange {
-          color: #f97316;
-        }
-      `}</style>
+      <style>{styles.globalStyles}</style>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    background: '#f8f9fa',
+    minHeight: '100vh'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: '4px'
+  },
+  headerSubtitle: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '16px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px'
+  },
+  refreshBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  exportBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none'
+  },
+  alert: {
+    borderRadius: '12px'
+  },
+  controlsCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  controlsCardBody: {
+    padding: '20px 24px'
+  },
+  formLabel: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  formControl: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  filterBtn: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  exportNowBtn: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    width: '100%',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  statsRow: {
+    marginBottom: '24px',
+    gap: '16px'
+  },
+  statCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%'
+  },
+  statCardBody: {
+    padding: '20px 24px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  statIconWrapper: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  statLabel: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  statValue: {
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: 0,
+    fontSize: '28px'
+  },
+  statDetail: {
+    color: '#718096',
+    display: 'block',
+    marginTop: '4px',
+    fontSize: '14px'
+  },
+  tabsCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  tabsCardBody: {
+    padding: 0
+  },
+  tabsNav: {
+    borderBottom: 'none'
+  },
+  tabLink: {
+    color: '#4b5563',
+    border: 'none',
+    padding: '0.75rem 1.5rem',
+    borderRadius: '12px 12px 0 0',
+    fontWeight: '500',
+    transition: 'all 0.2s'
+  },
+  summaryRow: {
+    marginBottom: '24px',
+    gap: '16px'
+  },
+  summaryCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%'
+  },
+  summaryCardBody: {
+    padding: '16px 20px'
+  },
+  summaryIconWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
+  },
+  summaryIcon: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '10px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  summaryLabel: {
+    color: '#718096',
+    display: 'block',
+    fontSize: '12px'
+  },
+  summaryValue: {
+    fontWeight: '700',
+    fontSize: '18px',
+    color: '#1a202c'
+  },
+  activityCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  activityCardHeader: {
+    background: 'white',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 20px'
+  },
+  activityHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  activityTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  activityViewAll: {
+    color: '#6366f1',
+    textDecoration: 'none',
+    fontSize: '13px',
+    fontWeight: '500'
+  },
+  activityItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 0',
+    borderBottom: '1px solid #e2e8f0'
+  },
+  activityIconWrapper: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    background: '#f1f5f9',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  activityIcon: {
+    color: '#718096'
+  },
+  activityContent: {
+    flex: 1
+  },
+  activityMessage: {
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  activityTime: {
+    color: '#a0aec0',
+    fontSize: '12px'
+  },
+  chartCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  chartCardHeader: {
+    background: 'white',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 20px'
+  },
+  chartCardTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  tableCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  tableCardHeader: {
+    background: 'white',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 20px'
+  },
+  tableHeaderContent: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '12px'
+  },
+  tableCardTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  tableActions: {
+    display: 'flex',
+    gap: '8px'
+  },
+  tableSearch: {
+    width: '200px',
+    borderRadius: '8px'
+  },
+  tableFilterBtn: {
+    borderRadius: '8px',
+    padding: '4px 12px'
+  },
+  tableCardBody: {
+    padding: 0
+  },
+  table: {
+    marginBottom: 0
+  },
+  tableHead: {
+    background: '#f8fafc'
+  },
+  tableHeader: {
+    padding: '12px 16px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4a5568',
+    borderBottom: '2px solid #e2e8f0'
+  },
+  tableRow: {
+    transition: 'background 0.2s'
+  },
+  tableCell: {
+    padding: '12px 16px',
+    verticalAlign: 'middle',
+    fontSize: '14px'
+  },
+  noDataRow: {
+    padding: '30px',
+    textAlign: 'center'
+  },
+  noDataState: {
+    textAlign: 'center',
+    padding: '60px 20px'
+  },
+  noDataIcon: {
+    color: '#cbd5e0',
+    marginBottom: '16px',
+    opacity: 0.5
+  },
+  noDataText: {
+    color: '#a0aec0',
+    marginBottom: 0
+  },
+  topRow: {
+    gap: '24px'
+  },
+  topCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+    height: '100%'
+  },
+  topCardHeader: {
+    background: 'white',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 20px'
+  },
+  topCardTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  performerItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    borderBottom: '1px solid #e2e8f0'
+  },
+  performerAvatar: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    background: '#f1f5f9',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  performerInfo: {
+    flex: 1
+  },
+  performerName: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  performerCategory: {
+    color: '#718096',
+    fontSize: '12px'
+  },
+  performerStats: {
+    textAlign: 'right'
+  },
+  performerRevenue: {
+    fontWeight: '700',
+    color: '#6366f1',
+    fontSize: '14px'
+  },
+  performerBookings: {
+    color: '#718096',
+    fontSize: '12px'
+  },
+  quickActionsRow: {
+    marginTop: '24px',
+    gap: '16px'
+  },
+  quickActionCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    height: '100%'
+  },
+  quickActionCardBody: {
+    padding: '16px 20px'
+  },
+  quickActionContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px'
+  },
+  quickActionIcon: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0
+  },
+  quickActionInfo: {
+    flex: 1
+  },
+  quickActionTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  quickActionText: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '13px'
+  },
+  quickActionBtn: {
+    borderRadius: '8px',
+    padding: '4px 16px'
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '40px 20px'
+  },
+  emptyIcon: {
+    color: '#cbd5e0',
+    marginBottom: '8px',
+    opacity: 0.5
+  },
+  emptyText: {
+    color: '#a0aec0',
+    marginBottom: 0
+  },
+  modalHeader: {
+    borderBottom: 'none',
+    padding: '20px 24px 0'
+  },
+  modalTitle: {
+    fontWeight: '700',
+    fontSize: '20px',
+    color: '#1a202c'
+  },
+  modalBody: {
+    padding: '20px 24px'
+  },
+  modalFooter: {
+    borderTop: 'none',
+    padding: '0 24px 20px'
+  },
+  modalCancelBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px'
+  },
+  modalSubmitBtn: {
+    borderRadius: '10px',
+    padding: '8px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  globalStyles: `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+    .nav-tabs .nav-link {
+      color: #4b5563;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px 12px 0 0;
+      transition: all 0.2s;
+    }
+    .nav-tabs .nav-link.active {
+      color: #6366f1;
+      font-weight: 600;
+      border-bottom: 3px solid #6366f1;
+      background: none;
+    }
+    .nav-tabs .nav-link:hover {
+      background: #f8fafc;
+    }
+    .table > :not(caption) > * > * {
+      padding: 16px 12px;
+      vertical-align: middle;
+    }
+    .text-orange {
+      color: #f97316;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    .modal-content {
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .modal-header .btn-close {
+      padding: 8px;
+    }
+    @media (max-width: 768px) {
+      .table-responsive {
+        font-size: 0.85rem;
+      }
+      .nav-tabs .nav-link {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+      }
+      .modal-dialog {
+        margin: 16px;
+      }
+    }
+  `
 };
 
 export default AdminReports;

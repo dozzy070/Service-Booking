@@ -137,7 +137,15 @@ const AdminSettings = () => {
     }).format(amount || 0);
   };
 
-  // ✅ Fetch settings from real API
+  // Helper to get field with fallback
+  const getField = (obj, fields, fallback = '') => {
+    for (const field of fields) {
+      if (obj?.[field]) return obj[field];
+    }
+    return fallback;
+  };
+
+  // Fetch settings from real API
   const fetchSettings = useCallback(async () => {
     try {
       if (!adminAPI) {
@@ -146,15 +154,11 @@ const AdminSettings = () => {
 
       let response = null;
       
-      // Try getSettings first
       if (typeof adminAPI.getSettings === 'function') {
         response = await adminAPI.getSettings();
-      } 
-      // Fallback to getPlatformSettings
-      else if (typeof adminAPI.getPlatformSettings === 'function') {
+      } else if (typeof adminAPI.getPlatformSettings === 'function') {
         response = await adminAPI.getPlatformSettings();
-      } 
-      else {
+      } else {
         throw new Error('Settings API methods not available');
       }
 
@@ -162,11 +166,14 @@ const AdminSettings = () => {
       setSettings(prev => ({ 
         ...prev, 
         ...data,
-        siteName: data.siteName || data.site_name || '',
-        siteEmail: data.siteEmail || data.site_email || '',
-        sitePhone: data.sitePhone || data.site_phone || '',
-        senderEmail: data.senderEmail || data.sender_email || '',
-        apiKey: data.apiKey || data.api_key || ''
+        siteName: getField(data, ['siteName', 'site_name'], ''),
+        siteEmail: getField(data, ['siteEmail', 'site_email'], ''),
+        sitePhone: getField(data, ['sitePhone', 'site_phone'], ''),
+        senderEmail: getField(data, ['senderEmail', 'sender_email'], ''),
+        apiKey: getField(data, ['apiKey', 'api_key'], ''),
+        timezone: getField(data, ['timezone', 'time_zone'], 'Africa/Lagos'),
+        dateFormat: getField(data, ['dateFormat', 'date_format'], 'DD/MM/YYYY'),
+        currency: getField(data, ['currency', 'currency_code'], 'NGN')
       }));
       
     } catch (error) {
@@ -176,7 +183,7 @@ const AdminSettings = () => {
     }
   }, []);
 
-  // ✅ Fetch audit logs from real API
+  // Fetch audit logs from real API
   const fetchAuditLogs = useCallback(async () => {
     try {
       if (!adminAPI) {
@@ -185,7 +192,6 @@ const AdminSettings = () => {
 
       let response = null;
       
-      // Try getActivities first (most common)
       if (typeof adminAPI.getActivities === 'function') {
         response = await adminAPI.getActivities({ limit: 10 });
         const data = response?.data || [];
@@ -195,7 +201,6 @@ const AdminSettings = () => {
         return;
       }
       
-      // Fallback to getAuditLogs
       if (typeof adminAPI.getAuditLogs === 'function') {
         response = await adminAPI.getAuditLogs({ limit: 10 });
         const data = response?.data || [];
@@ -204,7 +209,6 @@ const AdminSettings = () => {
         return;
       }
       
-      // Try getLogs as last resort
       if (typeof adminAPI.getLogs === 'function') {
         response = await adminAPI.getLogs({ limit: 10 });
         const data = response?.data || [];
@@ -213,7 +217,8 @@ const AdminSettings = () => {
         return;
       }
       
-      throw new Error('Audit log API methods not available');
+      // If no API methods available, set empty array
+      setAuditLogs([]);
       
     } catch (error) {
       console.error('Error fetching audit logs:', error);
@@ -221,7 +226,7 @@ const AdminSettings = () => {
     }
   }, []);
 
-  // ✅ Check system status with real API
+  // Check system status with real API
   const checkSystemStatus = useCallback(async () => {
     try {
       if (!adminAPI) {
@@ -233,23 +238,20 @@ const AdminSettings = () => {
         const data = response?.data || {};
         setSystemStatus(prev => ({ 
           ...prev, 
-          ...data,
-          database: data.database || data.db || 'connected',
-          cache: data.cache || 'connected',
-          queue: data.queue || 'connected',
-          email: data.email || 'connected'
+          database: getField(data, ['database', 'db'], 'connected'),
+          cache: getField(data, ['cache', 'redis'], 'connected'),
+          queue: getField(data, ['queue', 'queued'], 'connected'),
+          email: getField(data, ['email', 'mail'], 'connected')
         }));
       } else {
-        // Keep default status if method not available
         console.warn('System health check not available');
       }
     } catch (error) {
       console.error('Error checking system status:', error);
-      // Keep default status on error
     }
   }, []);
 
-  // ✅ Fetch all data
+  // Fetch all data
   const loadAllData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
@@ -269,7 +271,7 @@ const AdminSettings = () => {
     }
   }, [fetchSettings, fetchAuditLogs, checkSystemStatus]);
 
-  // ✅ Polling functions
+  // Polling functions
   const startPolling = () => {
     stopPolling();
     pollingInterval.current = setInterval(() => {
@@ -279,7 +281,7 @@ const AdminSettings = () => {
           isPolling.current = false;
         });
       }
-    }, 60000); // Poll every 60 seconds for real-time updates
+    }, 60000);
   };
 
   const stopPolling = () => {
@@ -308,7 +310,7 @@ const AdminSettings = () => {
     });
   };
 
-  // ✅ Save settings with real API
+  // Save settings with real API
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -319,15 +321,11 @@ const AdminSettings = () => {
 
       let response = null;
       
-      // Try updateSettings first
       if (typeof adminAPI.updateSettings === 'function') {
         response = await adminAPI.updateSettings(settings);
-      } 
-      // Fallback to updatePlatformSettings
-      else if (typeof adminAPI.updatePlatformSettings === 'function') {
+      } else if (typeof adminAPI.updatePlatformSettings === 'function') {
         response = await adminAPI.updatePlatformSettings(settings);
-      } 
-      else {
+      } else {
         throw new Error('Settings update API methods not available');
       }
 
@@ -335,7 +333,6 @@ const AdminSettings = () => {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
       
-      // Refresh settings after save
       await fetchSettings();
       
     } catch (error) {
@@ -347,22 +344,40 @@ const AdminSettings = () => {
     }
   };
 
-  // ✅ Manual refresh
+  // Manual refresh
   const refreshData = async () => {
     setRefreshing(true);
     await loadAllData(false);
     toast.success('Settings refreshed');
   };
 
+  // getStatusBadge with proper null/undefined handling
   const getStatusBadge = (status) => {
+    const statusStr = String(status || '').toLowerCase().trim();
+    
     const config = {
       connected: { variant: 'success', icon: CheckCircle, text: 'Connected' },
-      disconnected: { variant: 'danger', icon: XCircle, text: 'Disconnected' },
-      warning: { variant: 'warning', icon: AlertCircle, text: 'Warning' },
       healthy: { variant: 'success', icon: CheckCircle, text: 'Healthy' },
-      critical: { variant: 'danger', icon: XCircle, text: 'Critical' }
+      ok: { variant: 'success', icon: CheckCircle, text: 'OK' },
+      online: { variant: 'success', icon: CheckCircle, text: 'Online' },
+      active: { variant: 'success', icon: CheckCircle, text: 'Active' },
+      good: { variant: 'success', icon: CheckCircle, text: 'Good' },
+      disconnected: { variant: 'danger', icon: XCircle, text: 'Disconnected' },
+      critical: { variant: 'danger', icon: XCircle, text: 'Critical' },
+      offline: { variant: 'danger', icon: XCircle, text: 'Offline' },
+      error: { variant: 'danger', icon: XCircle, text: 'Error' },
+      down: { variant: 'danger', icon: XCircle, text: 'Down' },
+      warning: { variant: 'warning', icon: AlertCircle, text: 'Warning' },
+      degraded: { variant: 'warning', icon: AlertCircle, text: 'Degraded' },
+      pending: { variant: 'warning', icon: AlertCircle, text: 'Pending' }
     };
-    const item = config[status?.toLowerCase()] || config.disconnected;
+    
+    const item = config[statusStr] || { 
+      variant: 'secondary', 
+      icon: AlertCircle, 
+      text: statusStr || 'Unknown' 
+    };
+    
     const Icon = item.icon;
     return (
       <Badge bg={item.variant} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
@@ -372,28 +387,14 @@ const AdminSettings = () => {
     );
   };
 
-  // Loading state
-  if (loading) {
-    return (
-      <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-        <Container fluid className="py-4">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
-            <div className="text-center">
-              <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem' }} />
-              <p className="mt-3 text-muted">Loading settings...</p>
-            </div>
-          </div>
-        </Container>
-      </div>
-    );
-  }
+  // Loading state removed - component renders immediately with empty data
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={styles.container}>
       <Container fluid className="py-4">
         {/* Success Alert */}
         {showSuccess && (
-          <Alert variant="success" className="mb-4" onClose={() => setShowSuccess(false)} dismissible style={{ borderRadius: '12px' }}>
+          <Alert variant="success" style={styles.alert} onClose={() => setShowSuccess(false)} dismissible>
             <CheckCircle className="me-2" size={18} />
             Settings saved successfully!
           </Alert>
@@ -401,24 +402,25 @@ const AdminSettings = () => {
 
         {/* Error Alert */}
         {error && (
-          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+          <Alert variant="danger" style={styles.alert} dismissible onClose={() => setError(null)}>
             <AlertCircle className="me-2" size={18} />
             {error}
           </Alert>
         )}
 
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div style={styles.header}>
           <div>
-            <h2 className="mb-1 fw-bold">System Settings</h2>
-            <p className="text-muted mb-0">Manage platform-wide configurations and preferences</p>
+            <h2 style={styles.headerTitle}>System Settings</h2>
+            <p style={styles.headerSubtitle}>Manage platform-wide configurations and preferences</p>
           </div>
-          <div className="d-flex gap-2">
+          <div style={styles.headerActions}>
             <Button
               variant="outline-primary"
               onClick={refreshData}
               disabled={refreshing}
               className="d-flex align-items-center gap-2"
+              style={styles.refreshBtn}
             >
               <RefreshCw size={18} className={refreshing ? 'spin' : ''} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -428,6 +430,7 @@ const AdminSettings = () => {
               onClick={handleSave}
               disabled={saving}
               className="d-flex align-items-center gap-2"
+              style={styles.saveBtn}
             >
               {saving ? <Spinner animation="border" size="sm" /> : <Save size={18} />}
               {saving ? 'Saving...' : 'Save Settings'}
@@ -436,31 +439,31 @@ const AdminSettings = () => {
         </div>
 
         {/* System Status */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
-            <h6 className="fw-bold mb-3 d-flex align-items-center gap-2">
+        <Card style={styles.statusCard}>
+          <Card.Body style={styles.statusCardBody}>
+            <h6 style={styles.statusTitle}>
               <Server size={18} className="text-primary" />
               System Status
             </h6>
-            <div className="d-flex flex-wrap gap-4">
-              <div className="d-flex align-items-center gap-2">
+            <div style={styles.statusItems}>
+              <div style={styles.statusItem}>
                 <Database size={16} className="text-muted" />
-                <span className="fw-medium">Database:</span>
+                <span style={styles.statusLabel}>Database:</span>
                 {getStatusBadge(systemStatus.database)}
               </div>
-              <div className="d-flex align-items-center gap-2">
+              <div style={styles.statusItem}>
                 <Zap size={16} className="text-muted" />
-                <span className="fw-medium">Cache:</span>
+                <span style={styles.statusLabel}>Cache:</span>
                 {getStatusBadge(systemStatus.cache)}
               </div>
-              <div className="d-flex align-items-center gap-2">
+              <div style={styles.statusItem}>
                 <Clock size={16} className="text-muted" />
-                <span className="fw-medium">Queue:</span>
+                <span style={styles.statusLabel}>Queue:</span>
                 {getStatusBadge(systemStatus.queue)}
               </div>
-              <div className="d-flex align-items-center gap-2">
+              <div style={styles.statusItem}>
                 <Mail size={16} className="text-muted" />
-                <span className="fw-medium">Email:</span>
+                <span style={styles.statusLabel}>Email:</span>
                 {getStatusBadge(systemStatus.email)}
               </div>
             </div>
@@ -468,62 +471,65 @@ const AdminSettings = () => {
         </Card>
 
         {/* Settings Tabs */}
-        <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
-          <Card.Body className="p-0">
+        <Card style={styles.tabsCard}>
+          <Card.Body style={styles.tabsCardBody}>
             <Tabs
               activeKey={activeTab}
               onSelect={(k) => setActiveTab(k)}
-              className="border-bottom px-4 pt-3"
-              style={{ marginBottom: '24px' }}
+              className="custom-tabs"
+              style={styles.tabs}
             >
               <Tab eventKey="general" title={
-                <span className="d-flex align-items-center gap-2">
-                  <Globe size={16} /> General
+                <span style={styles.tabTitle}>
+                  <Globe size={16} style={styles.tabIcon} /> General
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">General Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>General Settings</h6>
                   <Row>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Site Name</Form.Label>
+                        <Form.Label style={styles.formLabel}>Site Name</Form.Label>
                         <Form.Control
                           type="text"
                           name="siteName"
                           value={settings.siteName || ''}
                           onChange={handleChange}
                           placeholder="Enter site name"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Site Email</Form.Label>
+                        <Form.Label style={styles.formLabel}>Site Email</Form.Label>
                         <Form.Control
                           type="email"
                           name="siteEmail"
                           value={settings.siteEmail || ''}
                           onChange={handleChange}
                           placeholder="Enter site email"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Site Phone</Form.Label>
+                        <Form.Label style={styles.formLabel}>Site Phone</Form.Label>
                         <Form.Control
                           type="tel"
                           name="sitePhone"
                           value={settings.sitePhone || ''}
                           onChange={handleChange}
                           placeholder="Enter phone number"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Timezone</Form.Label>
-                        <Form.Select name="timezone" value={settings.timezone || 'Africa/Lagos'} onChange={handleChange}>
+                        <Form.Label style={styles.formLabel}>Timezone</Form.Label>
+                        <Form.Select name="timezone" value={settings.timezone || 'Africa/Lagos'} onChange={handleChange} style={styles.formControl}>
                           <option value="Africa/Lagos">Africa/Lagos (WAT)</option>
                           <option value="Africa/Cairo">Africa/Cairo (EET)</option>
                           <option value="Africa/Johannesburg">Africa/Johannesburg (SAST)</option>
@@ -534,8 +540,8 @@ const AdminSettings = () => {
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Date Format</Form.Label>
-                        <Form.Select name="dateFormat" value={settings.dateFormat || 'DD/MM/YYYY'} onChange={handleChange}>
+                        <Form.Label style={styles.formLabel}>Date Format</Form.Label>
+                        <Form.Select name="dateFormat" value={settings.dateFormat || 'DD/MM/YYYY'} onChange={handleChange} style={styles.formControl}>
                           <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                           <option value="DD/MM/YYYY">DD/MM/YYYY</option>
                           <option value="YYYY-MM-DD">YYYY-MM-DD</option>
@@ -544,8 +550,8 @@ const AdminSettings = () => {
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Currency</Form.Label>
-                        <Form.Select name="currency" value={settings.currency || 'NGN'} onChange={handleChange}>
+                        <Form.Label style={styles.formLabel}>Currency</Form.Label>
+                        <Form.Select name="currency" value={settings.currency || 'NGN'} onChange={handleChange} style={styles.formControl}>
                           <option value="NGN">Nigerian Naira (₦)</option>
                           <option value="USD">US Dollar ($)</option>
                           <option value="EUR">Euro (€)</option>
@@ -562,7 +568,7 @@ const AdminSettings = () => {
                           checked={settings.maintenanceMode || false}
                           onChange={handleChange}
                         />
-                        <Form.Text className="text-muted">
+                        <Form.Text style={styles.formText}>
                           When enabled, the platform will display a maintenance page to visitors
                         </Form.Text>
                       </Form.Group>
@@ -572,16 +578,16 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="commission" title={
-                <span className="d-flex align-items-center gap-2">
-                  <DollarSign size={16} /> Commission
+                <span style={styles.tabTitle}>
+                  <DollarSign size={16} style={styles.tabIcon} /> Commission
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">Commission & Payout Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>Commission & Payout Settings</h6>
                   <Row>
                     <Col md={4}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Commission Rate (%)</Form.Label>
+                        <Form.Label style={styles.formLabel}>Commission Rate (%)</Form.Label>
                         <Form.Control
                           type="number"
                           name="commissionRate"
@@ -590,13 +596,14 @@ const AdminSettings = () => {
                           min="0"
                           max="100"
                           step="0.5"
+                          style={styles.formControl}
                         />
-                        <Form.Text>Percentage taken from each booking</Form.Text>
+                        <Form.Text style={styles.formText}>Percentage taken from each booking</Form.Text>
                       </Form.Group>
                     </Col>
                     <Col md={4}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Minimum Payout (₦)</Form.Label>
+                        <Form.Label style={styles.formLabel}>Minimum Payout (₦)</Form.Label>
                         <Form.Control
                           type="number"
                           name="minPayoutAmount"
@@ -604,12 +611,13 @@ const AdminSettings = () => {
                           onChange={handleChange}
                           min="0"
                           step="100"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={4}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Maximum Payout (₦)</Form.Label>
+                        <Form.Label style={styles.formLabel}>Maximum Payout (₦)</Form.Label>
                         <Form.Control
                           type="number"
                           name="maxPayoutAmount"
@@ -617,12 +625,13 @@ const AdminSettings = () => {
                           onChange={handleChange}
                           min="0"
                           step="100"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={12}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Processing Fee (₦)</Form.Label>
+                        <Form.Label style={styles.formLabel}>Processing Fee (₦)</Form.Label>
                         <Form.Control
                           type="number"
                           name="processingFee"
@@ -630,8 +639,9 @@ const AdminSettings = () => {
                           onChange={handleChange}
                           min="0"
                           step="50"
+                          style={styles.formControl}
                         />
-                        <Form.Text>Fee charged per transaction</Form.Text>
+                        <Form.Text style={styles.formText}>Fee charged per transaction</Form.Text>
                       </Form.Group>
                     </Col>
                   </Row>
@@ -639,12 +649,12 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="notifications" title={
-                <span className="d-flex align-items-center gap-2">
-                  <Bell size={16} /> Notifications
+                <span style={styles.tabTitle}>
+                  <Bell size={16} style={styles.tabIcon} /> Notifications
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">Admin Notification Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>Admin Notification Settings</h6>
                   <Form.Group className="mb-3">
                     <Form.Check
                       type="switch"
@@ -694,12 +704,12 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="security" title={
-                <span className="d-flex align-items-center gap-2">
-                  <Shield size={16} /> Security
+                <span style={styles.tabTitle}>
+                  <Shield size={16} style={styles.tabIcon} /> Security
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">Security Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>Security Settings</h6>
                   <Form.Group className="mb-3">
                     <Form.Check
                       type="switch"
@@ -721,7 +731,7 @@ const AdminSettings = () => {
                   <Row>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Session Timeout (minutes)</Form.Label>
+                        <Form.Label style={styles.formLabel}>Session Timeout (minutes)</Form.Label>
                         <Form.Control
                           type="number"
                           name="sessionTimeout"
@@ -729,12 +739,13 @@ const AdminSettings = () => {
                           onChange={handleChange}
                           min="5"
                           max="480"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Max Login Attempts</Form.Label>
+                        <Form.Label style={styles.formLabel}>Max Login Attempts</Form.Label>
                         <Form.Control
                           type="number"
                           name="maxLoginAttempts"
@@ -742,6 +753,7 @@ const AdminSettings = () => {
                           onChange={handleChange}
                           min="3"
                           max="20"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
@@ -750,46 +762,49 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="email" title={
-                <span className="d-flex align-items-center gap-2">
-                  <Mail size={16} /> Email
+                <span style={styles.tabTitle}>
+                  <Mail size={16} style={styles.tabIcon} /> Email
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">SMTP Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>SMTP Settings</h6>
                   <Row>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">SMTP Host</Form.Label>
+                        <Form.Label style={styles.formLabel}>SMTP Host</Form.Label>
                         <Form.Control
                           type="text"
                           name="smtpHost"
                           value={settings.smtpHost || ''}
                           onChange={handleChange}
                           placeholder="smtp.gmail.com"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">SMTP Port</Form.Label>
+                        <Form.Label style={styles.formLabel}>SMTP Port</Form.Label>
                         <Form.Control
                           type="number"
                           name="smtpPort"
                           value={settings.smtpPort || 587}
                           onChange={handleChange}
                           placeholder="587"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={12}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Sender Email</Form.Label>
+                        <Form.Label style={styles.formLabel}>Sender Email</Form.Label>
                         <Form.Control
                           type="email"
                           name="senderEmail"
                           value={settings.senderEmail || ''}
                           onChange={handleChange}
                           placeholder="noreply@example.com"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
@@ -809,16 +824,16 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="api" title={
-                <span className="d-flex align-items-center gap-2">
-                  <Server size={16} /> API
+                <span style={styles.tabTitle}>
+                  <Server size={16} style={styles.tabIcon} /> API
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">API Settings</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>API Settings</h6>
                   <Row>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">API Rate Limit (requests/hour)</Form.Label>
+                        <Form.Label style={styles.formLabel}>API Rate Limit (requests/hour)</Form.Label>
                         <Form.Control
                           type="number"
                           name="apiRateLimit"
@@ -827,37 +842,39 @@ const AdminSettings = () => {
                           min="10"
                           max="10000"
                           step="10"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">API Key</Form.Label>
-                        <div className="d-flex">
+                        <Form.Label style={styles.formLabel}>API Key</Form.Label>
+                        <div style={styles.apiKeyWrapper}>
                           <Form.Control
                             type="text"
                             name="apiKey"
                             value={settings.apiKey || '•'.repeat(32)}
                             onChange={handleChange}
                             disabled
-                            className="bg-light"
+                            style={{ ...styles.formControl, background: '#f8f9fa' }}
                           />
-                          <Button variant="outline-secondary" className="ms-2">
+                          <Button variant="outline-secondary" style={styles.apiKeyBtn}>
                             <Key size={16} />
                           </Button>
                         </div>
-                        <Form.Text>Regenerate API key when needed</Form.Text>
+                        <Form.Text style={styles.formText}>Regenerate API key when needed</Form.Text>
                       </Form.Group>
                     </Col>
                     <Col md={12}>
                       <Form.Group className="mb-3">
-                        <Form.Label className="fw-semibold">Webhook URL</Form.Label>
+                        <Form.Label style={styles.formLabel}>Webhook URL</Form.Label>
                         <Form.Control
                           type="url"
                           name="webhookUrl"
                           value={settings.webhookUrl || ''}
                           onChange={handleChange}
                           placeholder="https://your-app.com/webhook"
+                          style={styles.formControl}
                         />
                       </Form.Group>
                     </Col>
@@ -866,12 +883,12 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="features" title={
-                <span className="d-flex align-items-center gap-2">
-                  <SettingsIcon size={16} /> Features
+                <span style={styles.tabTitle}>
+                  <SettingsIcon size={16} style={styles.tabIcon} /> Features
                 </span>
               }>
-                <div className="p-4">
-                  <h6 className="fw-bold mb-4">Feature Toggles</h6>
+                <div style={styles.tabContent}>
+                  <h6 style={styles.tabContentTitle}>Feature Toggles</h6>
                   <Row>
                     <Col md={6}>
                       <Form.Group className="mb-3">
@@ -922,45 +939,53 @@ const AdminSettings = () => {
               </Tab>
 
               <Tab eventKey="audit" title={
-                <span className="d-flex align-items-center gap-2">
-                  <FileText size={16} /> Audit Logs
+                <span style={styles.tabTitle}>
+                  <FileText size={16} style={styles.tabIcon} /> Audit Logs
                 </span>
               }>
-                <div className="p-4">
-                  <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h6 className="fw-bold mb-0">Recent Activity</h6>
-                    <Button size="sm" variant="outline-secondary">
+                <div style={styles.tabContent}>
+                  <div style={styles.auditHeader}>
+                    <h6 style={styles.auditTitle}>Recent Activity</h6>
+                    <Button size="sm" variant="outline-secondary" style={styles.auditExportBtn}>
                       <Download size={14} className="me-1" />
                       Export Logs
                     </Button>
                   </div>
                   <div className="table-responsive">
-                    <Table hover className="mb-0">
+                    <Table hover style={styles.auditTable}>
                       <thead>
                         <tr>
-                          <th>User</th>
-                          <th>Action</th>
-                          <th>Details</th>
-                          <th>Timestamp</th>
+                          <th style={styles.auditTableHeader}>User</th>
+                          <th style={styles.auditTableHeader}>Action</th>
+                          <th style={styles.auditTableHeader}>Details</th>
+                          <th style={styles.auditTableHeader}>Timestamp</th>
                         </tr>
                       </thead>
                       <tbody>
                         {auditLogs.length === 0 ? (
                           <tr>
-                            <td colSpan="4" className="text-center py-4">
-                              <FileText size={32} className="text-muted mb-2 opacity-50" />
-                              <p className="text-muted mb-0">No audit logs found</p>
+                            <td colSpan="4" style={styles.auditEmptyState}>
+                              <FileText size={32} style={styles.auditEmptyIcon} />
+                              <p style={styles.auditEmptyText}>No audit logs found</p>
                             </td>
                           </tr>
                         ) : (
-                          auditLogs.map((log, index) => (
-                            <tr key={log.id || index}>
-                              <td>{log.user || log.username || log.admin || 'System'}</td>
-                              <td><Badge bg="secondary" className="rounded-pill">{log.action || log.type || 'Unknown'}</Badge></td>
-                              <td>{log.details || log.message || log.description || 'No details'}</td>
-                              <td><small className="text-muted">{log.timestamp || log.createdAt ? new Date(log.timestamp || log.createdAt).toLocaleString() : 'N/A'}</small></td>
-                            </tr>
-                          ))
+                          auditLogs.map((log, index) => {
+                            const logId = log.id || log._id || index;
+                            const user = getField(log, ['user', 'username', 'admin', 'actor'], 'System');
+                            const action = getField(log, ['action', 'type', 'event'], 'Unknown');
+                            const details = getField(log, ['details', 'message', 'description', 'note'], 'No details');
+                            const timestamp = log.timestamp || log.createdAt || log.date || new Date().toISOString();
+
+                            return (
+                              <tr key={logId} style={styles.auditTableRow}>
+                                <td style={styles.auditTableCell}>{user}</td>
+                                <td style={styles.auditTableCell}><Badge bg="secondary" className="rounded-pill">{action}</Badge></td>
+                                <td style={styles.auditTableCell}>{details}</td>
+                                <td style={styles.auditTableCell}><small className="text-muted">{new Date(timestamp).toLocaleString()}</small></td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </Table>
@@ -972,42 +997,240 @@ const AdminSettings = () => {
         </Card>
       </Container>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-        .nav-tabs .nav-link {
-          color: #4b5563;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 12px 12px 0 0;
-          transition: all 0.2s;
-        }
-        .nav-tabs .nav-link.active {
-          color: #6366f1;
-          font-weight: 600;
-          border-bottom: 3px solid #6366f1;
-          background: none;
-        }
-        .nav-tabs .nav-link:hover {
-          background: #f8fafc;
-        }
-        .nav-tabs .nav-link .d-flex {
-          gap: 8px;
-        }
-        @media (max-width: 768px) {
-          .nav-tabs .nav-link {
-            padding: 0.5rem 1rem;
-            font-size: 0.85rem;
-          }
-        }
-      `}</style>
+      <style>{styles.globalStyles}</style>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    background: '#f8f9fa',
+    minHeight: '100vh'
+  },
+  alert: {
+    borderRadius: '12px',
+    marginBottom: '24px'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1a202c',
+    marginBottom: '4px'
+  },
+  headerSubtitle: {
+    color: '#718096',
+    marginBottom: 0,
+    fontSize: '16px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px'
+  },
+  refreshBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px'
+  },
+  saveBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  statusCard: {
+    border: 'none',
+    borderRadius: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+  },
+  statusCardBody: {
+    padding: '16px 24px'
+  },
+  statusTitle: {
+    fontWeight: '600',
+    marginBottom: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  statusItems: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '16px'
+  },
+  statusItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  statusLabel: {
+    fontWeight: '500',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  tabsCard: {
+    border: 'none',
+    borderRadius: '20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden'
+  },
+  tabsCardBody: {
+    padding: 0
+  },
+  tabs: {
+    borderBottom: 'none',
+    padding: '0 24px',
+    paddingTop: '16px'
+  },
+  tabTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontWeight: '500'
+  },
+  tabIcon: {
+    opacity: 0.7
+  },
+  tabContent: {
+    padding: '24px'
+  },
+  tabContentTitle: {
+    fontWeight: '600',
+    marginBottom: '20px',
+    fontSize: '16px',
+    color: '#1a202c'
+  },
+  formLabel: {
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  formControl: {
+    borderRadius: '10px',
+    padding: '10px 14px'
+  },
+  formText: {
+    color: '#718096',
+    fontSize: '13px'
+  },
+  apiKeyWrapper: {
+    display: 'flex',
+    gap: '8px'
+  },
+  apiKeyBtn: {
+    borderRadius: '10px',
+    padding: '10px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  auditHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px'
+  },
+  auditTitle: {
+    fontWeight: '600',
+    marginBottom: 0,
+    fontSize: '14px',
+    color: '#1a202c'
+  },
+  auditExportBtn: {
+    borderRadius: '10px'
+  },
+  auditTable: {
+    marginBottom: 0
+  },
+  auditTableHeader: {
+    fontWeight: '600',
+    fontSize: '12px',
+    color: '#4a5568',
+    padding: '10px 12px',
+    borderBottom: '2px solid #e2e8f0'
+  },
+  auditTableRow: {
+    transition: 'background 0.2s'
+  },
+  auditTableCell: {
+    padding: '10px 12px',
+    verticalAlign: 'middle',
+    fontSize: '14px'
+  },
+  auditEmptyState: {
+    textAlign: 'center',
+    padding: '40px 20px'
+  },
+  auditEmptyIcon: {
+    color: '#cbd5e0',
+    marginBottom: '8px',
+    opacity: 0.5
+  },
+  auditEmptyText: {
+    color: '#a0aec0',
+    marginBottom: 0
+  },
+  globalStyles: `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+    .nav-tabs .nav-link {
+      color: #4b5563;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px 12px 0 0;
+      transition: all 0.2s;
+    }
+    .nav-tabs .nav-link.active {
+      color: #6366f1;
+      font-weight: 600;
+      border-bottom: 3px solid #6366f1;
+      background: none;
+    }
+    .nav-tabs .nav-link:hover {
+      background: #f8fafc;
+    }
+    .nav-tabs .nav-link .d-flex {
+      gap: 8px;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    .modal-content {
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .modal-header .btn-close {
+      padding: 8px;
+    }
+    @media (max-width: 768px) {
+      .nav-tabs .nav-link {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+      }
+      .table-responsive {
+        font-size: 0.85rem;
+      }
+    }
+  `
 };
 
 export default AdminSettings;
