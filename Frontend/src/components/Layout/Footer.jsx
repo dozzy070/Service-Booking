@@ -14,10 +14,10 @@ import {
   FaShieldAlt,
   FaCreditCard,
   FaTruck,
-  FaFacebook,     // ✅ Added
-  FaTwitter,      // ✅ Added
-  FaInstagram,    // ✅ Added
-  FaLinkedin      // ✅ Added
+  FaFacebook,
+  FaTwitter,
+  FaInstagram,
+  FaLinkedin
 } from 'react-icons/fa';
 
 const Footer = () => {
@@ -36,22 +36,13 @@ const Footer = () => {
     { label: 'Help Center', path: '/help' },
     { label: 'Terms of Service', path: '/terms' },
     { label: 'Privacy Policy', path: '/privacy' },
-    { label: 'Safety Tips', path: '/safety' },
+    { label: 'Safety Tips', path: '/safety-tips' },  // ✅ FIXED: Changed from '/safety' to '/safety-tips'
     { label: 'Report Issue', path: '/report' },
     { label: 'Cancellation Policy', path: '/cancellation' }
   ];
 
-  const services = [
-    { label: 'Home Cleaning', path: '/services?category=Cleaning' },
-    { label: 'Plumbing', path: '/services?category=Plumbing' },
-    { label: 'Electrical', path: '/services?category=Electrical' },
-    { label: 'Painting', path: '/services?category=Painting' },
-    { label: 'Moving', path: '/services?category=Moving' },
-    { label: 'Gardening', path: '/services?category=Gardening' }
-  ];
-
   const socialLinks = [
-    { icon: <FaFacebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },  // ✅ Fixed
+    { icon: <FaFacebook />, url: 'https://facebook.com', label: 'Facebook', color: '#1877f2' },
     { icon: <FaTwitter />, url: 'https://twitter.com', label: 'Twitter', color: '#1da1f2' },
     { icon: <FaInstagram />, url: 'https://instagram.com', label: 'Instagram', color: '#e4405f' },
     { icon: <FaLinkedin />, url: 'https://linkedin.com', label: 'LinkedIn', color: '#0077b5' },
@@ -145,21 +136,6 @@ const Footer = () => {
                   <Link to={link.path} className="footer-link">
                     <FaArrowRight className="me-2" size={12} />
                     {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Col>
-
-          {/* Services */}
-          <Col lg={2} md={6}>
-            <h5 className="text-white mb-4">Popular Services</h5>
-            <ul className="list-unstyled">
-              {services.map((service, index) => (
-                <li key={index} className="mb-2">
-                  <Link to={service.path} className="footer-link">
-                    <FaArrowRight className="me-2" size={12} />
-                    {service.label}
                   </Link>
                 </li>
               ))}

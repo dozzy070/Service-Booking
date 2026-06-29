@@ -1,3 +1,4 @@
+// src/pages/Services.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container,
@@ -9,7 +10,8 @@ import {
   Alert,
   Pagination,
   Toast,
-  ToastContainer
+  ToastContainer,
+  Badge
 } from 'react-bootstrap';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
@@ -27,54 +29,91 @@ const formatCurrency = (amount) => {
   return `$${parseFloat(amount).toFixed(2)}`;
 };
 
+// ✅ Helper to safely get category name
+const getCategoryName = (category) => {
+  if (!category) return 'Uncategorized';
+  if (typeof category === 'string') return category;
+  if (typeof category === 'object') {
+    return category.name || 'Uncategorized';
+  }
+  return 'Uncategorized';
+};
+
+// ✅ Helper to safely get provider name
+const getProviderName = (provider) => {
+  if (!provider) return 'Unknown Provider';
+  if (typeof provider === 'string') return provider;
+  if (typeof provider === 'object') {
+    return provider.name || provider.provider_name || 'Unknown Provider';
+  }
+  return 'Unknown Provider';
+};
+
+// ✅ Helper to safely get location
+const getLocation = (service) => {
+  if (!service) return '';
+  return service.location || service.address || service.city || '';
+};
+
 const ServiceCard = ({ service }) => {
+  const categoryName = getCategoryName(service.category);
+  const providerName = getProviderName(service.provider);
+  const location = getLocation(service);
+  const rating = service.avgRating || service.rating || 0;
+  const reviewCount = service.reviewCount || service.review_count || 0;
+  const price = service.price || 0;
+  const title = service.title || 'Untitled Service';
+  const description = service.description || '';
+  const images = service.images || [];
+  const serviceId = service.id;
+
   return (
     <Card className="h-100 border-0 shadow-sm service-card">
       <Card.Img
         variant="top"
-        src={service.images?.[0] || getServiceImage(service.title, service.id, 300, 200)}
+        src={images[0] || getServiceImage(title, serviceId, 300, 200)}
         style={{ height: '200px', objectFit: 'cover' }}
-        onError={(e) => handleImageError(e, getServiceImage(service.title, service.id, 300, 200))}
+        onError={(e) => handleImageError(e, getServiceImage(title, serviceId, 300, 200))}
       />
       <Card.Body>
         <div className="d-flex justify-content-between align-items-start mb-2">
-          <Card.Title className="h6 mb-0">{service.title}</Card.Title>
-          <span className="badge bg-primary">{service.category}</span>
+          <Card.Title className="h6 mb-0">{title}</Card.Title>
+          <Badge bg="primary" pill>{categoryName}</Badge>
         </div>
         
-        <p className="text-muted small mb-2">by {service.provider_name}</p>
+        <p className="text-muted small mb-2">by {providerName}</p>
         
         <div className="d-flex align-items-center mb-2">
           <div className="text-warning me-2">
             {[...Array(5)].map((_, i) => (
               <FaStar
                 key={i}
-                className={i < Math.floor(service.rating) ? 'text-warning' : 'text-secondary'}
+                className={i < Math.floor(rating) ? 'text-warning' : 'text-secondary'}
                 size={12}
               />
             ))}
           </div>
-          <small className="text-muted">({service.review_count})</small>
+          <small className="text-muted">({reviewCount})</small>
         </div>
 
-        {service.location && (
+        {location && (
           <div className="d-flex align-items-center text-muted small mb-2">
             <FaMapMarkerAlt className="me-1" size={10} />
-            {service.location}
+            {location}
           </div>
         )}
 
         <p className="text-muted small mb-3">
-          {service.description?.substring(0, 80)}...
+          {description?.substring(0, 80)}...
         </p>
 
         <div className="d-flex justify-content-between align-items-center">
           <span className="fw-bold text-primary">
-            {formatCurrency(service.price)}
+            {formatCurrency(price)}
           </span>
           <Button
             as={Link}
-            to={`/services/${service.id}`}
+            to={`/services/${serviceId}`}
             variant="outline-primary"
             size="sm"
           >
@@ -106,12 +145,36 @@ const Services = () => {
   });
 
   const refreshIntervalRef = useRef(null);
+  // ✅ Ref for the services section to scroll to
+  const servicesSectionRef = useRef(null);
 
   // Toast helper
   const showToast = (message, type = 'success') => {
     setToastMessage({ show: true, message, type });
     setTimeout(() => setToastMessage({ show: false, message: '', type: '' }), 3000);
   };
+
+  // ✅ Function to scroll to services section
+  const scrollToServices = useCallback(() => {
+    // Small delay to ensure content is rendered
+    setTimeout(() => {
+      if (servicesSectionRef.current) {
+        const offset = 80; // Adjust for navbar height
+        const elementPosition = servicesSectionRef.current.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - offset;
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      } else {
+        // Fallback: scroll to top
+        window.scrollTo({
+          top: 0,
+          behavior: 'smooth'
+        });
+      }
+    }, 100);
+  }, []);
 
   // Fetch categories
   const fetchCategories = async () => {
@@ -124,7 +187,7 @@ const Services = () => {
     }
   };
 
-  // Fetch services (no loading state)
+  // ✅ FIXED: Fetch services with proper error handling
   const fetchServices = async () => {
     try {
       setError(null);
@@ -139,8 +202,11 @@ const Services = () => {
       };
       
       const response = await api.get('/services', { params });
-      setServices(response.data.services || []);
-      setTotalCount(response.data.total || 0);
+      const data = response.data || {};
+      const servicesList = data.services || [];
+      
+      setServices(servicesList);
+      setTotalCount(data.pagination?.totalItems || data.total || 0);
     } catch (err) {
       console.error('Failed to fetch services:', err);
       setError('Could not load services. Please try again later.');
@@ -153,6 +219,8 @@ const Services = () => {
   // Fetch all data in parallel
   const fetchAllData = async () => {
     await Promise.all([fetchCategories(), fetchServices()]);
+    // ✅ Scroll to services after data loads
+    scrollToServices();
   };
 
   // Manual refresh (no spinner)
@@ -170,7 +238,7 @@ const Services = () => {
     };
   }, []);
 
-  // Refetch when filters or pagination change
+  // ✅ Refetch when filters or pagination change and scroll to services
   useEffect(() => {
     const params = {};
     if (filters.search) params.search = filters.search;
@@ -180,8 +248,19 @@ const Services = () => {
     if (filters.sort) params.sort = filters.sort;
     setSearchParams(params);
     
-    fetchServices();
+    fetchServices().then(() => {
+      scrollToServices();
+    });
   }, [filters, currentPage]);
+
+  // ✅ Scroll to services when page loads
+  useEffect(() => {
+    // Initial scroll to services section after a small delay
+    const initialScroll = setTimeout(() => {
+      scrollToServices();
+    }, 300);
+    return () => clearTimeout(initialScroll);
+  }, []);
 
   // Reset page when filters change
   useEffect(() => {
@@ -198,6 +277,8 @@ const Services = () => {
     const formData = new FormData(e.target);
     const search = formData.get('search');
     setFilters(prev => ({ ...prev, search }));
+    // ✅ Scroll to services after search
+    setTimeout(scrollToServices, 200);
   };
 
   const clearFilters = () => {
@@ -209,6 +290,8 @@ const Services = () => {
       sort: 'newest'
     });
     setCurrentPage(1);
+    // ✅ Scroll to services after clearing filters
+    setTimeout(scrollToServices, 200);
   };
 
   // Pagination
@@ -256,7 +339,7 @@ const Services = () => {
                 >
                   <option value="">All Categories</option>
                   {categories.map(cat => (
-                    <option key={cat.id || cat} value={cat.slug || cat.name || cat}>
+                    <option key={cat.id || cat.slug || cat.name} value={cat.slug || cat.id || cat.name}>
                       {cat.name || cat}
                     </option>
                   ))}
@@ -310,95 +393,112 @@ const Services = () => {
 
         {/* Main Content */}
         <Col lg={9}>
-          <Card className="border-0 shadow-sm mb-4">
-            <Card.Body>
-              <Form onSubmit={handleSearch}>
-                <Row>
-                  <Col>
-                    <div className="d-flex gap-2">
-                      <Form.Control
-                        type="text"
-                        name="search"
-                        placeholder="Search services..."
-                        defaultValue={filters.search}
-                      />
-                      <Button type="submit" variant="primary">
-                        <FaSearch />
-                      </Button>
-                      <Button
-                        variant="outline-secondary"
-                        className="d-lg-none"
-                        onClick={() => setShowFilters(!showFilters)}
-                      >
-                        <FaFilter />
-                      </Button>
-                    </div>
-                  </Col>
-                </Row>
-              </Form>
-            </Card.Body>
-          </Card>
-
-          {error && (
-            <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
-              {error}
-            </Alert>
-          )}
-
-          <div className="d-flex justify-content-between align-items-center mb-4">
-            <p className="text-muted mb-0">
-              Found <strong>{totalCount}</strong> services
-            </p>
-          </div>
-
-          {services.length > 0 ? (
-            <>
-              <Row xs={2} md={2} lg={3} className="g-4">
-                {services.map(service => (
-                  <Col key={service.id}>
-                    <ServiceCard service={service} />
-                  </Col>
-                ))}
-              </Row>
-              
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="d-flex justify-content-center mt-4">
-                  <Pagination>
-                    <Pagination.Prev
-                      onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                      disabled={currentPage === 1}
-                    />
-                    {pageNumbers.map(pageNum => (
-                      <Pagination.Item
-                        key={pageNum}
-                        active={pageNum === currentPage}
-                        onClick={() => setCurrentPage(pageNum)}
-                      >
-                        {pageNum}
-                      </Pagination.Item>
-                    ))}
-                    <Pagination.Next
-                      onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                    />
-                  </Pagination>
-                </div>
-              )}
-            </>
-          ) : (
-            <Card className="border-0 shadow-sm text-center py-5">
+          {/* ✅ Added ref and id for scrolling */}
+          <div ref={servicesSectionRef} id="services-section">
+            <Card className="border-0 shadow-sm mb-4">
               <Card.Body>
-                <h5>No services found</h5>
-                <p className="text-muted">
-                  Try adjusting your filters or search criteria
-                </p>
-                <Button variant="primary" onClick={clearFilters}>
-                  Clear Filters
-                </Button>
+                <Form onSubmit={handleSearch}>
+                  <Row>
+                    <Col>
+                      <div className="d-flex gap-2">
+                        <Form.Control
+                          type="text"
+                          name="search"
+                          placeholder="Search services..."
+                          defaultValue={filters.search}
+                        />
+                        <Button type="submit" variant="primary">
+                          <FaSearch />
+                        </Button>
+                        <Button
+                          variant="outline-secondary"
+                          className="d-lg-none"
+                          onClick={() => setShowFilters(!showFilters)}
+                        >
+                          <FaFilter />
+                        </Button>
+                      </div>
+                    </Col>
+                  </Row>
+                </Form>
               </Card.Body>
             </Card>
-          )}
+
+            {error && (
+              <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <p className="text-muted mb-0">
+                Found <strong>{totalCount}</strong> services
+              </p>
+              {filters.category && (
+                <Badge bg="info" pill className="d-flex align-items-center gap-2">
+                  Category: {categories.find(c => (c.slug || c.id) === filters.category)?.name || filters.category}
+                  <Button 
+                    variant="link" 
+                    size="sm" 
+                    className="text-white p-0 ms-1" 
+                    onClick={() => setFilters(prev => ({ ...prev, category: '' }))}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    ✕
+                  </Button>
+                </Badge>
+              )}
+            </div>
+
+            {services.length > 0 ? (
+              <>
+                <Row xs={2} md={2} lg={3} className="g-4">
+                  {services.map(service => (
+                    <Col key={service.id}>
+                      <ServiceCard service={service} />
+                    </Col>
+                  ))}
+                </Row>
+                
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="d-flex justify-content-center mt-4">
+                    <Pagination>
+                      <Pagination.Prev
+                        onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                        disabled={currentPage === 1}
+                      />
+                      {pageNumbers.map(pageNum => (
+                        <Pagination.Item
+                          key={pageNum}
+                          active={pageNum === currentPage}
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum}
+                        </Pagination.Item>
+                      ))}
+                      <Pagination.Next
+                        onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                      />
+                    </Pagination>
+                  </div>
+                )}
+              </>
+            ) : (
+              <Card className="border-0 shadow-sm text-center py-5">
+                <Card.Body>
+                  <h5>No services found</h5>
+                  <p className="text-muted">
+                    Try adjusting your filters or search criteria
+                  </p>
+                  <Button variant="primary" onClick={clearFilters}>
+                    Clear Filters
+                  </Button>
+                </Card.Body>
+              </Card>
+            )}
+          </div>
         </Col>
       </Row>
 

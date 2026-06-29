@@ -9,7 +9,7 @@ import pool from '../config/db.js';
 const router = express.Router();
 
 // =========================================================================
-// GET /api/services - Get all services with filters - ✅ SIMPLIFIED & FIXED
+// GET /api/services - Get all services with filters - ✅ FIXED TYPE ERROR
 // =========================================================================
 
 router.get('/', async (req, res) => {
@@ -31,30 +31,41 @@ router.get('/', async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const queryLimit = parseInt(limit);
     
-    // ✅ Start building the query with basic WHERE clause
+    // ✅ Build WHERE conditions
     let whereConditions = ["s.status = 'approved'"];
     const queryParams = [];
     let paramCounter = 1;
 
-    // ✅ Handle category filter - SIMPLIFIED
+    // ✅ Handle category filter - FIXED: Properly convert to integer
     if (category) {
       try {
-        // First, try to find the category by name, slug, or ID
-        const categoryResult = await pool.query(
-          `SELECT id FROM categories 
-           WHERE LOWER(name) = LOWER($1) 
-           OR LOWER(slug) = LOWER($1) 
-           OR id::text = $1`,
-          [category]
-        );
+        let categoryId = null;
         
-        if (categoryResult.rows.length > 0) {
-          const categoryId = categoryResult.rows[0].id;
+        // ✅ Check if category is already a number
+        if (!isNaN(category) && Number.isInteger(parseFloat(category))) {
+          // It's a number, use it directly
+          categoryId = parseInt(category);
+        } else {
+          // It's a text name or slug - look it up
+          const categoryResult = await pool.query(
+            `SELECT id FROM categories 
+             WHERE LOWER(name) = LOWER($1) 
+             OR LOWER(slug) = LOWER($1)`,
+            [category]
+          );
+          
+          if (categoryResult.rows.length > 0) {
+            categoryId = categoryResult.rows[0].id;
+          }
+        }
+        
+        if (categoryId !== null) {
+          // ✅ Use integer comparison (no casting needed)
           whereConditions.push(`s.category_id = $${paramCounter}`);
           queryParams.push(categoryId);
           paramCounter++;
         } else {
-          // ✅ Category not found - return empty result immediately
+          // Category not found - return empty result
           return res.json({
             services: [],
             pagination: {
@@ -67,7 +78,6 @@ router.get('/', async (req, res) => {
         }
       } catch (categoryError) {
         console.error('⚠️ Category lookup error:', categoryError.message);
-        // ✅ Return empty result on error
         return res.json({
           services: [],
           pagination: {
@@ -123,9 +133,7 @@ router.get('/', async (req, res) => {
       paramCounter++;
     }
 
-    const whereClause = whereConditions.length > 0 
-      ? 'WHERE ' + whereConditions.join(' AND ')
-      : '';
+    const whereClause = 'WHERE ' + whereConditions.join(' AND ');
 
     // ✅ ORDER BY
     let orderBy = 's.created_at DESC';
@@ -135,7 +143,7 @@ router.get('/', async (req, res) => {
     else if (sort === 'oldest') orderBy = 's.created_at ASC';
     else if (sort === 'popular') orderBy = 's.review_count DESC NULLS LAST';
 
-    // ✅ BUILD THE QUERY - Use simple parameterized query
+    // ✅ MAIN QUERY
     const mainQuery = `
       SELECT 
         s.id,
@@ -172,11 +180,10 @@ router.get('/', async (req, res) => {
       LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
 
-    // ✅ Execute main query with all params
     const allParams = [...queryParams, queryLimit, offset];
     const result = await pool.query(mainQuery, allParams);
 
-    // ✅ COUNT QUERY - Without LIMIT/OFFSET
+    // ✅ COUNT QUERY
     const countQuery = `
       SELECT COUNT(*) as total
       FROM services s
@@ -238,7 +245,6 @@ router.get('/', async (req, res) => {
       query: req.query
     });
     
-    // ✅ Return structured error with empty data
     res.status(500).json({
       message: 'Failed to fetch services',
       error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',

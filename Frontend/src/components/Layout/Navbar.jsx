@@ -76,7 +76,7 @@ const Navbar = () => {
         /* Responsive adjustments – slower on mobile too */
         @media (max-width: 768px) {
           .professional-ticker {
-            padding: 10px 0;
+            padding: 20px 0;
           }
           .ticker-message {
             font-size: 0.85rem;

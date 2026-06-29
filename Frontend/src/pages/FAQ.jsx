@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/pages/FAQ.jsx
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Row,
@@ -14,6 +15,15 @@ import { FaSearch, FaQuestionCircle, FaUser, FaCreditCard, FaShieldAlt, FaCalend
 
 const FAQ = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const topRef = useRef(null);
+
+  // ✅ Scroll to top when component mounts
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  }, []);
 
   const faqCategories = [
     {
@@ -99,103 +109,108 @@ const FAQ = () => {
   })).filter(category => category.faqs.length > 0);
 
   return (
-    <Container className="py-4">
-      {/* Header */}
-      <Row className="mb-4">
-        <Col className="text-center">
-          <h1 className="display-6 mb-3">Frequently Asked Questions</h1>
-          <p className="text-muted">
-            Find answers to common questions about using our platform
-          </p>
-        </Col>
-      </Row>
+    <>
+      {/* ✅ Hidden anchor for scrolling */}
+      <div ref={topRef} />
+      
+      <Container className="py-4">
+        {/* Header */}
+        <Row className="mb-4">
+          <Col className="text-center">
+            <h1 className="display-6 mb-3">Frequently Asked Questions</h1>
+            <p className="text-muted">
+              Find answers to common questions about using our platform
+            </p>
+          </Col>
+        </Row>
 
-      {/* Search */}
-      <Row className="mb-5 justify-content-center">
-        <Col md={6}>
-          <InputGroup size="lg">
-            <Form.Control
-              type="text"
-              placeholder="Search FAQs..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Button variant="primary">
-              <FaSearch />
-            </Button>
-          </InputGroup>
-        </Col>
-      </Row>
+        {/* Search */}
+        <Row className="mb-5 justify-content-center">
+          <Col md={6}>
+            <InputGroup size="lg">
+              <Form.Control
+                type="text"
+                placeholder="Search FAQs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <Button variant="primary">
+                <FaSearch />
+              </Button>
+            </InputGroup>
+          </Col>
+        </Row>
 
-      {/* FAQ Categories */}
-      <Row>
-        {filteredFaqs.length > 0 ? (
-          filteredFaqs.map((category, idx) => (
-            <Col lg={6} key={idx} className="mb-4">
-              <Card className="border-0 shadow-sm h-100">
-                <Card.Header className="bg-white border-0 py-3">
-                  <div className="d-flex align-items-center">
-                    <div className="bg-primary bg-opacity-10 p-2 rounded-circle me-3">
-                      <span className="text-primary">{category.icon}</span>
+        {/* FAQ Categories */}
+        <Row>
+          {filteredFaqs.length > 0 ? (
+            filteredFaqs.map((category, idx) => (
+              <Col lg={6} key={idx} className="mb-4">
+                <Card className="border-0 shadow-sm h-100">
+                  <Card.Header className="bg-white border-0 py-3">
+                    <div className="d-flex align-items-center">
+                      <div className="bg-primary bg-opacity-10 p-2 rounded-circle me-3">
+                        <span className="text-primary">{category.icon}</span>
+                      </div>
+                      <h5 className="mb-0">{category.title}</h5>
                     </div>
-                    <h5 className="mb-0">{category.title}</h5>
-                  </div>
-                </Card.Header>
+                  </Card.Header>
+                  <Card.Body>
+                    <Accordion>
+                      {category.faqs.map((faq, index) => (
+                        <Accordion.Item eventKey={`${idx}-${index}`} key={index}>
+                          <Accordion.Header>
+                            <FaQuestionCircle className="text-primary me-2" size={14} />
+                            {faq.question}
+                          </Accordion.Header>
+                          <Accordion.Body>
+                            <p className="text-muted mb-0">{faq.answer}</p>
+                          </Accordion.Body>
+                        </Accordion.Item>
+                      ))}
+                    </Accordion>
+                  </Card.Body>
+                </Card>
+              </Col>
+            ))
+          ) : (
+            <Col>
+              <Card className="border-0 shadow-sm text-center py-5">
                 <Card.Body>
-                  <Accordion>
-                    {category.faqs.map((faq, index) => (
-                      <Accordion.Item eventKey={`${idx}-${index}`} key={index}>
-                        <Accordion.Header>
-                          <FaQuestionCircle className="text-primary me-2" size={14} />
-                          {faq.question}
-                        </Accordion.Header>
-                        <Accordion.Body>
-                          <p className="text-muted mb-0">{faq.answer}</p>
-                        </Accordion.Body>
-                      </Accordion.Item>
-                    ))}
-                  </Accordion>
+                  <h5>No FAQs found</h5>
+                  <p className="text-muted">
+                    Try searching with different keywords
+                  </p>
                 </Card.Body>
               </Card>
             </Col>
-          ))
-        ) : (
+          )}
+        </Row>
+
+        {/* Still Need Help */}
+        <Row className="mt-5">
           <Col>
-            <Card className="border-0 shadow-sm text-center py-5">
-              <Card.Body>
-                <h5>No FAQs found</h5>
-                <p className="text-muted">
-                  Try searching with different keywords
+            <Card className="border-0 shadow-sm bg-primary text-white">
+              <Card.Body className="p-5 text-center">
+                <h3 className="mb-3">Still Need Help?</h3>
+                <p className="mb-4">
+                  Can't find the answer you're looking for? Our support team is here to help.
                 </p>
+                <Button
+                  as={Link}
+                  to="/contact"
+                  variant="light"
+                  size="lg"
+                  className="px-5"
+                >
+                  Contact Support
+                </Button>
               </Card.Body>
             </Card>
           </Col>
-        )}
-      </Row>
-
-      {/* Still Need Help */}
-      <Row className="mt-5">
-        <Col>
-          <Card className="border-0 shadow-sm bg-primary text-white">
-            <Card.Body className="p-5 text-center">
-              <h3 className="mb-3">Still Need Help?</h3>
-              <p className="mb-4">
-                Can't find the answer you're looking for? Our support team is here to help.
-              </p>
-              <Button
-                as={Link}
-                to="/contact"
-                variant="light"
-                size="lg"
-                className="px-5"
-              >
-                Contact Support
-              </Button>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-    </Container>
+        </Row>
+      </Container>
+    </>
   );
 };
 

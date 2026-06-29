@@ -25,10 +25,15 @@ import AuthCallback from './pages/AuthCallback';
 import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Settings from './pages/Settings';
-import Solutions from './pages/Solutions';
+import SafetyTips from './pages/SafetyTips';
 import Profile from './pages/Profile';
 import Chat from './pages/Chat';
 import HelpCenter from './pages/HelpCenter';
+import HowItWorks from './pages/HowItWorks';
+import Blog from './pages/Blog';
+import ReportIssue from './pages/ReportIssue';
+import CancellationPolicy from './pages/CancellationPolicy';
+
 
 // Customer Pages
 import CustomerDashboard from './components/customer/CustomerDashboard';
@@ -126,8 +131,8 @@ const WebSocketStatus = () => {
     <div className="fixed bottom-4 right-4 z-50">
       <div
         className={`px-3 py-1.5 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 transition-all duration-300 ${isConnected
-            ? 'bg-green-500 text-white hover:bg-green-600'
-            : 'bg-red-500 text-white hover:bg-red-600'
+          ? 'bg-green-500 text-white hover:bg-green-600'
+          : 'bg-red-500 text-white hover:bg-red-600'
           }`}
         title={status ? `Socket ID: ${status.socketId || 'N/A'}` : 'Connection status'}
       >
@@ -221,7 +226,12 @@ function AppContent() {
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
-          <Route path="/solutions" element={<Solutions />} />
+          <Route path="/safety-tips" element={<SafetyTips />} />
+          <Route path="/how-it-works" element={<HowItWorks />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/report" element={<ReportIssue />} />
+          <Route path="/cancellation" element={<CancellationPolicy />} />
+
 
           {/* ========== PAYMENT ROUTES ========== */}
           <Route path="/payment-success" element={
