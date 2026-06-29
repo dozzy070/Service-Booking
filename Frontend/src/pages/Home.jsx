@@ -459,10 +459,18 @@ const Home = () => {
         <div className="hero-gradient"></div>
         <Container className="position-relative" style={{ zIndex: 2 }}>
           <Navbar expand="lg" variant="dark" className="pt-1 pt-md-4 pb-3 pb-md-4">
-            <Navbar.Brand as={Link} to="/" className="fw-bold fs-5 fs-md-3">
-              <img src={logo} alt="Company Logo" height="32" className="d-inline-block align-top" />
-              <span className="d-none d-sm-inline">Smart<span className="text-warning">Services</span></span>
+
+            <Navbar.Brand as={Link} to="/" className="fw-bold fs-5 fs-md-3 d-flex align-items-center">
+              <img
+                src={logo}
+                alt="Company Logo"
+                height="32"
+                className="d-inline-block align-top me-2"
+              />
+              <span className="text-white">Smart</span>
+              <span className="text-warning">Services</span>
             </Navbar.Brand>
+
             <Navbar.Toggle aria-controls="basic-navbar-nav" />
             <Navbar.Collapse id="basic-navbar-nav">
               <Nav className="ms-auto align-items-center gap-2 gap-md-3">
