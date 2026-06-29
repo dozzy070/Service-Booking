@@ -76,14 +76,14 @@ const Navbar = () => {
         /* Responsive adjustments – slower on mobile too */
         @media (max-width: 768px) {
           .professional-ticker {
-            padding: 20px 0;
+            padding: 10px 0;
           }
           .ticker-message {
             font-size: 0.85rem;
           }
           .ticker-content {
             gap: 2.5rem;
-            animation-duration: 50s;
+            animation-duration: 35s;
           }
         }
 
@@ -97,7 +97,7 @@ const Navbar = () => {
           }
           .ticker-content {
             gap: 1.8rem;
-            animation-duration: 45s;
+            animation-duration: 30s;
           }
         }
 
