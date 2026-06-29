@@ -1080,7 +1080,6 @@ const Home = () => {
            ALL SECTIONS - CONSISTENT SPACING
            ============================================================ */
         section {
-          padding: 10px 0;
           position: relative;
           overflow: hidden;
         }

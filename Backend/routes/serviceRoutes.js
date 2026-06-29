@@ -1,593 +1,869 @@
+// Backend/routes/serviceRoutes.js
 import express from 'express';
-import { body, query, param } from 'express-validator';
+import { body } from 'express-validator';
 import { protect, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { uploadMultiple } from '../middleware/upload.js';
 import pool from '../config/db.js';
-import {
-  getServiceById,
-  createService,
-  updateService,
-  deleteService,
-  getCategories,
-  addReview,
-  getReviews,
-  getProviderServices,
-  searchServices,
-  getPopularServices,
-  getSimilarServices,
-  toggleFavorite,
-  getFavorites,
-  isFavorite,
-  getAvailability
-} from '../controllers/serviceController.js';
 
 const router = express.Router();
 
-const serviceValidation = [
-  body('title').notEmpty().withMessage('Title is required'),
-  body('description').notEmpty().withMessage('Description is required'),
-  body('category').notEmpty().withMessage('Category is required'),
-  body('price').isNumeric().withMessage('Price must be a number'),
-  body('duration').optional().isString(),
-  body('location').optional().isString(),
-  body('features').optional().isArray(),
-  body('requirements').optional().isArray()
-];
-
-const reviewValidation = [
-  body('rating').isInt({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
-  body('comment').optional().isString(),
-  body('images').optional().isArray()
-];
-
 // =========================================================================
-// PUBLIC ROUTES (no authentication)
+// GET /api/services - Get all services with filters - ✅ SIMPLIFIED & FIXED
 // =========================================================================
 
-// GET /api/services - Get all services with filters
 router.get('/', async (req, res) => {
   try {
     const { 
+      category, 
+      search, 
       sort = 'newest', 
       page = 1, 
-      limit = 12, 
-      category, 
-      minPrice, 
-      maxPrice, 
-      search,
+      limit = 12,
+      minPrice,
+      maxPrice,
+      rating,
       providerId,
       featured,
       popular
     } = req.query;
-    
+
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const queryLimit = parseInt(limit);
+    
+    // ✅ Start building the query with basic WHERE clause
+    let whereConditions = ["s.status = 'approved'"];
+    const queryParams = [];
+    let paramCounter = 1;
 
-    // ORDER BY
+    // ✅ Handle category filter - SIMPLIFIED
+    if (category) {
+      try {
+        // First, try to find the category by name, slug, or ID
+        const categoryResult = await pool.query(
+          `SELECT id FROM categories 
+           WHERE LOWER(name) = LOWER($1) 
+           OR LOWER(slug) = LOWER($1) 
+           OR id::text = $1`,
+          [category]
+        );
+        
+        if (categoryResult.rows.length > 0) {
+          const categoryId = categoryResult.rows[0].id;
+          whereConditions.push(`s.category_id = $${paramCounter}`);
+          queryParams.push(categoryId);
+          paramCounter++;
+        } else {
+          // ✅ Category not found - return empty result immediately
+          return res.json({
+            services: [],
+            pagination: {
+              currentPage: parseInt(page),
+              totalPages: 0,
+              totalItems: 0,
+              itemsPerPage: queryLimit
+            }
+          });
+        }
+      } catch (categoryError) {
+        console.error('⚠️ Category lookup error:', categoryError.message);
+        // ✅ Return empty result on error
+        return res.json({
+          services: [],
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: 0,
+            totalItems: 0,
+            itemsPerPage: queryLimit
+          }
+        });
+      }
+    }
+
+    // ✅ Search filter
+    if (search) {
+      whereConditions.push(`(s.title ILIKE $${paramCounter} OR s.description ILIKE $${paramCounter})`);
+      queryParams.push(`%${search}%`);
+      paramCounter++;
+    }
+
+    // ✅ Price filters
+    if (minPrice) {
+      whereConditions.push(`s.price >= $${paramCounter}`);
+      queryParams.push(parseFloat(minPrice));
+      paramCounter++;
+    }
+    if (maxPrice) {
+      whereConditions.push(`s.price <= $${paramCounter}`);
+      queryParams.push(parseFloat(maxPrice));
+      paramCounter++;
+    }
+
+    // ✅ Provider filter
+    if (providerId) {
+      whereConditions.push(`s.provider_id = $${paramCounter}`);
+      queryParams.push(providerId);
+      paramCounter++;
+    }
+
+    // ✅ Featured filter
+    if (featured === 'true') {
+      whereConditions.push(`s.is_featured = true`);
+    }
+
+    // ✅ Popular filter
+    if (popular === 'true') {
+      whereConditions.push(`s.is_popular = true`);
+    }
+
+    // ✅ Rating filter
+    if (rating) {
+      whereConditions.push(`s.avg_rating >= $${paramCounter}`);
+      queryParams.push(parseFloat(rating));
+      paramCounter++;
+    }
+
+    const whereClause = whereConditions.length > 0 
+      ? 'WHERE ' + whereConditions.join(' AND ')
+      : '';
+
+    // ✅ ORDER BY
     let orderBy = 's.created_at DESC';
     if (sort === 'price_low') orderBy = 's.price ASC';
     else if (sort === 'price_high') orderBy = 's.price DESC';
-    else if (sort === 'rating') orderBy = 'COALESCE(rating_stats.avg_rating, 0) DESC NULLS LAST';
+    else if (sort === 'rating') orderBy = 's.avg_rating DESC NULLS LAST';
     else if (sort === 'oldest') orderBy = 's.created_at ASC';
-    else if (sort === 'popular') orderBy = 'COALESCE(rating_stats.review_count, 0) DESC';
+    else if (sort === 'popular') orderBy = 's.review_count DESC NULLS LAST';
 
-    // WHERE conditions
-    const conditions = ['s.status = $1'];
-    const params = ['approved'];
-    let paramIndex = 2;
-
-    if (category) {
-      conditions.push(`(c.slug = $${paramIndex} OR c.id = $${paramIndex})`);
-      params.push(category);
-      paramIndex++;
-    }
-    if (minPrice) {
-      conditions.push(`s.price >= $${paramIndex}`);
-      params.push(parseFloat(minPrice));
-      paramIndex++;
-    }
-    if (maxPrice) {
-      conditions.push(`s.price <= $${paramIndex}`);
-      params.push(parseFloat(maxPrice));
-      paramIndex++;
-    }
-    if (search) {
-      conditions.push(`(s.title ILIKE $${paramIndex} OR s.description ILIKE $${paramIndex})`);
-      params.push(`%${search}%`, `%${search}%`);
-      paramIndex += 2;
-    }
-    if (providerId) {
-      conditions.push(`s.provider_id = $${paramIndex}`);
-      params.push(providerId);
-      paramIndex++;
-    }
-    if (featured === 'true') {
-      conditions.push(`s.is_featured = true`);
-    }
-    if (popular === 'true') {
-      conditions.push(`s.is_popular = true`);
-    }
-
-    const whereClause = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-
-    // ✅ FIXED: Replaced s.image with s.images
-    const sql = `
-      SELECT
-        s.id, s.title, s.description, s.price, s.duration, s.created_at,
-        s.images, s.city as location, s.is_featured, s.is_popular,
-        c.id as category_id, c.name AS category_name, c.slug AS category_slug,
-        COALESCE(rating_stats.avg_rating, 0)::float AS avg_rating,
-        COALESCE(rating_stats.review_count, 0) AS review_count,
-        u.name AS provider_name, u.id AS provider_id, u.avatar AS provider_avatar,
-        u.phone as provider_phone, u.email as provider_email
+    // ✅ BUILD THE QUERY - Use simple parameterized query
+    const mainQuery = `
+      SELECT 
+        s.id,
+        s.title,
+        s.description,
+        s.price,
+        s.duration,
+        s.created_at,
+        s.updated_at,
+        s.images,
+        s.location,
+        s.address,
+        s.city,
+        s.state,
+        s.is_featured,
+        s.is_popular,
+        s.avg_rating,
+        s.review_count,
+        s.status,
+        s.slug,
+        c.id as category_id,
+        c.name AS category_name,
+        c.slug AS category_slug,
+        u.id AS provider_id,
+        u.name AS provider_name,
+        u.avatar AS provider_avatar,
+        u.phone as provider_phone,
+        u.email as provider_email
       FROM services s
       LEFT JOIN categories c ON s.category_id = c.id
       LEFT JOIN users u ON s.provider_id = u.id
-      LEFT JOIN (
-        SELECT service_id, AVG(rating)::float AS avg_rating, COUNT(*) AS review_count
-        FROM reviews
-        GROUP BY service_id
-      ) rating_stats ON s.id = rating_stats.service_id
       ${whereClause}
       ORDER BY ${orderBy}
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
-    params.push(queryLimit, offset);
-    const result = await pool.query(sql, params);
 
-    // Count query (with same filters)
-    const countSql = `
+    // ✅ Execute main query with all params
+    const allParams = [...queryParams, queryLimit, offset];
+    const result = await pool.query(mainQuery, allParams);
+
+    // ✅ COUNT QUERY - Without LIMIT/OFFSET
+    const countQuery = `
       SELECT COUNT(*) as total
       FROM services s
       LEFT JOIN categories c ON s.category_id = c.id
       ${whereClause}
     `;
-    const countParams = params.slice(0, -2);
-    const countResult = await pool.query(countSql, countParams);
-    const total = parseInt(countResult.rows[0].total);
+    const countResult = await pool.query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+
+    // ✅ Format response
+    const services = result.rows.map(row => ({
+      id: row.id,
+      title: row.title || 'Untitled',
+      description: row.description || '',
+      price: parseFloat(row.price || 0),
+      duration: row.duration || '60',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      images: row.images || [],
+      location: row.location || '',
+      address: row.address || '',
+      city: row.city || '',
+      state: row.state || '',
+      isFeatured: row.is_featured || false,
+      isPopular: row.is_popular || false,
+      avgRating: parseFloat(row.avg_rating || 0),
+      reviewCount: parseInt(row.review_count || 0),
+      status: row.status || 'pending',
+      slug: row.slug || '',
+      category: {
+        id: row.category_id,
+        name: row.category_name || 'Uncategorized',
+        slug: row.category_slug || ''
+      },
+      provider: {
+        id: row.provider_id,
+        name: row.provider_name || 'Unknown Provider',
+        avatar: row.provider_avatar || null,
+        phone: row.provider_phone || '',
+        email: row.provider_email || ''
+      }
+    }));
 
     res.json({
-      services: result.rows.map(s => ({
-        ...s,
-        price: parseFloat(s.price),
-        avg_rating: parseFloat(s.avg_rating) || 0,
-        review_count: parseInt(s.review_count),
-        // Handle images array
-        images: s.images || []
-      })),
+      services,
       pagination: {
         currentPage: parseInt(page),
-        totalPages: Math.ceil(total / queryLimit),
+        totalPages: Math.ceil(total / queryLimit) || 1,
         totalItems: total,
         itemsPerPage: queryLimit
       }
     });
+
   } catch (err) {
     console.error('❌ Service listing error:', err);
-    res.status(500).json({ message: 'Failed to fetch services', error: err.message });
+    console.error('❌ Error details:', {
+      message: err.message,
+      stack: err.stack,
+      query: req.query
+    });
+    
+    // ✅ Return structured error with empty data
+    res.status(500).json({
+      message: 'Failed to fetch services',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+      services: [],
+      pagination: {
+        currentPage: 1,
+        totalPages: 0,
+        totalItems: 0,
+        itemsPerPage: 12
+      }
+    });
   }
 });
 
-// GET /api/services/search - Search services
-router.get('/search', searchServices);
-
+// =========================================================================
 // GET /api/services/categories - Get all categories
-router.get('/categories', getCategories);
+// =========================================================================
 
+router.get('/categories', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id, 
+        name, 
+        slug, 
+        icon, 
+        color,
+        description,
+        display_order
+      FROM categories 
+      ORDER BY display_order ASC, name ASC
+    `);
+    
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('❌ Error fetching categories:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch categories',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// =========================================================================
 // GET /api/services/popular - Get popular services
-router.get('/popular', getPopularServices);
+// =========================================================================
 
-// ✅ FIXED: Featured services - replaced s.image with s.images
+router.get('/popular', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 6;
+    
+    const result = await pool.query(`
+      SELECT
+        s.id,
+        s.title,
+        s.images,
+        s.price,
+        s.avg_rating,
+        s.review_count,
+        c.name as category_name,
+        u.name as provider_name
+      FROM services s
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN users u ON s.provider_id = u.id
+      WHERE s.status = 'approved'
+      ORDER BY s.review_count DESC, s.avg_rating DESC
+      LIMIT $1
+    `, [limit]);
+    
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('❌ Error fetching popular services:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// GET /api/services/featured - Get featured services
+// =========================================================================
+
 router.get('/featured', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 6;
     
     const result = await pool.query(`
       SELECT
-        s.id, s.title, s.description, s.price, s.images, s.city as location,
-        c.name as category,
-        u.name as provider_name,
-        COALESCE(AVG(r.rating), 0) as avg_rating,
-        COUNT(r.id) as review_count
+        s.id,
+        s.title,
+        s.images,
+        s.price,
+        s.avg_rating,
+        s.review_count,
+        c.name as category_name,
+        u.name as provider_name
       FROM services s
-      JOIN users u ON s.provider_id = u.id
       LEFT JOIN categories c ON s.category_id = c.id
-      LEFT JOIN reviews r ON s.id = r.service_id
+      LEFT JOIN users u ON s.provider_id = u.id
       WHERE s.status = 'approved' AND s.is_featured = true
-      GROUP BY s.id, c.name, u.name, u.avatar
       ORDER BY s.created_at DESC
       LIMIT $1
     `, [limit]);
     
-    const services = result.rows.map(service => ({
-      id: service.id,
-      title: service.title,
-      description: service.description,
-      price: parseFloat(service.price),
-      images: service.images || [],
-      location: service.location,
-      category: service.category,
-      providerName: service.provider_name,
-      avgRating: parseFloat(service.avg_rating),
-      reviewCount: parseInt(service.review_count)
-    }));
-    
-    res.json(services);
+    res.json(result.rows || []);
   } catch (error) {
-    console.error('Error fetching featured services:', error);
-    res.status(500).json({ message: 'Failed to fetch featured services' });
+    console.error('❌ Error fetching featured services:', error);
+    res.json([]);
   }
 });
 
-// ✅ FIXED: Recommended services - replaced s.image with s.images
+// =========================================================================
+// GET /api/services/recommended - Get recommended services
+// =========================================================================
+
 router.get('/recommended', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 6;
-    const userId = req.user?.id || null;
     
-    let query = `
+    const result = await pool.query(`
       SELECT
+        s.id,
+        s.title,
+        s.images,
+        s.price,
+        s.avg_rating,
+        s.review_count,
+        c.name as category_name,
+        u.name as provider_name
+      FROM services s
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN users u ON s.provider_id = u.id
+      WHERE s.status = 'approved'
+      ORDER BY s.avg_rating DESC, s.review_count DESC
+      LIMIT $1
+    `, [limit]);
+    
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('❌ Error fetching recommended services:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// GET /api/services/:id - Get single service
+// =========================================================================
+
+router.get('/:id', async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+    
+    const result = await pool.query(`
+      SELECT 
         s.id,
         s.title,
         s.description,
         s.price,
+        s.discount_price,
+        s.currency,
+        s.price_type,
+        s.duration,
+        s.location,
+        s.address,
+        s.city,
+        s.state,
+        s.zip_code,
+        s.postal_code,
+        s.features,
+        s.requirements,
         s.images,
-        s.city as location,
-        c.name as category,
-        u.name as provider_name,
-        u.avatar as provider_avatar,
-        COALESCE(AVG(r.rating), 0) as avg_rating,
-        COUNT(r.id) as review_count
+        s.cancellation_policy,
+        s.max_bookings_per_day,
+        s.advance_booking,
+        s.service_type,
+        s.languages,
+        s.tags,
+        s.is_remote,
+        s.is_active,
+        s.is_featured,
+        s.is_popular,
+        s.avg_rating,
+        s.review_count,
+        s.status,
+        s.slug,
+        s.created_at,
+        s.updated_at,
+        c.id as category_id,
+        c.name AS category_name,
+        c.slug AS category_slug,
+        u.id AS provider_id,
+        u.name AS provider_name,
+        u.avatar AS provider_avatar,
+        u.phone as provider_phone,
+        u.email as provider_email,
+        u.bio as provider_bio
       FROM services s
-      JOIN users u ON s.provider_id = u.id
       LEFT JOIN categories c ON s.category_id = c.id
-      LEFT JOIN reviews r ON s.id = r.service_id
-      WHERE s.status = 'approved'
-      GROUP BY s.id, c.name, u.name, u.avatar
-      HAVING COUNT(r.id) > 0
-      ORDER BY avg_rating DESC, review_count DESC
-      LIMIT $1
-    `;
+      LEFT JOIN users u ON s.provider_id = u.id
+      WHERE s.id = $1 AND s.deleted_at IS NULL
+    `, [serviceId]);
     
-    const params = [limit];
-    
-    // If user is logged in, get their booking history to personalize recommendations
-    if (userId) {
-      // Get categories user has booked before
-      const userCategories = await pool.query(`
-        SELECT DISTINCT s.category_id
-        FROM bookings b
-        JOIN services s ON b.service_id = s.id
-        WHERE b.customer_id = $1 AND b.status = 'completed'
-      `, [userId]);
-      
-      if (userCategories.rows.length > 0) {
-        const categoryIds = userCategories.rows.map(r => r.category_id).filter(id => id !== null);
-        if (categoryIds.length > 0) {
-          // Prioritize services from categories user has used before
-          query = `
-            SELECT
-              s.id,
-              s.title,
-              s.description,
-              s.price,
-              s.images,
-              s.city as location,
-              c.name as category,
-              u.name as provider_name,
-              u.avatar as provider_avatar,
-              COALESCE(AVG(r.rating), 0) as avg_rating,
-              COUNT(r.id) as review_count,
-              CASE WHEN s.category_id = ANY($2) THEN 1 ELSE 0 END as relevance
-            FROM services s
-            JOIN users u ON s.provider_id = u.id
-            LEFT JOIN categories c ON s.category_id = c.id
-            LEFT JOIN reviews r ON s.id = r.service_id
-            WHERE s.status = 'approved'
-            GROUP BY s.id, c.name, u.name, u.avatar
-            ORDER BY relevance DESC, avg_rating DESC, review_count DESC
-            LIMIT $1
-          `;
-          params.push(categoryIds);
-        }
-      }
-    }
-    
-    const result = await pool.query(query, params);
-    
-    const services = result.rows.map(service => ({
-      id: service.id,
-      title: service.title,
-      description: service.description,
-      price: parseFloat(service.price),
-      images: service.images || [],
-      location: service.location,
-      category: service.category,
-      providerName: service.provider_name,
-      providerAvatar: service.provider_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(service.provider_name)}&background=10b981&color=fff`,
-      avgRating: parseFloat(service.avg_rating),
-      reviewCount: parseInt(service.review_count)
-    }));
-    
-    res.json(services);
-  } catch (error) {
-    console.error('Error fetching recommended services:', error);
-    res.status(500).json({ message: 'Failed to fetch recommended services' });
-  }
-});
-
-// GET /api/services/:id - Get single service by ID
-router.get('/:id', getServiceById);
-
-// GET /api/services/:id/availability - Get service availability
-router.get('/:id/availability', async (req, res) => {
-  try {
-    const serviceId = req.params.id;
-    const { date } = req.query;
-    
-    if (!date) {
-      return res.status(400).json({ message: 'Date parameter is required' });
-    }
-    
-    // Get service details
-    const service = await pool.query(
-      'SELECT provider_id, duration FROM services WHERE id = $1 AND status = \'approved\'',
-      [serviceId]
-    );
-    
-    if (service.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Service not found' });
     }
     
-    const providerId = service.rows[0].provider_id;
-    const duration = service.rows[0].duration || 60;
-    
-    // Get provider's schedule for the day
-    const dayOfWeek = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-    
-    const schedule = await pool.query(`
-      SELECT start_time, end_time
-      FROM provider_schedules
-      WHERE provider_id = $1 AND day_of_week = $2 AND is_active = true
-    `, [providerId, dayOfWeek]);
-    
-    if (schedule.rows.length === 0) {
-      return res.json({ available_slots: [], booked_slots: [], peak_hours: [] });
-    }
-    
-    // Generate time slots (30-minute intervals)
-    const slots = [];
-    const durationMinutes = parseInt(duration);
-    const intervalMinutes = 30;
-    
-    schedule.rows.forEach(row => {
-      const start = new Date(`1970-01-01T${row.start_time}`);
-      const end = new Date(`1970-01-01T${row.end_time}`);
-      let current = new Date(start);
-      
-      while (current < end) {
-        const timeStr = current.toTimeString().slice(0, 5);
-        slots.push(timeStr);
-        current.setMinutes(current.getMinutes() + intervalMinutes);
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      title: row.title || 'Untitled',
+      description: row.description || '',
+      price: parseFloat(row.price || 0),
+      discountPrice: parseFloat(row.discount_price || 0),
+      currency: row.currency || 'NGN',
+      priceType: row.price_type || 'fixed',
+      duration: row.duration || '60',
+      location: row.location || '',
+      address: row.address || '',
+      city: row.city || '',
+      state: row.state || '',
+      zipCode: row.zip_code || '',
+      postalCode: row.postal_code || '',
+      features: row.features || [],
+      requirements: row.requirements || [],
+      images: row.images || [],
+      cancellationPolicy: row.cancellation_policy || '',
+      maxBookingsPerDay: parseInt(row.max_bookings_per_day || 0),
+      advanceBooking: parseInt(row.advance_booking || 0),
+      serviceType: row.service_type || 'standard',
+      languages: row.languages || [],
+      tags: row.tags || [],
+      isRemote: row.is_remote || false,
+      isActive: row.is_active || true,
+      isFeatured: row.is_featured || false,
+      isPopular: row.is_popular || false,
+      avgRating: parseFloat(row.avg_rating || 0),
+      reviewCount: parseInt(row.review_count || 0),
+      status: row.status || 'pending',
+      slug: row.slug || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      category: {
+        id: row.category_id,
+        name: row.category_name || 'Uncategorized',
+        slug: row.category_slug || ''
+      },
+      provider: {
+        id: row.provider_id,
+        name: row.provider_name || 'Unknown Provider',
+        avatar: row.provider_avatar || null,
+        phone: row.provider_phone || '',
+        email: row.provider_email || '',
+        bio: row.provider_bio || ''
       }
     });
-    
-    // Get existing bookings for the date
-    const bookings = await pool.query(`
-      SELECT time FROM bookings
-      WHERE service_id = $1 AND booking_date::date = $2
-        AND status NOT IN ('cancelled', 'rejected')
-    `, [serviceId, date]);
-    
-    const bookedSlots = bookings.rows.map(b => b.time);
-    const availableSlots = slots.filter(s => !bookedSlots.includes(s));
-    
-    // Peak hours (10am-12pm and 4pm-6pm)
-    const peakHours = ['09:00', '10:00', '11:00', '12:00', '16:00', '17:00', '18:00'];
-    
-    res.json({
-      available_slots: availableSlots,
-      booked_slots: bookedSlots,
-      time_slots: slots,
-      peak_hours: peakHours,
-      date_info: null,
-      duration: durationMinutes
+  } catch (error) {
+    console.error('❌ Error fetching service:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch service',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
-  } catch (err) {
-    console.error('Error fetching availability:', err);
-    res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
 // =========================================================================
 // PROTECTED ROUTES (require authentication)
 // =========================================================================
+
 router.use(protect);
 
-// POST /api/services - Create a new service (provider only)
+// POST /api/services - Create a new service
 router.post('/',
   authorize('provider', 'admin'),
   uploadMultiple('images', 5),
-  serviceValidation,
-  validate,
-  createService
+  async (req, res) => {
+    try {
+      const {
+        title,
+        description,
+        category,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features,
+        requirements,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages,
+        tags,
+        is_remote,
+        is_active
+      } = req.body;
+
+      const providerId = req.user.id;
+      
+      // Get category ID - handle null category
+      let categoryId = null;
+      if (category) {
+        const categoryResult = await pool.query(
+          'SELECT id FROM categories WHERE id = $1 OR slug = $1 OR LOWER(name) = LOWER($1)',
+          [category]
+        );
+        categoryId = categoryResult.rows.length > 0 ? categoryResult.rows[0].id : null;
+      }
+
+      const images = req.files ? req.files.map(f => f.path) : [];
+
+      const result = await pool.query(`
+        INSERT INTO services (
+          provider_id, category_id, title, description, price, discount_price,
+          currency, price_type, duration, location, address, city, state,
+          zip_code, features, requirements, images, cancellation_policy,
+          max_bookings_per_day, advance_booking, service_type, languages,
+          tags, is_remote, is_active, status, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending',
+          NOW(), NOW()
+        ) RETURNING *
+      `, [
+        providerId, categoryId, title, description, price, discount_price,
+        currency, price_type, duration, location, address, city, state,
+        zip_code, features || [], requirements || [], images,
+        cancellation_policy, max_bookings_per_day, advance_booking,
+        service_type, languages || [], tags || [], is_remote || false,
+        is_active !== false
+      ]);
+
+      res.status(201).json({
+        message: 'Service created successfully',
+        service: result.rows[0]
+      });
+    } catch (error) {
+      console.error('❌ Error creating service:', error);
+      res.status(500).json({ 
+        message: 'Failed to create service',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
 );
 
-// PUT /api/services/:id - Update service (provider/admin only)
+// =========================================================================
+// PUT /api/services/:id - Update service
+// =========================================================================
+
 router.put('/:id',
   authorize('provider', 'admin'),
   uploadMultiple('images', 5),
-  updateService
+  async (req, res) => {
+    try {
+      const serviceId = req.params.id;
+      const userId = req.user.id;
+      const userRole = req.user.role;
+      
+      // Check if service exists and belongs to provider
+      const checkResult = await pool.query(
+        'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
+        [serviceId]
+      );
+      
+      if (checkResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+      
+      if (userRole !== 'admin' && checkResult.rows[0].provider_id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized to update this service' });
+      }
+
+      const {
+        title,
+        description,
+        category,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features,
+        requirements,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages,
+        tags,
+        is_remote,
+        is_active
+      } = req.body;
+
+      // Get category ID - handle null category
+      let categoryId = null;
+      if (category) {
+        const categoryResult = await pool.query(
+          'SELECT id FROM categories WHERE id = $1 OR slug = $1 OR LOWER(name) = LOWER($1)',
+          [category]
+        );
+        categoryId = categoryResult.rows.length > 0 ? categoryResult.rows[0].id : null;
+      }
+
+      const images = req.files ? req.files.map(f => f.path) : [];
+
+      const result = await pool.query(`
+        UPDATE services SET
+          title = COALESCE($1, title),
+          description = COALESCE($2, description),
+          category_id = COALESCE($3, category_id),
+          price = COALESCE($4, price),
+          discount_price = COALESCE($5, discount_price),
+          currency = COALESCE($6, currency),
+          price_type = COALESCE($7, price_type),
+          duration = COALESCE($8, duration),
+          location = COALESCE($9, location),
+          address = COALESCE($10, address),
+          city = COALESCE($11, city),
+          state = COALESCE($12, state),
+          zip_code = COALESCE($13, zip_code),
+          features = COALESCE($14, features),
+          requirements = COALESCE($15, requirements),
+          images = COALESCE($16, images),
+          cancellation_policy = COALESCE($17, cancellation_policy),
+          max_bookings_per_day = COALESCE($18, max_bookings_per_day),
+          advance_booking = COALESCE($19, advance_booking),
+          service_type = COALESCE($20, service_type),
+          languages = COALESCE($21, languages),
+          tags = COALESCE($22, tags),
+          is_remote = COALESCE($23, is_remote),
+          is_active = COALESCE($24, is_active),
+          updated_at = NOW()
+        WHERE id = $25
+        RETURNING *
+      `, [
+        title, description, categoryId, price, discount_price,
+        currency, price_type, duration, location, address, city, state,
+        zip_code, features || [], requirements || [], images,
+        cancellation_policy, max_bookings_per_day, advance_booking,
+        service_type, languages || [], tags || [], is_remote || false,
+        is_active !== false, serviceId
+      ]);
+
+      res.json({
+        message: 'Service updated successfully',
+        service: result.rows[0]
+      });
+    } catch (error) {
+      console.error('❌ Error updating service:', error);
+      res.status(500).json({ 
+        message: 'Failed to update service',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
 );
 
-// DELETE /api/services/:id - Delete service (provider/admin only)
+// =========================================================================
+// DELETE /api/services/:id - Delete service (soft delete)
+// =========================================================================
+
 router.delete('/:id',
   authorize('provider', 'admin'),
-  deleteService
+  async (req, res) => {
+    try {
+      const serviceId = req.params.id;
+      const userId = req.user.id;
+      const userRole = req.user.role;
+      
+      // Check if service exists and belongs to provider
+      const checkResult = await pool.query(
+        'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
+        [serviceId]
+      );
+      
+      if (checkResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+      
+      if (userRole !== 'admin' && checkResult.rows[0].provider_id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized to delete this service' });
+      }
+
+      await pool.query(
+        'UPDATE services SET deleted_at = NOW(), status = $1 WHERE id = $2',
+        ['deleted', serviceId]
+      );
+
+      res.json({ message: 'Service deleted successfully' });
+    } catch (error) {
+      console.error('❌ Error deleting service:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete service',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
 );
 
-// GET /api/services/provider/me - Get provider's services
-router.get('/provider/me',
-  authorize('provider'),
-  getProviderServices
-);
-
-// GET /api/services/favorites/me - Get user's favorite services
-router.get('/favorites/me', getFavorites);
-
-// POST /api/services/:id/favorite - Toggle favorite status
-router.post('/:id/favorite', toggleFavorite);
-
-// GET /api/services/:id/is-favorite - Check if service is favorited
-router.get('/:id/is-favorite', isFavorite);
-
+// =========================================================================
 // POST /api/services/:id/reviews - Add review to service
+// =========================================================================
+
 router.post('/:id/reviews',
-  reviewValidation,
-  validate,
-  addReview
+  protect,
+  authorize('customer'),
+  async (req, res) => {
+    try {
+      const serviceId = req.params.id;
+      const customerId = req.user.id;
+      const { rating, comment } = req.body;
+
+      if (!rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+      }
+
+      // Check if service exists
+      const serviceCheck = await pool.query(
+        'SELECT id, provider_id FROM services WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
+        [serviceId, 'approved']
+      );
+      
+      if (serviceCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+
+      // Check if user has already reviewed this service
+      const existingReview = await pool.query(
+        'SELECT id FROM reviews WHERE service_id = $1 AND reviewer_id = $2',
+        [serviceId, customerId]
+      );
+      
+      if (existingReview.rows.length > 0) {
+        return res.status(400).json({ message: 'You have already reviewed this service' });
+      }
+
+      // Insert review
+      const result = await pool.query(`
+        INSERT INTO reviews (service_id, reviewer_id, rating, comment, status, created_at)
+        VALUES ($1, $2, $3, $4, 'approved', NOW())
+        RETURNING *
+      `, [serviceId, customerId, rating, comment]);
+
+      // Update service avg_rating and review_count
+      await pool.query(`
+        UPDATE services SET
+          avg_rating = (SELECT AVG(rating) FROM reviews WHERE service_id = $1 AND status = 'approved'),
+          review_count = (SELECT COUNT(*) FROM reviews WHERE service_id = $1 AND status = 'approved')
+        WHERE id = $1
+      `, [serviceId]);
+
+      res.status(201).json({
+        message: 'Review added successfully',
+        review: result.rows[0]
+      });
+    } catch (error) {
+      console.error('❌ Error adding review:', error);
+      res.status(500).json({ 
+        message: 'Failed to add review',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
 );
 
+// =========================================================================
 // GET /api/services/:id/reviews - Get reviews for a service
+// =========================================================================
+
 router.get('/:id/reviews', async (req, res) => {
   try {
     const serviceId = req.params.id;
-    const { page = 1, limit = 10, rating } = req.query;
+    const { page = 1, limit = 10 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    let conditions = ['service_id = $1'];
-    let params = [serviceId];
-    let paramIndex = 2;
-    
-    if (rating && rating !== 'all') {
-      conditions.push(`rating = $${paramIndex}`);
-      params.push(parseInt(rating));
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    const countQuery = `SELECT COUNT(*) as total FROM reviews WHERE ${whereClause}`;
-    const countResult = await pool.query(countQuery, params);
-    const total = parseInt(countResult.rows[0].total);
-    
-    const query = `
-      SELECT r.*, u.name as user_name, u.avatar as user_avatar
+
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as total FROM reviews WHERE service_id = $1 AND status = $2',
+      [serviceId, 'approved']
+    );
+    const total = parseInt(countResult.rows[0]?.total || 0);
+
+    const result = await pool.query(`
+      SELECT 
+        r.id,
+        r.rating,
+        r.comment,
+        r.created_at,
+        u.id as user_id,
+        u.name as user_name,
+        u.avatar as user_avatar
       FROM reviews r
-      JOIN users u ON r.user_id = u.id
-      WHERE ${whereClause}
+      JOIN users u ON r.reviewer_id = u.id
+      WHERE r.service_id = $1 AND r.status = 'approved'
       ORDER BY r.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-    params.push(parseInt(limit), offset);
-    
-    const result = await pool.query(query, params);
-    
+      LIMIT $2 OFFSET $3
+    `, [serviceId, parseInt(limit), offset]);
+
     res.json({
       reviews: result.rows,
-      total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)) || 1,
+        totalItems: total,
+        itemsPerPage: parseInt(limit)
+      }
     });
   } catch (error) {
-    console.error('Error fetching reviews:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('❌ Error fetching reviews:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch reviews',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 
-// ✅ FIXED: Similar services - replaced s.image with s.images
-router.get('/:id/similar', async (req, res) => {
-  try {
-    const serviceId = req.params.id;
-    const limit = parseInt(req.query.limit) || 4;
-    
-    // Get the service's category
-    const service = await pool.query(
-      'SELECT category_id FROM services WHERE id = $1 AND status = \'approved\'',
-      [serviceId]
-    );
-    
-    if (service.rows.length === 0) {
-      return res.status(404).json({ message: 'Service not found' });
-    }
-    
-    const categoryId = service.rows[0].category_id;
-    
-    // ✅ FIXED: replaced s.image with s.images
-    const result = await pool.query(`
-      SELECT
-        s.id, s.title, s.description, s.price, s.images, s.city as location,
-        c.name as category,
-        u.name as provider_name,
-        COALESCE(AVG(r.rating), 0) as avg_rating,
-        COUNT(r.id) as review_count
-      FROM services s
-      JOIN users u ON s.provider_id = u.id
-      LEFT JOIN categories c ON s.category_id = c.id
-      LEFT JOIN reviews r ON s.id = r.service_id
-      WHERE s.status = 'approved' 
-        AND s.id != $1 
-        AND (s.category_id = $2 OR s.category_id IS NULL)
-      GROUP BY s.id, c.name, u.name, u.avatar
-      ORDER BY avg_rating DESC, review_count DESC
-      LIMIT $3
-    `, [serviceId, categoryId, limit]);
-    
-    const services = result.rows.map(service => ({
-      id: service.id,
-      title: service.title,
-      description: service.description,
-      price: parseFloat(service.price),
-      images: service.images || [],
-      location: service.location,
-      category: service.category,
-      providerName: service.provider_name,
-      avgRating: parseFloat(service.avg_rating),
-      reviewCount: parseInt(service.review_count)
-    }));
-    
-    res.json(services);
-  } catch (error) {
-    console.error('Error fetching similar services:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// GET /api/services/:id/stats - Get service statistics
-router.get('/:id/stats', async (req, res) => {
-  try {
-    const serviceId = req.params.id;
-    
-    const result = await pool.query(`
-      SELECT
-        COALESCE(SUM(b.total_amount), 0) as total_revenue,
-        COUNT(b.id) as total_bookings,
-        COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed_bookings,
-        COUNT(CASE WHEN b.status = 'pending' THEN 1 END) as pending_bookings,
-        COUNT(CASE WHEN b.status = 'cancelled' THEN 1 END) as cancelled_bookings,
-        COALESCE(AVG(r.rating), 0) as avg_rating,
-        COUNT(DISTINCT r.id) as total_reviews
-      FROM services s
-      LEFT JOIN bookings b ON b.service_id = s.id
-      LEFT JOIN reviews r ON r.service_id = s.id
-      WHERE s.id = $1
-      GROUP BY s.id
-    `, [serviceId]);
-    
-    res.json(result.rows[0] || {
-      total_revenue: 0,
-      total_bookings: 0,
-      completed_bookings: 0,
-      pending_bookings: 0,
-      cancelled_bookings: 0,
-      avg_rating: 0,
-      total_reviews: 0
-    });
-  } catch (error) {
-    console.error('Error fetching service stats:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+// =========================================================================
+// EXPORT ROUTER
+// =========================================================================
 
 export default router;

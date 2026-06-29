@@ -1,10 +1,11 @@
+// Backend/routes/userRoutes.js
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
-import { protect } from '../middleware/auth.js';
+import { protect, authorize } from '../middleware/auth.js';
 import pool from '../config/db.js';
 
 const router = express.Router();
@@ -102,7 +103,6 @@ router.put('/profile', async (req, res) => {
       [name, phone, address, city, state, zip_code, bio, req.user.id]
     );
     
-    // Fetch updated profile
     const result = await pool.query(
       'SELECT id, name, email, phone, address, city, state, zip_code, bio, avatar, role FROM users WHERE id = $1',
       [req.user.id]
@@ -144,8 +144,6 @@ router.put('/change-password', async (req, res) => {
 // POST /api/user/logout - User logout
 router.post('/logout', async (req, res) => {
   try {
-    // If using JWT, logout is handled client-side
-    // If using sessions, destroy session here
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -153,37 +151,266 @@ router.post('/logout', async (req, res) => {
   }
 });
 
-// DELETE /api/user/account - Delete user account
+// =========================================================================
+// ✅ DELETE /api/user/account - Hard delete user account with cascade
+// =========================================================================
+
 router.delete('/account', async (req, res) => {
+  const client = await pool.connect();
+  
   try {
     const userId = req.user.id;
     
-    // Check if user has any active bookings
-    const activeBookings = await pool.query(
-      `SELECT COUNT(*) as count FROM bookings 
-       WHERE (customer_id = $1 OR provider_id = $1) 
-       AND status NOT IN ('completed', 'cancelled')`,
+    // Check if user exists
+    const userCheck = await client.query(
+      'SELECT id, role FROM users WHERE id = $1 AND deleted_at IS NULL',
       [userId]
     );
     
-    if (parseInt(activeBookings.rows[0].count) > 0) {
-      return res.status(400).json({ 
-        message: 'Cannot delete account with active bookings. Please complete or cancel them first.' 
-      });
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
     }
     
-    // Soft delete - deactivate account
-    await pool.query(
-      'UPDATE users SET is_active = false, deleted_at = NOW() WHERE id = $1',
+    const userRole = userCheck.rows[0].role;
+    
+    // Check if user has active bookings (only for customers/providers)
+    if (userRole === 'customer' || userRole === 'provider') {
+      const activeBookings = await client.query(
+        `SELECT COUNT(*) as count FROM bookings 
+         WHERE (customer_id = $1 OR provider_id = $1) 
+         AND status NOT IN ('completed', 'cancelled', 'rejected')`,
+        [userId]
+      );
+      
+      if (parseInt(activeBookings.rows[0].count) > 0) {
+        return res.status(400).json({ 
+          message: 'Cannot delete account with active bookings. Please complete or cancel them first.' 
+        });
+      }
+    }
+    
+    // Begin transaction
+    await client.query('BEGIN');
+    
+    // ✅ Delete all related data
+    await deleteUserData(client, userId, userRole);
+    
+    // ✅ Delete the user
+    await client.query(
+      'DELETE FROM users WHERE id = $1',
       [userId]
     );
     
-    res.json({ message: 'Account deactivated successfully' });
+    // ✅ Commit transaction
+    await client.query('COMMIT');
+    
+    // ✅ Reset the sequence if no users remain
+    const remainingUsers = await client.query('SELECT COUNT(*) as count FROM users');
+    if (parseInt(remainingUsers.rows[0].count) === 0) {
+      await client.query('ALTER SEQUENCE users_id_seq RESTART WITH 1');
+    }
+    
+    res.json({ 
+      message: 'Account deleted successfully',
+      userId: userId
+    });
+    
   } catch (error) {
-    console.error('Account deletion error:', error);
-    res.status(500).json({ message: 'Server error' });
+    await client.query('ROLLBACK');
+    console.error('❌ Account deletion error:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete account',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  } finally {
+    client.release();
   }
 });
+
+// =========================================================================
+// ✅ DELETE /api/user/:id - Admin delete user with cascade
+// =========================================================================
+
+router.delete('/:id', protect, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const userId = req.params.id;
+    
+    // Don't allow admin to delete themselves
+    if (parseInt(userId) === req.user.id) {
+      return res.status(400).json({ message: 'Cannot delete your own account' });
+    }
+    
+    // Check if user exists
+    const userCheck = await client.query(
+      'SELECT id, role FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId]
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    const userRole = userCheck.rows[0].role;
+    
+    // Begin transaction
+    await client.query('BEGIN');
+    
+    // ✅ Delete all related data
+    await deleteUserData(client, userId, userRole);
+    
+    // ✅ Delete the user
+    await client.query(
+      'DELETE FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    // ✅ Commit transaction
+    await client.query('COMMIT');
+    
+    // ✅ Reset the sequence if no users remain
+    const remainingUsers = await client.query('SELECT COUNT(*) as count FROM users');
+    if (parseInt(remainingUsers.rows[0].count) === 0) {
+      await client.query('ALTER SEQUENCE users_id_seq RESTART WITH 1');
+    }
+    
+    res.json({ 
+      message: 'User deleted successfully',
+      userId: userId
+    });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ Admin delete user error:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete user',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// =========================================================================
+// HELPER FUNCTION: Delete all user-related data
+// =========================================================================
+
+async function deleteUserData(client, userId, userRole) {
+  try {
+    // 1. Delete user's chat messages
+    await client.query(
+      'DELETE FROM chat_messages WHERE sender_id = $1 OR receiver_id = $1',
+      [userId]
+    );
+    
+    // 2. Delete user's chat conversations
+    await client.query(
+      'DELETE FROM chat_conversations WHERE user1_id = $1 OR user2_id = $1',
+      [userId]
+    );
+    
+    // 3. Delete user's notifications
+    await client.query(
+      'DELETE FROM notifications WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 4. Delete user's notification preferences
+    await client.query(
+      'DELETE FROM notification_preferences WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 5. Delete user's favorites
+    await client.query(
+      'DELETE FROM favorites WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 6. Delete user's reviews
+    await client.query(
+      'DELETE FROM reviews WHERE reviewer_id = $1',
+      [userId]
+    );
+    
+    // 7. Delete user's wallet transactions
+    await client.query(
+      'DELETE FROM wallet_transactions WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 8. Delete user's wallet
+    await client.query(
+      'DELETE FROM wallets WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 9. Delete user's payment methods
+    await client.query(
+      'DELETE FROM payment_methods WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 10. Delete user's privacy settings
+    await client.query(
+      'DELETE FROM privacy_settings WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 11. Delete user's audit logs
+    await client.query(
+      'DELETE FROM audit_logs WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (userRole === 'provider') {
+      // 12. Delete provider's schedules
+      await client.query(
+        'DELETE FROM provider_schedules WHERE provider_id = $1',
+        [userId]
+      );
+      
+      // 13. Delete provider's withdrawal methods
+      await client.query(
+        'DELETE FROM withdrawal_methods WHERE user_id = $1',
+        [userId]
+      );
+      
+      // 14. Delete provider's services (soft delete first)
+      await client.query(
+        'UPDATE services SET deleted_at = NOW(), status = \'deleted\' WHERE provider_id = $1',
+        [userId]
+      );
+      
+      // 15. Delete reviews for provider's services
+      await client.query(
+        'DELETE FROM reviews WHERE service_id IN (SELECT id FROM services WHERE provider_id = $1)',
+        [userId]
+      );
+      
+      // 16. Delete bookings where user is provider
+      await client.query(
+        'DELETE FROM bookings WHERE provider_id = $1',
+        [userId]
+      );
+    }
+    
+    if (userRole === 'customer') {
+      // 17. Delete bookings where user is customer
+      await client.query(
+        'DELETE FROM bookings WHERE customer_id = $1',
+        [userId]
+      );
+    }
+    
+    console.log(`✅ Deleted all data for user ${userId} (${userRole})`);
+    
+  } catch (error) {
+    console.error(`❌ Error deleting user data for ${userId}:`, error);
+    throw error;
+  }
+}
 
 // =========================================================================
 // USER STATISTICS
@@ -212,14 +439,14 @@ router.get('/stats', protect, async (req, res) => {
       `, [userId]);
       
       res.json({
-        totalBookings: parseInt(result.rows[0].total_bookings),
-        completedBookings: parseInt(result.rows[0].completed_bookings),
-        pendingBookings: parseInt(result.rows[0].pending_bookings),
-        cancelledBookings: parseInt(result.rows[0].cancelled_bookings),
-        totalSpent: parseFloat(result.rows[0].total_spent),
-        totalProviders: parseInt(result.rows[0].total_providers),
-        averageRating: parseFloat(result.rows[0].average_rating),
-        totalReviews: parseInt(result.rows[0].total_reviews)
+        totalBookings: parseInt(result.rows[0].total_bookings || 0),
+        completedBookings: parseInt(result.rows[0].completed_bookings || 0),
+        pendingBookings: parseInt(result.rows[0].pending_bookings || 0),
+        cancelledBookings: parseInt(result.rows[0].cancelled_bookings || 0),
+        totalSpent: parseFloat(result.rows[0].total_spent || 0),
+        totalProviders: parseInt(result.rows[0].total_providers || 0),
+        averageRating: parseFloat(result.rows[0].average_rating || 0),
+        totalReviews: parseInt(result.rows[0].total_reviews || 0)
       });
     } else if (userRole === 'provider') {
       const result = await pool.query(`
@@ -238,23 +465,22 @@ router.get('/stats', protect, async (req, res) => {
         WHERE b.provider_id = $1
       `, [userId]);
       
-      // Get pending service approvals
       const pendingServices = await pool.query(
         'SELECT COUNT(*) as pending FROM services WHERE provider_id = $1 AND status = \'pending\'',
         [userId]
       );
       
       res.json({
-        totalBookings: parseInt(result.rows[0].total_bookings),
-        completedBookings: parseInt(result.rows[0].completed_bookings),
-        pendingBookings: parseInt(result.rows[0].pending_bookings),
-        cancelledBookings: parseInt(result.rows[0].cancelled_bookings),
-        totalEarnings: parseFloat(result.rows[0].total_earnings),
-        totalCustomers: parseInt(result.rows[0].total_customers),
-        totalServices: parseInt(result.rows[0].total_services),
-        pendingServices: parseInt(pendingServices.rows[0].pending),
-        averageRating: parseFloat(result.rows[0].average_rating),
-        totalReviews: parseInt(result.rows[0].total_reviews)
+        totalBookings: parseInt(result.rows[0].total_bookings || 0),
+        completedBookings: parseInt(result.rows[0].completed_bookings || 0),
+        pendingBookings: parseInt(result.rows[0].pending_bookings || 0),
+        cancelledBookings: parseInt(result.rows[0].cancelled_bookings || 0),
+        totalEarnings: parseFloat(result.rows[0].total_earnings || 0),
+        totalCustomers: parseInt(result.rows[0].total_customers || 0),
+        totalServices: parseInt(result.rows[0].total_services || 0),
+        pendingServices: parseInt(pendingServices.rows[0].pending || 0),
+        averageRating: parseFloat(result.rows[0].average_rating || 0),
+        totalReviews: parseInt(result.rows[0].total_reviews || 0)
       });
     } else {
       res.json({
@@ -262,7 +488,7 @@ router.get('/stats', protect, async (req, res) => {
       });
     }
   } catch (err) {
-    console.error(err);
+    console.error('Stats error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -278,7 +504,7 @@ router.get('/activity', protect, async (req, res) => {
        FROM bookings WHERE customer_id = $1 OR provider_id = $1)
       UNION
       (SELECT 'review' as type, id, 'left a review' as action, created_at as timestamp
-       FROM reviews WHERE user_id = $1)
+       FROM reviews WHERE reviewer_id = $1)
       UNION
       (SELECT 'service' as type, id, 'created service' as action, created_at as timestamp
        FROM services WHERE provider_id = $1)
@@ -308,7 +534,6 @@ router.get('/notification-preferences', async (req, res) => {
     );
     
     if (result.rows.length === 0) {
-      // Create default preferences
       const defaultPrefs = {
         email_notifications: true,
         push_notifications: true,
@@ -389,15 +614,15 @@ router.get('/available-for-chat', async (req, res) => {
     
     if (currentRole === 'provider') {
       query = `SELECT id, name, email, role, avatar FROM users 
-               WHERE role IN ('customer', 'admin') AND id != $1 AND is_active = true 
+               WHERE role IN ('customer', 'admin') AND id != $1 AND is_active = true AND deleted_at IS NULL
                ORDER BY name`;
     } else if (currentRole === 'customer') {
       query = `SELECT id, name, email, role, avatar FROM users 
-               WHERE role = 'provider' AND id != $1 AND is_active = true 
+               WHERE role = 'provider' AND id != $1 AND is_active = true AND deleted_at IS NULL
                ORDER BY name`;
     } else if (currentRole === 'admin') {
       query = `SELECT id, name, email, role, avatar FROM users 
-               WHERE role = 'provider' AND id != $1 AND is_active = true 
+               WHERE role = 'provider' AND id != $1 AND is_active = true AND deleted_at IS NULL
                ORDER BY name`;
     } else {
       return res.status(403).json({ message: 'Not allowed' });
@@ -531,7 +756,6 @@ router.get('/conversations/:id/messages', async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
     
-    // Verify user is participant
     const convCheck = await pool.query(
       `SELECT customer_id, provider_id FROM conversations WHERE id = $1`,
       [conversationId]
@@ -550,7 +774,6 @@ router.get('/conversations/:id/messages', async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
     
-    // Get messages
     const messages = await pool.query(
       `SELECT m.*, u.name as sender_name, u.avatar as sender_avatar
        FROM messages m
@@ -560,7 +783,6 @@ router.get('/conversations/:id/messages', async (req, res) => {
       [conversationId]
     );
     
-    // Mark messages as read
     await pool.query(
       `UPDATE messages SET is_read = true, read_at = NOW()
        WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false`,
@@ -585,7 +807,6 @@ router.post('/conversations/:id/messages', async (req, res) => {
       return res.status(400).json({ message: 'Message is required' });
     }
     
-    // Verify user is participant
     const convCheck = await pool.query(
       `SELECT * FROM conversations WHERE id = $1`,
       [conversationId]
@@ -602,21 +823,18 @@ router.post('/conversations/:id/messages', async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
     
-    // Insert message
     const result = await pool.query(
       `INSERT INTO messages (conversation_id, sender_id, receiver_id, message, created_at)
        VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
       [conversationId, senderId, receiverId, message.trim()]
     );
     
-    // Update conversation last message time
     await pool.query(
       `UPDATE conversations SET last_message_time = NOW(), updated_at = NOW()
        WHERE id = $1`,
       [conversationId]
     );
     
-    // Get sender info
     const sender = await pool.query(
       'SELECT name, avatar FROM users WHERE id = $1',
       [senderId]
@@ -643,14 +861,12 @@ router.put('/conversations/:id/read', async (req, res) => {
     const { messageIds } = req.body;
     
     if (messageIds && messageIds.length > 0) {
-      // Mark specific messages as read
       await pool.query(
         `UPDATE messages SET is_read = true, read_at = NOW()
          WHERE id = ANY($1) AND conversation_id = $2 AND receiver_id = $3`,
         [messageIds, conversationId, userId]
       );
     } else {
-      // Mark all messages as read
       await pool.query(
         `UPDATE messages SET is_read = true, read_at = NOW()
          WHERE conversation_id = $1 AND receiver_id = $2 AND is_read = false`,
@@ -701,7 +917,7 @@ router.get('/', async (req, res) => {
       return res.json([]);
     }
     
-    let query = `SELECT id, name, email, role, avatar FROM users WHERE role IN (${roles.map((_, i) => `$${i + 1}`).join(',')})`;
+    let query = `SELECT id, name, email, role, avatar FROM users WHERE role IN (${roles.map((_, i) => `$${i + 1}`).join(',')}) AND deleted_at IS NULL`;
     let params = [...roles];
     let paramIndex = roles.length + 1;
     
@@ -731,7 +947,7 @@ router.get('/search', async (req, res) => {
     }
     
     let query = `SELECT id, name, email, role, avatar FROM users 
-                 WHERE (name ILIKE $1 OR email ILIKE $1) AND is_active = true`;
+                 WHERE (name ILIKE $1 OR email ILIKE $1) AND is_active = true AND deleted_at IS NULL`;
     let params = [`%${q}%`];
     
     if (role) {
@@ -766,7 +982,6 @@ router.get('/privacy-settings', async (req, res) => {
     );
     
     if (result.rows.length === 0) {
-      // Create default privacy settings
       const defaultSettings = {
         profile_visibility: 'public',
         show_email: false,
@@ -812,6 +1027,64 @@ router.put('/privacy-settings', async (req, res) => {
   } catch (error) {
     console.error('Update privacy settings error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// =========================================================================
+// RESET SEQUENCE - Admin only
+// =========================================================================
+
+router.post('/reset-sequences', protect, authorize('admin'), async (req, res) => {
+  try {
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Reset all sequences
+      const sequences = [
+        'users_id_seq',
+        'services_id_seq',
+        'bookings_id_seq',
+        'categories_id_seq',
+        'reviews_id_seq',
+        'payments_id_seq',
+        'messages_id_seq',
+        'conversations_id_seq'
+      ];
+      
+      for (const seq of sequences) {
+        const check = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.sequences 
+            WHERE sequence_name = $1
+          )
+        `, [seq]);
+        
+        if (check.rows[0].exists) {
+          await client.query(`ALTER SEQUENCE ${seq} RESTART WITH 1`);
+          console.log(`✅ Reset sequence: ${seq}`);
+        }
+      }
+      
+      await client.query('COMMIT');
+      
+      res.json({
+        message: 'All sequences reset successfully',
+        sequences: sequences
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('❌ Error resetting sequences:', error);
+    res.status(500).json({ 
+      message: 'Failed to reset sequences',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 
