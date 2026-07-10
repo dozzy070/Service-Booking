@@ -112,7 +112,7 @@ const ServiceDetail = () => {
   const fetchReviews = async () => {
     try {
       const res = await api.get(`/services/${id}/reviews`);
-      setReviews(res.data);
+      setReviews(Array.isArray(res.data.reviews) ? res.data.reviews : []);
     } catch (err) {
       console.error('Error fetching reviews:', err);
     }
@@ -120,8 +120,8 @@ const ServiceDetail = () => {
 
   const checkFavoriteStatus = async () => {
     try {
-      const res = await api.get(`/favorites/check/${id}`);
-      setIsFavorite(res.data.isFavorite);
+      const res = await api.get(`/customer/favorites/${id}/check`);
+      setIsFavorite(res.data.favorited ?? false);
     } catch (err) {
       console.error('Error checking favorite:', err);
     }
@@ -162,15 +162,9 @@ const ServiceDetail = () => {
 
   const handleFavorite = async () => {
     try {
-      if (isFavorite) {
-        await api.delete(`/favorites/${service.id}`);
-        setIsFavorite(false);
-        toast.success('Removed from favorites');
-      } else {
-        await api.post(`/favorites/${service.id}`);
-        setIsFavorite(true);
-        toast.success('Added to favorites');
-      }
+      const res = await api.post(`/customer/favorites/${service.id}`);
+      setIsFavorite(res.data.favorited ?? !isFavorite);
+      toast.success(res.data.favorited ? 'Added to favorites' : 'Removed from favorites');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update favorites');
     }

@@ -194,9 +194,9 @@ const Home = () => {
   const specializedServices = [
     { name: 'Plumbing', image: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?w=400', slug: 'plumbing' },
     { name: 'Electrical', image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=400', slug: 'electrical' },
-    { name: 'HVAC', image: 'https://images.unsplash.com/photo-1558317374-067fb0f30001?w=400', slug: 'hvac' },
-    { name: 'Flooring', image: 'https://images.unsplash.com/photo-1581858726788-75bc0f6a952c?w=400', slug: 'flooring' },
-    { name: 'Painting', image: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400', slug: 'painting' },
+    { name: 'HVAC', image: 'https://picsum.photos/id/1020/400/300', slug: 'hvac' },
+    { name: 'Flooring', image: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=400', slug: 'flooring' },
+    { name: 'Painting', image: 'https://images.unsplash.com/photo-1501004318641-b39e6451bec6?w=400', slug: 'painting' },
     { name: 'Moving', image: 'https://images.unsplash.com/photo-1607462109225-6b64ae2dd3cb?w=400', slug: 'moving' },
     { name: 'Gardening', image: 'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=400', slug: 'gardening' }
   ];
@@ -575,7 +575,7 @@ const Home = () => {
         <Container className="position-relative" style={{ zIndex: 2 }}>
           <Row className="g-3 g-md-4">
             {stats.map((stat, index) => (
-              <Col xs-6 md={3} key={index}>
+              <Col xs={6} md={3} key={index}>
                 <Card className="border-0 text-center stat-card">
                   <Card.Body className="p-3 p-md-4">
                     <div className="stat-icon mb-2">{stat.icon}</div>
@@ -601,7 +601,7 @@ const Home = () => {
           </Row>
           <Row className="g-3 g-md-4">
             {categories.map((category, index) => (
-              <Col xs-6 md={3} key={index}>
+              <Col xs={6} md={3} key={index}>
                 <CategoryCard category={category} />
               </Col>
             ))}

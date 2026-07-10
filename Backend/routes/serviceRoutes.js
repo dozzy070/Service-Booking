@@ -508,6 +508,64 @@ router.get('/:id', async (req, res) => {
 });
 
 // =========================================================================
+// GET /api/services/:id/related - Get related services by category
+// =========================================================================
+
+router.get('/:id/related', async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+
+    const serviceResult = await pool.query(
+      'SELECT category_id FROM services WHERE id = $1 AND deleted_at IS NULL',
+      [serviceId]
+    );
+
+    if (serviceResult.rows.length === 0) {
+      return res.json([]);
+    }
+
+    const categoryId = serviceResult.rows[0].category_id;
+
+    const relatedResult = await pool.query(`
+      SELECT
+        s.id,
+        s.title,
+        s.price,
+        s.avg_rating,
+        s.review_count,
+        s.images,
+        c.name as category_name,
+        u.name as provider_name
+      FROM services s
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN users u ON s.provider_id = u.id
+      WHERE s.status = 'approved'
+        AND s.deleted_at IS NULL
+        AND s.id <> $1
+        AND s.category_id = $2
+      ORDER BY s.avg_rating DESC, s.review_count DESC
+      LIMIT 4
+    `, [serviceId, categoryId]);
+
+    const relatedServices = relatedResult.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      price: parseFloat(row.price || 0),
+      avg_rating: parseFloat(row.avg_rating || 0),
+      review_count: parseInt(row.review_count || 0),
+      image: Array.isArray(row.images) && row.images.length ? row.images[0] : null,
+      category: row.category_name,
+      provider_name: row.provider_name
+    }));
+
+    res.json(relatedServices);
+  } catch (error) {
+    console.error('❌ Error fetching related services:', error);
+    res.status(500).json({ message: 'Failed to fetch related services', error: error.message });
+  }
+});
+
+// =========================================================================
 // PROTECTED ROUTES (require authentication)
 // =========================================================================
 
