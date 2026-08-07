@@ -1,6 +1,7 @@
 // Backend/routes/providerRoutes.js
 import express from 'express';
 import { protect, authorize } from '../middleware/auth.js';
+import { uploadMultiple } from '../middleware/upload.js';
 import pool from '../config/db.js';
 
 const router = express.Router();
@@ -774,6 +775,308 @@ router.get('/services', async (req, res) => {
     res.json([]);
   }
 });
+
+// =========================================================================
+// PROVIDER SERVICE DETAILS
+// =========================================================================
+
+router.get('/services/:id', async (req, res) => {
+  try {
+    const providerId = req.user.id;
+    const serviceId = req.params.id;
+
+    const { rows } = await pool.query(
+      `SELECT * FROM services WHERE id = $1 AND provider_id = $2 AND deleted_at IS NULL`,
+      [serviceId, providerId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Service detail error:', err);
+    res.status(500).json({ message: 'Failed to fetch service details' });
+  }
+});
+
+// =========================================================================
+// PROVIDER SERVICE CREATION
+// =========================================================================
+
+router.post('/services',
+  authorize('provider', 'admin'),
+  uploadMultiple('images', 5),
+  async (req, res) => {
+    try {
+      const providerId = req.user.id;
+      const {
+        title,
+        description,
+        category,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features,
+        requirements,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages,
+        tags,
+        is_remote,
+        is_active,
+        short_description,
+        preparation_time,
+        certifications
+      } = req.body;
+
+      let categoryId = null;
+      if (category) {
+        const categoryResult = await pool.query(
+          'SELECT id FROM categories WHERE id = $1 OR slug = $1 OR LOWER(name) = LOWER($1)',
+          [category]
+        );
+        categoryId = categoryResult.rows.length > 0 ? categoryResult.rows[0].id : null;
+      }
+
+      const images = req.files ? req.files.map(f => f.path) : [];
+
+      const result = await pool.query(`
+        INSERT INTO services (
+          provider_id, category_id, title, description, short_description, price,
+          discount_price, currency, price_type, duration, location, address, city, state,
+          zip_code, features, requirements, images, cancellation_policy,
+          max_bookings_per_day, advance_booking, service_type, languages,
+          tags, is_remote, is_active, preparation_time, certifications,
+          status, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
+          $28, NOW(), NOW()
+        ) RETURNING *
+      `, [
+        providerId,
+        categoryId,
+        title,
+        description,
+        short_description,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features || [],
+        requirements || [],
+        images,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages || [],
+        tags || [],
+        is_remote || false,
+        is_active !== false,
+        preparation_time,
+        certifications || []
+      ]);
+
+      res.status(201).json({ message: 'Service created successfully', service: result.rows[0] });
+    } catch (err) {
+      console.error('Service create error:', err);
+      res.status(500).json({ message: 'Failed to create service', error: err.message });
+    }
+  }
+);
+
+// =========================================================================
+// PROVIDER SERVICE UPDATE
+// =========================================================================
+
+router.put('/services/:id',
+  authorize('provider', 'admin'),
+  uploadMultiple('images', 5),
+  async (req, res) => {
+    try {
+      const providerId = req.user.id;
+      const serviceId = req.params.id;
+      const userRole = req.user.role;
+
+      const serviceCheck = await pool.query(
+        'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
+        [serviceId]
+      );
+
+      if (serviceCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+
+      if (userRole !== 'admin' && serviceCheck.rows[0].provider_id !== providerId) {
+        return res.status(403).json({ message: 'Unauthorized to update this service' });
+      }
+
+      const {
+        title,
+        description,
+        category,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features,
+        requirements,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages,
+        tags,
+        is_remote,
+        is_active,
+        short_description,
+        preparation_time,
+        certifications
+      } = req.body;
+
+      let categoryId = null;
+      if (category) {
+        const categoryResult = await pool.query(
+          'SELECT id FROM categories WHERE id = $1 OR slug = $1 OR LOWER(name) = LOWER($1)',
+          [category]
+        );
+        categoryId = categoryResult.rows.length > 0 ? categoryResult.rows[0].id : null;
+      }
+
+      const images = req.files ? req.files.map(f => f.path) : null;
+
+      const result = await pool.query(`
+        UPDATE services SET
+          title = COALESCE($1, title),
+          description = COALESCE($2, description),
+          short_description = COALESCE($3, short_description),
+          category_id = COALESCE($4, category_id),
+          price = COALESCE($5, price),
+          discount_price = COALESCE($6, discount_price),
+          currency = COALESCE($7, currency),
+          price_type = COALESCE($8, price_type),
+          duration = COALESCE($9, duration),
+          location = COALESCE($10, location),
+          address = COALESCE($11, address),
+          city = COALESCE($12, city),
+          state = COALESCE($13, state),
+          zip_code = COALESCE($14, zip_code),
+          features = COALESCE($15, features),
+          requirements = COALESCE($16, requirements),
+          images = COALESCE($17, images),
+          cancellation_policy = COALESCE($18, cancellation_policy),
+          max_bookings_per_day = COALESCE($19, max_bookings_per_day),
+          advance_booking = COALESCE($20, advance_booking),
+          service_type = COALESCE($21, service_type),
+          languages = COALESCE($22, languages),
+          tags = COALESCE($23, tags),
+          is_remote = COALESCE($24, is_remote),
+          is_active = COALESCE($25, is_active),
+          preparation_time = COALESCE($26, preparation_time),
+          certifications = COALESCE($27, certifications),
+          updated_at = NOW()
+        WHERE id = $28
+        RETURNING *
+      `, [
+        title,
+        description,
+        short_description,
+        categoryId,
+        price,
+        discount_price,
+        currency,
+        price_type,
+        duration,
+        location,
+        address,
+        city,
+        state,
+        zip_code,
+        features || [],
+        requirements || [],
+        images,
+        cancellation_policy,
+        max_bookings_per_day,
+        advance_booking,
+        service_type,
+        languages || [],
+        tags || [],
+        is_remote,
+        is_active,
+        preparation_time,
+        certifications || [],
+        serviceId
+      ]);
+
+      res.json({ message: 'Service updated successfully', service: result.rows[0] });
+    } catch (err) {
+      console.error('Service update error:', err);
+      res.status(500).json({ message: 'Failed to update service', error: err.message });
+    }
+  }
+);
+
+// =========================================================================
+// PROVIDER SERVICE DELETION
+// =========================================================================
+
+router.delete('/services/:id',
+  authorize('provider', 'admin'),
+  async (req, res) => {
+    try {
+      const providerId = req.user.id;
+      const serviceId = req.params.id;
+      const userRole = req.user.role;
+
+      const serviceCheck = await pool.query(
+        'SELECT provider_id FROM services WHERE id = $1 AND deleted_at IS NULL',
+        [serviceId]
+      );
+
+      if (serviceCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+
+      if (userRole !== 'admin' && serviceCheck.rows[0].provider_id !== providerId) {
+        return res.status(403).json({ message: 'Unauthorized to delete this service' });
+      }
+
+      await pool.query(
+        'UPDATE services SET deleted_at = NOW(), status = $1, updated_at = NOW() WHERE id = $2',
+        ['deleted', serviceId]
+      );
+
+      res.json({ message: 'Service deleted successfully' });
+    } catch (err) {
+      console.error('Service delete error:', err);
+      res.status(500).json({ message: 'Failed to delete service', error: err.message });
+    }
+  }
+);
 
 // =========================================================================
 // PROVIDER BOOKINGS

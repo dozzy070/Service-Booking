@@ -7,7 +7,6 @@ import {
   FaEnvelope,
   FaPhone,
   FaMapMarkerAlt,
-  FaArrowRight,
   FaHeart,
   FaClock,
   FaHeadset,
@@ -134,7 +133,6 @@ const Footer = () => {
               {quickLinks.map((link, index) => (
                 <li key={index} className="mb-2">
                   <Link to={link.path} className="footer-link">
-                    <FaArrowRight className="me-2" size={12} />
                     {link.label}
                   </Link>
                 </li>
@@ -149,7 +147,6 @@ const Footer = () => {
               {supportLinks.map((link, index) => (
                 <li key={index} className="mb-2">
                   <Link to={link.path} className="footer-link">
-                    <FaArrowRight className="me-2" size={12} />
                     {link.label}
                   </Link>
                 </li>
@@ -222,23 +219,6 @@ const Footer = () => {
         .footer {
           position: relative;
           overflow: hidden;
-        }
-
-        .footer::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, #667eea, #764ba2, #667eea);
-          background-size: 200% 100%;
-          animation: gradientMove 3s linear infinite;
-        }
-
-        @keyframes gradientMove {
-          0% { background-position: 0% 0%; }
-          100% { background-position: 200% 0%; }
         }
 
         .footer-link {

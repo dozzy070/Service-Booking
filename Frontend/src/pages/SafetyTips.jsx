@@ -10,7 +10,6 @@ import {
   FaClock,
   FaUsers,
   FaCheckCircle,
-  FaArrowRight,
   FaHardHat,
   FaCity,
   FaUniversity,
@@ -365,7 +364,7 @@ const SafetyTips = () => {
             </Col>
             <Col lg={4} className="text-lg-end">
               <Button as={Link} to="/contact" variant="light" size="lg" className="rounded-pill px-5 fw-bold">
-                Contact Safety Team →
+                Contact Safety Team
               </Button>
             </Col>
           </Row>

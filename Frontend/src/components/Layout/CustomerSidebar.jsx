@@ -247,27 +247,6 @@ const CustomerSidebar = ({
           overflow: hidden;
         }
 
-        .sidebar-header::before {
-          content: '';
-          position: absolute;
-          top: -50%;
-          right: -30%;
-          width: 200px;
-          height: 200px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.05);
-        }
-
-        .sidebar-header::after {
-          content: '';
-          position: absolute;
-          bottom: -40%;
-          left: -20%;
-          width: 150px;
-          height: 150px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.03);
-        }
 
         .brand {
           display: flex;
@@ -530,14 +509,6 @@ const CustomerSidebar = ({
           transform: none;
         }
 
-        .nav-item.active::before {
-          content: '';
-          position: absolute;
-          left: 0;
-          top: 20%;
-          height: 60%;
-          width: 3px;
-          background: white;
           border-radius: 0 3px 3px 0;
         }
 

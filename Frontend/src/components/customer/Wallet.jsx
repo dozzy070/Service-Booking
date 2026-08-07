@@ -633,7 +633,7 @@ const Wallet = () => {
                     <Badge bg="warning" className="ms-2">{availableRewards} available</Badge>
                   )}
                 </h5>
-                <Link to="/customer/rewards" className="text-primary small">View all rewards →</Link>
+                <Link to="/customer/rewards" className="text-primary small">View all rewards</Link>
               </div>
             </Card.Header>
             <Card.Body>

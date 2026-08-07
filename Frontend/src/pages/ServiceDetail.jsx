@@ -27,8 +27,6 @@ import {
   FaShieldAlt,
   FaAward,
   FaMedal,
-  FaArrowLeft,
-  FaArrowRight,
   FaQuoteRight,
   FaCamera,
   FaVideo,
@@ -244,7 +242,7 @@ const ServiceDetail = () => {
         className="text-decoration-none mb-3 d-inline-flex align-items-center"
         onClick={() => navigate(-1)}
       >
-        <FaArrowLeft className="me-2" /> Back to Services
+        Back to Services
       </Button>
 
       <Row>

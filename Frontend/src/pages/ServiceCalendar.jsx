@@ -8,8 +8,6 @@ import {
   FaCheckCircle, 
   FaTimesCircle, 
   FaInfoCircle,
-  FaArrowLeft,
-  FaArrowRight,
   FaRegClock,
   FaCalendarCheck,
   FaBell
@@ -247,7 +245,6 @@ const ServiceCalendar = ({ serviceId, providerId, onSlotSelect, selectedDateTime
             disabled={isDateDisabled({ date: subDays(date, 1), view: 'month' })}
             className="rounded-pill"
           >
-            <FaArrowLeft size={12} className="me-1" />
             Previous
           </Button>
           <div className="text-center">
@@ -265,7 +262,6 @@ const ServiceCalendar = ({ serviceId, providerId, onSlotSelect, selectedDateTime
             className="rounded-pill"
           >
             Next
-            <FaArrowRight size={12} className="ms-1" />
           </Button>
         </div>
 

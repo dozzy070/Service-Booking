@@ -13,8 +13,6 @@ import {
   FaTimesCircle,
   FaExclamationTriangle,
   FaInfoCircle,
-  FaArrowRight,
-  FaArrowLeft,
   FaCreditCard,
   FaUserPlus,
   FaUserMinus,
@@ -168,7 +166,7 @@ const RecentActivity = ({
                 onClick={onViewAll} 
                 className="btn btn-link btn-sm text-decoration-none text-primary p-0"
               >
-                View All <FaArrowRight size={12} className="ms-1" />
+                View All
               </button>
             </OverlayTrigger>
           )}
@@ -283,7 +281,7 @@ const RecentActivity = ({
                               target="_blank"
                               rel="noopener noreferrer"
                             >
-                              View Details <FaArrowRight size={10} className="ms-1" />
+                              View Details
                             </a>
                           </div>
                         )}
@@ -396,15 +394,6 @@ export const TimelineActivity = ({ activities = [], loading = false, maxItems = 
         .timeline-container {
           position: relative;
           padding-left: 30px;
-        }
-        .timeline-container::before {
-          content: '';
-          position: absolute;
-          left: 10px;
-          top: 0;
-          bottom: 0;
-          width: 2px;
-          background: #e2e8f0;
         }
         .timeline-item {
           position: relative;

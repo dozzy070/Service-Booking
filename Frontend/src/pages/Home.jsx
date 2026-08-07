@@ -22,7 +22,6 @@ import {
   FaUsers,
   FaCalendarCheck,
   FaShieldAlt,
-  FaArrowRight,
   FaCheckCircle,
   FaCode,
   FaNetworkWired,
@@ -155,7 +154,7 @@ const AdCard = ({ advert, onDownloadClick, onReferralClick, onPartnershipClick }
           className="rounded-pill mx-auto px-3 px-md-4"
           onClick={handleClick}
         >
-          {advert.buttonText} <FaArrowRight className="ms-2" size={12} />
+          {advert.buttonText}
         </Button>
       </Card.Body>
     </Card>
@@ -420,7 +419,7 @@ const Home = () => {
               <h6 className="text-primary mb-0">{formatCurrency(service.price)}</h6>
             </div>
             <Button as={Link} to={`/services/${service.id}`} variant="outline-primary" size="sm" className="rounded-pill">
-              View <FaArrowRight className="ms-1" size={10} />
+              View
             </Button>
           </div>
         </Card.Body>
@@ -458,22 +457,23 @@ const Home = () => {
       <section className="hero-section position-relative overflow-hidden">
         <div className="hero-gradient"></div>
         <Container className="position-relative" style={{ zIndex: 2 }}>
-          <Navbar expand="lg" variant="dark" className="pt-1 pt-md-4 pb-3 pb-md-4">
+          <Navbar expand="lg" variant="dark" className="pt-1 pt-md-4 pb-3 pb-md-4 navbar-home">
 
-            <Navbar.Brand as={Link} to="/" className="fw-bold fs-5 fs-md-3 d-flex align-items-center">
+            <Navbar.Brand as={Link} to="/" className="fw-bold fs-5 fs-md-3 d-flex align-items-center gap-2 brand-container">
               <img
                 src={logo}
                 alt="Company Logo"
-                height="32"
-                className="d-inline-block align-top me-2"
+                className="site-logo"
               />
-              <span className="text-white">Smart</span>
-              <span className="text-warning">Services</span>
+              <div className="brand-label">
+                <span className="text-white">Smart</span>
+                <span className="text-warning">Services</span>
+              </div>
             </Navbar.Brand>
 
             <Navbar.Toggle aria-controls="basic-navbar-nav" />
             <Navbar.Collapse id="basic-navbar-nav">
-              <Nav className="ms-auto align-items-center gap-2 gap-md-3">
+              <Nav className="ms-auto align-items-center gap-2 gap-md-3 nav-container">
                 <Nav.Link as={Link} to="/" className="text-white">Home</Nav.Link>
                 <Nav.Link as={Link} to="/about" className="text-white">About</Nav.Link>
                 <Nav.Link as={Link} to="/services" className="text-white">Services</Nav.Link>
@@ -549,7 +549,7 @@ const Home = () => {
 
               <div className="d-flex flex-wrap gap-2 gap-md-3">
                 <Button as={Link} to="/solutions" variant="warning" size="lg" className="rounded-pill px-4 px-md-5 py-2 py-md-3 fw-bold fs-6 fs-md-5">
-                  Explore Our Solutions <FaArrowRight className="ms-2" />
+                  Explore Our Solutions
                 </Button>
                 <Button as={Link} to="/register" variant="outline-light" size="lg" className="rounded-pill px-4 px-md-5 py-2 py-md-3 fw-bold fs-6 fs-md-5">
                   Get Started Free
@@ -561,8 +561,7 @@ const Home = () => {
                 <img
                   src={heroImage}
                   alt="Technology solutions"
-                  className="img-fluid rounded-4 shadow-lg mx-auto"
-                  style={{ maxWidth: '100%', height: 'auto' }}
+                  className="img-fluid hero-hero-image rounded-4 shadow-lg mx-auto"
                 />
               </div>
             </Col>
@@ -620,7 +619,7 @@ const Home = () => {
             </Col>
             <Col xs={12} md={4} className="text-md-end align-self-center mt-2 mt-md-0">
               <Button as={Link} to="/services" variant="outline-primary" size="sm" className="rounded-pill view-all-btn">
-                View All <FaArrowRight className="ms-2" />
+                View All
               </Button>
             </Col>
           </Row>
@@ -671,7 +670,7 @@ const Home = () => {
                       className="rounded-pill px-2 px-md-3"
                       onClick={() => handleViewService(trade.name)}
                     >
-                      View <FaArrowRight className="ms-1" size={10} />
+                      View
                     </Button>
                   </Card.Body>
                 </Card>
@@ -818,7 +817,7 @@ const Home = () => {
                       <Form.Control as="textarea" rows={4} placeholder="Your message" size="sm" />
                     </Form.Group>
                     <Button variant="primary" type="submit" className="px-4 submit-btn btn-sm">
-                      Send Message <FaArrowRight className="ms-2" size={14} />
+                      Send Message
                     </Button>
                   </Form>
                 </Card.Body>
@@ -935,7 +934,7 @@ const Home = () => {
         </Modal.Body>
         <Modal.Footer className="border-0">
           <Button variant="outline-secondary" size="sm" onClick={() => setShowModal(false)} className="rounded-pill px-3">Close</Button>
-          <Button as={Link} to="/contact" variant="primary" size="sm" className="rounded-pill px-3">Request a Quote →</Button>
+          <Button as={Link} to="/contact" variant="primary" size="sm" className="rounded-pill px-3">Request a Quote</Button>
         </Modal.Footer>
       </Modal>
 
@@ -1031,7 +1030,7 @@ const Home = () => {
         </Modal.Body>
         <Modal.Footer className="border-0">
           <Button variant="outline-secondary" size="sm" onClick={() => setShowPartnershipModal(false)} className="rounded-pill">Close</Button>
-          <Button as={Link} to="/provider/register" variant="primary" size="sm" className="rounded-pill px-3">Become a Partner →</Button>
+          <Button as={Link} to="/provider/register" variant="primary" size="sm" className="rounded-pill px-3">Become a Partner</Button>
         </Modal.Footer>
       </Modal>
 
@@ -1056,7 +1055,52 @@ const Home = () => {
         }
         .hero-image-container {
           animation: float 6s ease-in-out infinite;
+          max-width: 100%;
+          margin: 0 auto;
         }
+        .hero-hero-image {
+          width: 100%;
+          max-width: 640px;
+          height: auto;
+          object-fit: contain;
+          display: inline-block;
+        }
+        .navbar-home {
+          padding-left: 0;
+          padding-right: 0;
+        }
+        .navbar-home .navbar-brand {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+          line-height: 1;
+        }
+        .navbar-home .site-logo {
+          width: 42px;
+          height: 42px;
+          object-fit: contain;
+        }
+        .navbar-home .brand-label {
+          display: inline-flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          justify-content: center;
+          min-width: 0;
+        }
+        .navbar-home .brand-label span {
+          display: block;
+          font-size: 1rem;
+          font-weight: 700;
+          line-height: 1.1;
+        }
+        .navbar-home .nav-link {
+          white-space: nowrap;
+        }
+        .navbar-home .btn {
+          min-width: 140px;
+        }
+
         @keyframes float {
           0% { transform: translateY(0px); }
           50% { transform: translateY(-20px); }
@@ -1582,6 +1626,34 @@ const Home = () => {
           .hero-section {
             min-height: auto;
             padding: 20px 0 40px;
+          }
+          .hero-image-container {
+            padding-top: 1rem;
+          }
+          .hero-hero-image {
+            width: 100%;
+            max-width: 520px;
+            max-height: 420px;
+            object-fit: contain;
+          }
+          .navbar-home {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }
+          .navbar-home .navbar-brand {
+            width: 100%;
+            justify-content: flex-start;
+          }
+          .nav-container {
+            width: 100%;
+            justify-content: space-between;
+            gap: 0.5rem;
+          }
+          .navbar-home .nav-link {
+            font-size: 0.92rem;
+          }
+          .navbar-home .btn {
+            min-width: 120px;
           }
           .stat-card .card-body {
             padding: 12px !important;

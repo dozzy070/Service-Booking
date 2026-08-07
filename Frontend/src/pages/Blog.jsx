@@ -26,7 +26,6 @@ import {
   FaMapMarkerAlt,
   FaClock,
   FaStar,
-  FaArrowRight,
   FaFacebook,
   FaTwitter,
   FaLinkedin,
@@ -685,7 +684,7 @@ const Blog = () => {
                       onClick={() => handlePostClick(featuredPost)}
                       className="d-flex align-items-center gap-2"
                     >
-                      Read Full Story <FaArrowRight />
+                      Read Full Story
                     </Button>
                   </Card.Body>
                 </Col>

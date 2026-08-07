@@ -8,7 +8,6 @@ import {
   FaClock,
   FaCheckCircle,
   FaExclamationCircle,
-  FaArrowRight,
   FaUserTie,
   FaWallet,
   FaGift,
@@ -842,7 +841,7 @@ const CustomerDashboard = () => {
                 {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
               </button>
               <Link to="/services" style={styles.exploreBtn}>
-                Explore Services <FaArrowRight size={14} />
+                Explore Services
               </Link>
             </div>
           </div>
@@ -884,7 +883,6 @@ const CustomerDashboard = () => {
               </div>
               <div style={styles.statDetail}>
                 <span>{item.detail}</span>
-                <FaArrowRight size={12} style={{ color: '#cbd5e0' }} />
               </div>
             </div>
           );
@@ -947,7 +945,7 @@ const CustomerDashboard = () => {
                 <FaClock style={{ color: '#6366f1' }} /> Upcoming Bookings
               </h5>
               <Link to="/customer/bookings" style={styles.viewAllLink}>
-                View All <FaArrowRight size={12} />
+                View All
               </Link>
             </div>
             <div style={styles.cardBody}>

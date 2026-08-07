@@ -1,7 +1,7 @@
 import React from 'react';
 import { Container, Row, Col, Card, Button } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
-import { FaHome, FaSearch, FaArrowLeft } from 'react-icons/fa';
+import { FaHome, FaSearch } from 'react-icons/fa';
 
 const NotFound = () => {
   return (
@@ -33,15 +33,15 @@ const NotFound = () => {
               <div className="text-start">
                 <h6>Popular Pages:</h6>
                 <ul className="list-unstyled">
-                  <li className="mb-2"><Link to="/services" className="text-decoration-none">→ Browse All Services</Link></li>
-                  <li className="mb-2"><Link to="/login" className="text-decoration-none">→ Sign In to Your Account</Link></li>
-                  <li className="mb-2"><Link to="/register" className="text-decoration-none">→ Create New Account</Link></li>
-                  <li className="mb-2"><Link to="/contact" className="text-decoration-none">→ Contact Support</Link></li>
+                  <li className="mb-2"><Link to="/services" className="text-decoration-none">Browse All Services</Link></li>
+                  <li className="mb-2"><Link to="/login" className="text-decoration-none">Sign In to Your Account</Link></li>
+                  <li className="mb-2"><Link to="/register" className="text-decoration-none">Create New Account</Link></li>
+                  <li className="mb-2"><Link to="/contact" className="text-decoration-none">Contact Support</Link></li>
                 </ul>
               </div>
 
               <Button variant="link" onClick={() => window.history.back()} className="mt-3">
-                <FaArrowLeft className="me-2" /> Go Back
+                Go Back
               </Button>
             </Card.Body>
           </Card>

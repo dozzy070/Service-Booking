@@ -26,7 +26,6 @@ import {
   FaWallet,
   FaLock,
   FaCheckCircle,
-  FaArrowRight,
   FaUsers,
   FaPhoneAlt,
   FaCommentDots,
@@ -308,9 +307,6 @@ const HowItWorks = () => {
                     </div>
                     <div className="d-flex justify-content-center align-items-center gap-2 mb-2">
                       <Badge bg="secondary" className="rounded-pill">Step {index + 1}</Badge>
-                      {index < steps.length - 1 && (
-                        <FaArrowRight className="text-muted d-none d-md-block" />
-                      )}
                     </div>
                     <h6 className="fw-bold">{step.title}</h6>
                     <p className="text-muted small">{step.description.substring(0, 60)}...</p>
@@ -425,9 +421,6 @@ const HowItWorks = () => {
                       <Badge bg="success" className="mb-2 rounded-pill">Step {item.step}</Badge>
                       <h6 className="fw-bold">{item.title}</h6>
                       <p className="text-muted small">{item.description}</p>
-                      {index < escrowProcess.length - 1 && (
-                        <FaArrowRight className="text-muted d-none d-md-block mt-2" />
-                      )}
                     </div>
                   </Col>
                 ))}

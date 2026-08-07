@@ -23,8 +23,7 @@ import {
   FaPhoneAlt,
   FaEnvelope,
   FaShieldAlt,
-  FaQuestionCircle,
-  FaArrowRight
+  FaQuestionCircle
 } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';

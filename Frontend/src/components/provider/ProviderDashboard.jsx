@@ -8,7 +8,6 @@ import {
   FaClock,
   FaCheckCircle,
   FaExclamationCircle,
-  FaArrowRight,
   FaChartLine,
   FaUsers,
   FaServicestack,
@@ -1052,7 +1051,6 @@ const ProviderDashboard = () => {
               </div>
               <div style={styles.statDetail}>
                 <span>{item.detail}</span>
-                <FaArrowRight size={12} style={{ color: '#cbd5e0' }} />
               </div>
             </div>
           );
@@ -1070,7 +1068,7 @@ const ProviderDashboard = () => {
                 <FaClock style={{ color: '#10b981' }} /> Today's Schedule
               </h5>
               <Link to="/provider/schedule" style={styles.viewAllLink}>
-                Manage Schedule <FaArrowRight size={12} />
+                Manage Schedule
               </Link>
             </div>
             <div style={styles.cardBody}>
@@ -1167,7 +1165,7 @@ const ProviderDashboard = () => {
                 <FaCalendarCheck style={{ color: '#10b981' }} /> Recent Bookings
               </h5>
               <Link to="/provider/bookings" style={styles.viewAllLink}>
-                View All <FaArrowRight size={12} />
+                View All
               </Link>
             </div>
             <div style={{ ...styles.cardBody, padding: 0 }}>
