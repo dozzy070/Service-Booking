@@ -453,7 +453,11 @@ const ServiceManagement = () => {
         throw new Error('API service not available');
       }
 
-      if (typeof adminAPI.updateServiceStatus === 'function') {
+      if (newStatus === 'approved') {
+        await adminAPI.approveService(serviceId);
+      } else if (newStatus === 'rejected') {
+        await adminAPI.rejectService(serviceId, reason);
+      } else if (typeof adminAPI.updateServiceStatus === 'function') {
         await adminAPI.updateServiceStatus(serviceId, { status: newStatus, rejectionReason: reason });
       } else if (typeof adminAPI.updateService === 'function') {
         await adminAPI.updateService(serviceId, { status: newStatus, rejectionReason: reason });
@@ -462,6 +466,9 @@ const ServiceManagement = () => {
       }
       
       await fetchServices();
+      setShowApproveModal(false);
+      setShowRejectModal(false);
+      setSelectedService(null);
       toast.success(`Service ${newStatus}`);
     } catch (error) {
       console.error('Status update error:', error);
@@ -1555,9 +1562,10 @@ const ServiceManagement = () => {
           </Button>
           <Button 
             variant="success" 
-            onClick={() => { 
-              handleStatusChange(getServiceId(selectedService), 'approved'); 
-              setShowApproveModal(false); 
+            onClick={async () => { 
+              const serviceId = getServiceId(selectedService);
+              if (!serviceId) return;
+              await handleStatusChange(serviceId, 'approved');
             }} 
             disabled={processing}
           >
@@ -1594,10 +1602,11 @@ const ServiceManagement = () => {
           </Button>
           <Button 
             variant="danger" 
-            onClick={() => { 
-              handleStatusChange(getServiceId(selectedService), 'rejected', rejectionReason); 
-              setShowRejectModal(false); 
-              setRejectionReason(''); 
+            onClick={async () => { 
+              const serviceId = getServiceId(selectedService);
+              if (!serviceId) return;
+              await handleStatusChange(serviceId, 'rejected', rejectionReason);
+              setRejectionReason('');
             }} 
             disabled={!rejectionReason || processing}
           >

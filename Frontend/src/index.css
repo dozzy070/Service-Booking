@@ -31,10 +31,37 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: linear-gradient(135deg, #f1f5f9 0%, #f8fafc 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+html {
+  font-size: 16px;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 a {
   text-decoration: none;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 /* Dashboard Layout Styles */
@@ -220,7 +247,8 @@ a {
 
 @media (max-width: 991px) {
   .dashboard-sidebar {
-    transform: translateX(-280px);
+    width: min(280px, 85vw);
+    transform: translateX(-100%);
   }
   
   .dashboard-sidebar.open {
@@ -233,6 +261,56 @@ a {
   
   .sidebar-toggle-btn {
     display: block;
+  }
+
+  .dashboard-content {
+    padding: 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-content {
+    padding: 14px;
+  }
+
+  .dashboard-topbar {
+    padding: 8px 0;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+  }
+
+  .sidebar-user {
+    padding: 16px;
+  }
+
+  .sidebar-nav-item {
+    padding: 10px 14px;
+    margin: 4px 8px;
+  }
+
+  .sidebar-footer {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 576px) {
+  .dashboard-content {
+    padding: 12px;
+  }
+
+  .sidebar-toggle-btn {
+    margin-right: 12px;
+  }
+
+  .sidebar-brand {
+    font-size: 1.2rem;
+  }
+
+  .user-avatar {
+    width: 42px;
+    height: 42px;
   }
 }
 
@@ -621,6 +699,7 @@ a {
 /* Mobile Responsive */
 @media (max-width: 991px) {
   .customer-layout .sidebar {
+    width: min(280px, 85vw);
     transform: translateX(-100%);
   }
 
@@ -638,5 +717,39 @@ a {
 
   .customer-layout main.sidebar-collapsed {
     margin-left: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .customer-layout .sidebar-header {
+    padding: 14px 16px;
+  }
+
+  .customer-layout .sidebar-profile {
+    padding: 14px 16px;
+  }
+
+  .customer-layout .nav-item {
+    padding: 10px 12px;
+    margin: 0 8px;
+  }
+
+  .customer-layout .sidebar-footer {
+    padding: 14px 16px;
+  }
+}
+
+@media (max-width: 576px) {
+  .customer-layout .brand-text {
+    font-size: 0.9rem;
+  }
+
+  .customer-layout .profile-avatar {
+    width: 44px;
+    height: 44px;
+  }
+
+  .customer-layout .nav-label {
+    font-size: 0.85rem;
   }
 }

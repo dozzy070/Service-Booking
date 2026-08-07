@@ -436,8 +436,13 @@ export const adminAPI = {
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
   rejectService: (id, reason) => api.put(`/admin/services/${id}/reject`, { reason }),
+  updateServiceStatus: (id, data) => api.put(`/admin/services/${id}/status`, data),
+  updateService: (id, data) => api.put(`/admin/services/${id}`, data),
   deleteService: (id) => api.delete(`/admin/services/${id}`),
-  toggleFeatured: (id) => api.put(`/admin/services/${id}/featured`),
+  toggleFeatured: (id, data) => api.put(`/admin/services/${id}/featured`, data),
+  bulkServiceAction: (payload) => api.post('/admin/services/bulk', payload),
+  bulkUpdateServices: (payload) => api.post('/admin/services/bulk', payload),
+  bulkDeleteServices: (payload) => api.delete('/admin/services/bulk', { data: payload }),
   
   // Bookings
   getBookings: () => api.get('/admin/bookings'),

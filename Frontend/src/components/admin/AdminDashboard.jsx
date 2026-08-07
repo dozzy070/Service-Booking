@@ -142,7 +142,7 @@ const styles = {
 
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gap: '20px',
     marginBottom: '28px',
   },
@@ -222,6 +222,7 @@ const styles = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '8px',
+    alignItems: 'center',
   },
   quickActionBtn: (color, bg) => ({
     padding: '8px 18px',
@@ -245,8 +246,9 @@ const styles = {
 
   mainGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 380px',
+    gridTemplateColumns: 'minmax(0, 1.45fr) minmax(320px, 0.75fr)',
     gap: '24px',
+    alignItems: 'start',
   },
   leftColumn: {
     display: 'flex',
@@ -509,6 +511,7 @@ const AdminDashboard = () => {
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredAchievement, setHoveredAchievement] = useState(null);
   const [hoveredHealth, setHoveredHealth] = useState(null);
+  const [isCompactLayout, setIsCompactLayout] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1200 : false);
 
   // Refs for polling
   const pollingInterval = useRef(null);
@@ -533,6 +536,52 @@ const AdminDashboard = () => {
     cache: { status: 'healthy', hitRate: 92 },
     api: { status: 'healthy', requests: 450, errors: 2 },
   });
+
+  const healthItems = [
+    {
+      key: 'server',
+      label: 'Server',
+      status: systemHealth?.server?.status || 'healthy',
+      details: [
+        `Uptime ${systemHealth?.server?.uptime || '99.9%'}`,
+        `Response ${systemHealth?.server?.responseTime || 45}ms`,
+      ],
+    },
+    {
+      key: 'database',
+      label: 'Database',
+      status: systemHealth?.database?.status || 'healthy',
+      details: [
+        `${systemHealth?.database?.queries || 1200} queries`,
+        `${systemHealth?.database?.slowQueries || 3} slow queries`,
+      ],
+    },
+    {
+      key: 'cache',
+      label: 'Cache',
+      status: systemHealth?.cache?.status || 'healthy',
+      details: [`Hit rate ${systemHealth?.cache?.hitRate || 92}%`],
+    },
+    {
+      key: 'api',
+      label: 'API',
+      status: systemHealth?.api?.status || 'healthy',
+      details: [
+        `${systemHealth?.api?.requests || 450} requests`,
+        `${systemHealth?.api?.errors || 2} errors`,
+      ],
+    },
+  ];
+
+  const mainGridStyle = {
+    ...styles.mainGrid,
+    gridTemplateColumns: isCompactLayout ? '1fr' : 'minmax(0, 1.45fr) minmax(320px, 0.75fr)',
+  };
+
+  const welcomeCardStyle = {
+    ...styles.welcomeCard,
+    padding: isCompactLayout ? '24px 24px' : styles.welcomeCard.padding,
+  };
 
   // Format helpers
   const formatNaira = (amount) => {
@@ -573,6 +622,17 @@ const AdminDashboard = () => {
     return fallback;
   };
 
+  const normalizeArrayResponse = (data, fallback = []) => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') {
+      if (Array.isArray(data.activities)) return data.activities;
+      if (Array.isArray(data.logs)) return data.logs;
+      if (Array.isArray(data.items)) return data.items;
+      if (Array.isArray(data.data)) return data.data;
+    }
+    return fallback;
+  };
+
   // API Calls with proper error handling
   const fetchStats = useCallback(async () => {
     try {
@@ -605,9 +665,10 @@ const AdminDashboard = () => {
         throw new Error('API service not available');
       }
       const res = await adminAPI.getActivities({ limit: 5 });
-      setRecentActivities(res.data || []);
+      setRecentActivities(normalizeArrayResponse(res?.data));
     } catch (err) {
       console.error('Failed to fetch activities:', err);
+      setRecentActivities([]);
     }
   }, []);
 
@@ -617,9 +678,10 @@ const AdminDashboard = () => {
         throw new Error('API service not available');
       }
       const res = await adminAPI.getTopProviders({ limit: 5 });
-      setTopProviders(res.data || []);
+      setTopProviders(normalizeArrayResponse(res?.data));
     } catch (err) {
       console.error('Failed to fetch top providers:', err);
+      setTopProviders([]);
     }
   }, []);
 
@@ -629,9 +691,10 @@ const AdminDashboard = () => {
         throw new Error('API service not available');
       }
       const res = await adminAPI.getPopularServices({ limit: 3 });
-      setPopularServices(res.data || []);
+      setPopularServices(normalizeArrayResponse(res?.data));
     } catch (err) {
       console.error('Failed to fetch popular services:', err);
+      setPopularServices([]);
     }
   }, []);
 
@@ -716,6 +779,16 @@ const AdminDashboard = () => {
     isPolling.current = false;
   };
 
+  useEffect(() => {
+    const handleResize = () => {
+      setIsCompactLayout(window.innerWidth < 1200);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Initial load
   useEffect(() => {
     const hour = new Date().getHours();
@@ -781,7 +854,7 @@ const AdminDashboard = () => {
   return (
     <div style={styles.container}>
       {/* Welcome Card */}
-      <div style={styles.welcomeCard}>
+      <div style={welcomeCardStyle}>
         <div style={styles.welcomeCardBg}></div>
         <div style={styles.welcomeCardBg2}></div>
         <div style={styles.welcomeContent}>
@@ -905,7 +978,7 @@ const AdminDashboard = () => {
       </div>
 
       {/* Main Grid */}
-      <div style={styles.mainGrid}>
+      <div style={mainGridStyle}>
         {/* LEFT COLUMN */}
         <div style={styles.leftColumn}>
           {/* Revenue Chart */}
@@ -995,35 +1068,38 @@ const AdminDashboard = () => {
               </Link>
             </div>
             <div style={styles.cardBody}>
-              {recentActivities.length === 0 ? (
-                <div style={styles.emptyState}>
-                  <FaClock style={styles.emptyIcon} />
-                  <p style={styles.emptyText}>No recent activities</p>
-                </div>
-              ) : (
-                <div style={styles.activityTimeline}>
-                  {recentActivities.slice(0, 5).map((activity, idx) => {
-                    const Icon = getActivityIcon(activity.type);
-                    const color = getActivityColor(activity.type);
-                    return (
-                      <div key={activity.id || idx} style={styles.activityItem}>
-                        <div style={styles.activityIcon(color + '20')}>
-                          <Icon style={{ color }} size={12} />
+              {(() => {
+                const activityList = Array.isArray(recentActivities) ? recentActivities : [];
+                return activityList.length === 0 ? (
+                  <div style={styles.emptyState}>
+                    <FaClock style={styles.emptyIcon} />
+                    <p style={styles.emptyText}>No recent activities</p>
+                  </div>
+                ) : (
+                  <div style={styles.activityTimeline}>
+                    {activityList.slice(0, 5).map((activity, idx) => {
+                      const Icon = getActivityIcon(activity.type);
+                      const color = getActivityColor(activity.type);
+                      return (
+                        <div key={activity.id || idx} style={styles.activityItem}>
+                          <div style={styles.activityIcon(color + '20')}>
+                            <Icon style={{ color }} size={12} />
+                          </div>
+                          <div style={styles.activityContent}>
+                            <p style={styles.activityText}>
+                              <span style={{ fontWeight: '600' }}>{activity.user || activity.username || 'System'}</span> {activity.action || activity.message || 'Performed action'}
+                            </p>
+                            <span style={styles.activityTime}>
+                              {activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Just now'}
+                            </span>
+                          </div>
+                          {idx < activityList.length - 1 && <div style={styles.activityLine} />}
                         </div>
-                        <div style={styles.activityContent}>
-                          <p style={styles.activityText}>
-                            <span style={{ fontWeight: '600' }}>{activity.user || activity.username || 'System'}</span> {activity.action || activity.message || 'Performed action'}
-                          </p>
-                          <span style={styles.activityTime}>
-                            {activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : 'Just now'}
-                          </span>
-                        </div>
-                        {idx < recentActivities.length - 1 && <div style={styles.activityLine} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -1116,13 +1192,16 @@ const AdminDashboard = () => {
                     onMouseEnter={() => setHoveredHealth(idx)}
                     onMouseLeave={() => setHoveredHealth(null)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
                       <span style={{ fontWeight: '600' }}>{item.label}</span>
                       {getStatusBadge(item.status)}
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#718096' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '12px', color: '#718096' }}>
                       {item.details.map((detail, i) => (
-                        <span key={i} style={detail.includes('Slow') || detail.includes('Errors') ? { color: '#ef4444' } : {}}>
+                        <span
+                          key={i}
+                          style={detail.includes('Slow') || detail.includes('Errors') ? { color: '#ef4444' } : {}}
+                        >
                           {detail}
                         </span>
                       ))}
