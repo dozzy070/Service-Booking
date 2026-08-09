@@ -586,7 +586,10 @@ router.get('/services/:id', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch service details' });
   }
 });
-// providerRoutes.js - Fixed POST /services
+
+// =========================================================================
+// PROVIDER SERVICE CREATION - FIXED ✅
+// =========================================================================
 
 router.post('/services', authorize('provider', 'admin'), uploadMultiple('images', 5), async (req, res) => {
   try {
@@ -594,19 +597,38 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
     const {
       title,
       description,
-      category,        // ← This could be ID (number) or name (string)
+      category,
+      short_description,
       price,
-      // ... other fields
+      discount_price,
+      currency,
+      price_type,
+      duration,
+      location,
+      address,
+      city,
+      state,
+      zip_code,
+      features,
+      requirements,
+      cancellation_policy,
+      max_bookings_per_day,
+      advance_booking,
+      service_type,
+      languages,
+      tags,
+      is_remote,
+      is_active,
+      preparation_time,
+      certifications
     } = req.body;
 
+    // ✅ FIX: Handle category properly - support both ID and name
     let categoryId = null;
-    
     if (category) {
-      // ✅ FIX: Handle both ID (number) and name (string) properly
       const isNumeric = !isNaN(Number(category));
       
       let categoryResult;
-      
       if (isNumeric) {
         // If it's a number, search by ID
         categoryResult = await pool.query(
@@ -625,25 +647,77 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       
       if (!categoryId) {
         console.log(`⚠️ Category not found: ${category}`);
-        // Optionally create a default category or continue without one
       }
     }
 
-    // Now use categoryId (which is a number or null) in your INSERT
+    // Handle uploaded images
+    const uploadedImages = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : [];
+
+    // ✅ FIX: Use a more comprehensive INSERT with all fields
     const result = await pool.query(`
       INSERT INTO services (
-        provider_id, category_id, title, description, 
-        price, duration, status, created_at, updated_at
-        -- Add other fields as needed
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        provider_id, 
+        category_id, 
+        title, 
+        description, 
+        short_description, 
+        price, 
+        discount_price, 
+        currency, 
+        price_type, 
+        duration, 
+        location, 
+        address, 
+        city, 
+        state, 
+        zip_code, 
+        features, 
+        requirements, 
+        images, 
+        cancellation_policy, 
+        max_bookings_per_day, 
+        advance_booking, 
+        service_type, 
+        languages, 
+        tags, 
+        is_remote, 
+        is_active, 
+        preparation_time, 
+        certifications,
+        status,
+        created_at, 
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, NOW(), NOW())
       RETURNING *
     `, [
       providerId,
-      categoryId,      // ← This is now a number or null
+      categoryId,
       title,
       description,
+      short_description || null,
       price || 0,
+      discount_price || null,
+      currency || 'USD',
+      price_type || 'fixed',
       duration || 60,
+      location || null,
+      address || null,
+      city || null,
+      state || null,
+      zip_code || null,
+      features || [],
+      requirements || [],
+      uploadedImages,
+      cancellation_policy || null,
+      max_bookings_per_day || null,
+      advance_booking || 0,
+      service_type || 'service',
+      languages || [],
+      tags || [],
+      is_remote || false,
+      is_active !== false,
+      preparation_time || null,
+      certifications || [],
       'pending'
     ]);
 
@@ -725,16 +799,28 @@ router.put('/services/:id',
         certifications
       } = req.body;
 
+      // ✅ FIX: Handle category properly for update too
       let categoryId = null;
       if (category) {
-        const categoryResult = await pool.query(
-          'SELECT id FROM categories WHERE id = $1 OR slug = $1 OR LOWER(name) = LOWER($1)',
-          [category]
-        );
+        const isNumeric = !isNaN(Number(category));
+        
+        let categoryResult;
+        if (isNumeric) {
+          categoryResult = await pool.query(
+            'SELECT id FROM categories WHERE id = $1',
+            [parseInt(category)]
+          );
+        } else {
+          categoryResult = await pool.query(
+            'SELECT id FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($1)',
+            [category]
+          );
+        }
+        
         categoryId = categoryResult.rows.length > 0 ? categoryResult.rows[0].id : null;
       }
 
-      const images = req.files ? req.files.map(f => f.path) : null;
+      const images = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : null;
 
       const result = await pool.query(`
         UPDATE services SET
