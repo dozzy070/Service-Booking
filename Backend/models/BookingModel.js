@@ -3,25 +3,70 @@ import pool from '../config/db.js';
 
 const BookingModel = {
   // =========================================================================
-  // CREATE BOOKING
+  // CREATE BOOKING - FIXED with field mapping
   // =========================================================================
 
   async create(data) {
+    // Handle both camelCase and snake_case field names
     const {
       service_id,
+      serviceId,
       customer_id,
+      customerId,
       provider_id,
+      providerId,
       booking_date,
+      date,
       booking_time,
+      time,
       total_amount,
+      amount,
+      price,
       notes,
       location,
       customer_name,
+      name,
       customer_phone,
+      phone,
       customer_address,
+      address,
       status = 'pending',
       payment_status = 'pending'
     } = data;
+
+    // Normalize field names
+    const normalizedData = {
+      service_id: service_id || serviceId,
+      customer_id: customer_id || customerId,
+      provider_id: provider_id || providerId,
+      booking_date: booking_date || date,
+      booking_time: booking_time || time,
+      total_amount: total_amount || amount || price || 0,
+      notes: notes || '',
+      location: location || '',
+      customer_name: customer_name || name || '',
+      customer_phone: customer_phone || phone || '',
+      customer_address: customer_address || address || '',
+      status: status || 'pending',
+      payment_status: payment_status || 'pending'
+    };
+
+    // Validate required fields
+    if (!normalizedData.service_id) {
+      throw new Error('Service ID is required');
+    }
+    if (!normalizedData.customer_id) {
+      throw new Error('Customer ID is required');
+    }
+    if (!normalizedData.provider_id) {
+      throw new Error('Provider ID is required');
+    }
+    if (!normalizedData.booking_date) {
+      throw new Error('Booking date is required');
+    }
+    if (!normalizedData.booking_time) {
+      throw new Error('Booking time is required');
+    }
 
     const result = await pool.query(
       `INSERT INTO bookings (
@@ -31,9 +76,19 @@ const BookingModel = {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
       RETURNING *`,
       [
-        service_id, customer_id, provider_id, booking_date, booking_time,
-        total_amount, notes, location, customer_name, customer_phone, customer_address,
-        status, payment_status
+        normalizedData.service_id,
+        normalizedData.customer_id,
+        normalizedData.provider_id,
+        normalizedData.booking_date,
+        normalizedData.booking_time,
+        normalizedData.total_amount,
+        normalizedData.notes,
+        normalizedData.location,
+        normalizedData.customer_name,
+        normalizedData.customer_phone,
+        normalizedData.customer_address,
+        normalizedData.status,
+        normalizedData.payment_status
       ]
     );
     return result.rows[0];
@@ -291,7 +346,7 @@ const BookingModel = {
   },
 
   // =========================================================================
-  // GET EARNINGS BY DAY (Weekly/Daily)
+  // GET EARNINGS BY DAY
   // =========================================================================
 
   async getEarningsByDay(providerId, days = 7) {

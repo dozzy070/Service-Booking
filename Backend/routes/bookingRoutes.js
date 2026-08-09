@@ -1,3 +1,4 @@
+// routes/bookingRoutes.js
 import express from 'express';
 import { body, query, param } from 'express-validator';
 import { protect, authorize } from '../middleware/auth.js';
@@ -7,18 +8,24 @@ import pool from '../config/db.js';
 const router = express.Router();
 
 // =========================================================================
-// VALIDATION RULES
+// VALIDATION RULES - FIXED
 // =========================================================================
 
 const bookingValidation = [
-  body('service_id').isInt().withMessage('Valid service ID is required'),
-  body('booking_date').isISO8601().withMessage('Valid booking date is required'),
-  body('booking_time').notEmpty().withMessage('Booking time is required'),
-  body('notes').optional().isString(),
-  body('location').optional().isString(),
+  body('service_id')
+    .notEmpty().withMessage('Service ID is required')
+    .isInt().withMessage('Service ID must be a number'),
+  body('booking_date')
+    .notEmpty().withMessage('Booking date is required')
+    .isISO8601().withMessage('Booking date must be in YYYY-MM-DD format'),
+  body('booking_time')
+    .notEmpty().withMessage('Booking time is required')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Booking time must be in HH:MM format'),
   body('customer_name').optional().isString(),
   body('customer_phone').optional().isString(),
-  body('customer_address').optional().isString()
+  body('customer_address').optional().isString(),
+  body('notes').optional().isString(),
+  body('location').optional().isString()
 ];
 
 const statusValidation = [
@@ -43,7 +50,7 @@ const rateValidation = [
 router.use(protect);
 
 // =========================================================================
-// BOOKING CREATION & MANAGEMENT
+// BOOKING CREATION & MANAGEMENT - FIXED
 // =========================================================================
 
 // POST /api/bookings - Create a new booking
@@ -61,6 +68,28 @@ router.post('/', bookingValidation, validate, async (req, res) => {
       customer_address
     } = req.body;
 
+    // Additional validation for required fields
+    if (!service_id) {
+      return res.status(400).json({ 
+        message: 'service_id is required',
+        field: 'service_id'
+      });
+    }
+
+    if (!booking_date) {
+      return res.status(400).json({ 
+        message: 'booking_date is required',
+        field: 'booking_date'
+      });
+    }
+
+    if (!booking_time) {
+      return res.status(400).json({ 
+        message: 'booking_time is required',
+        field: 'booking_time'
+      });
+    }
+
     // Check if service exists and is approved
     const serviceCheck = await pool.query(
       `SELECT s.*, u.name as provider_name, u.id as provider_id
@@ -71,10 +100,24 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     );
 
     if (serviceCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Service not found or not available' });
+      return res.status(404).json({ 
+        message: 'Service not found or not available',
+        field: 'service_id'
+      });
     }
 
     const service = serviceCheck.rows[0];
+
+    // Validate date is not in the past
+    const selectedDate = new Date(booking_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate < today) {
+      return res.status(400).json({
+        message: 'Booking date cannot be in the past',
+        field: 'booking_date'
+      });
+    }
 
     // Check if the selected time slot is available
     const existingBooking = await pool.query(
@@ -87,7 +130,10 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     );
 
     if (existingBooking.rows.length > 0) {
-      return res.status(400).json({ message: 'This time slot is already booked' });
+      return res.status(400).json({ 
+        message: 'This time slot is already booked',
+        field: 'booking_time'
+      });
     }
 
     // Create booking
@@ -99,11 +145,17 @@ router.post('/', bookingValidation, validate, async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11)
       RETURNING *`,
       [
-        userId, service.provider_id, service_id, booking_date, booking_time,
-        service.price, notes, location,
-        customer_name || req.user.name, 
-        customer_phone || req.user.phone,
-        customer_address || req.user.address
+        userId, 
+        service.provider_id, 
+        service_id, 
+        booking_date, 
+        booking_time,
+        service.price || 0, 
+        notes, 
+        location,
+        customer_name || req.user?.name || 'Customer', 
+        customer_phone || req.user?.phone || '',
+        customer_address || req.user?.address || ''
       ]
     );
 
@@ -120,10 +172,18 @@ router.post('/', bookingValidation, validate, async (req, res) => {
       ]
     );
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      success: true,
+      message: 'Booking created successfully',
+      booking: result.rows[0]
+    });
+    
   } catch (error) {
     console.error('Error creating booking:', error);
-    res.status(500).json({ message: 'Failed to create booking' });
+    res.status(500).json({ 
+      message: 'Failed to create booking',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 

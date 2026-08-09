@@ -166,7 +166,7 @@ export const authAPI = {
 };
 
 // =========================================================================
-// CUSTOMER API
+// CUSTOMER API - FIXED createBooking
 // =========================================================================
 
 export const customerAPI = {
@@ -210,8 +210,41 @@ export const customerAPI = {
   toggleFavorite: (serviceId) => api.post(`/services/${serviceId}/favorite`),
   isFavorite: (serviceId) => api.get(`/services/${serviceId}/is-favorite`),
   
-  // Bookings
-  createBooking: (data) => api.post('/bookings', data),
+  // ✅ FIXED: Bookings - createBooking with proper field mapping
+  createBooking: async (data) => {
+    try {
+      // Map frontend field names to backend expected names
+      const formattedData = {
+        service_id: data.service_id || data.serviceId,
+        booking_date: data.booking_date || data.date,
+        booking_time: data.booking_time || data.time,
+        notes: data.notes || data.customer_notes || '',
+        location: data.location || data.address || '',
+        customer_name: data.customer_name || data.name || '',
+        customer_phone: data.customer_phone || data.phone || '',
+        customer_address: data.customer_address || data.address || ''
+      };
+
+      // Validate required fields
+      if (!formattedData.service_id) {
+        throw new Error('Service ID is required');
+      }
+      if (!formattedData.booking_date) {
+        throw new Error('Booking date is required');
+      }
+      if (!formattedData.booking_time) {
+        throw new Error('Booking time is required');
+      }
+
+      console.log('📤 Creating booking with data:', formattedData);
+      
+      const response = await api.post('/bookings', formattedData);
+      return response;
+    } catch (error) {
+      console.error('❌ Booking creation failed:', error.response?.data || error.message);
+      throw error;
+    }
+  },
   getBookings: () => api.get('/bookings/my-bookings'),
   getBookingById: (id) => api.get(`/bookings/${id}`),
   cancelBooking: (id) => api.put(`/bookings/${id}/cancel`),
@@ -388,14 +421,9 @@ export const providerAPI = {
   getCategoryList: () => api.get('/services/categories'),
   
   // =======================================================================
-  // UPLOAD FUNCTIONS - INTEGRATED VERSION
+  // UPLOAD FUNCTIONS
   // =======================================================================
   
-  /**
-   * Upload avatar image
-   * @param {FormData} formData - Form data containing the image file
-   * @returns {Promise} Axios response
-   */
   uploadAvatar: async (formData) => {
     try {
       const response = await api.post('/upload/avatar', formData, {
@@ -404,7 +432,6 @@ export const providerAPI = {
       return response;
     } catch (error) {
       console.error('❌ Upload avatar failed:', error);
-      // Fallback to old endpoint if new one doesn't exist
       try {
         const fallbackResponse = await api.post('/user/avatar', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
@@ -417,17 +444,11 @@ export const providerAPI = {
     }
   },
   
-  /**
-   * Upload service image with fallback endpoints
-   * @param {FormData} formData - Form data containing the image file
-   * @returns {Promise} Axios response
-   */
   uploadServiceImage: async (formData) => {
-    // Try multiple endpoints in order of preference
     const endpoints = [
-      '/upload/service-image',    // New dedicated endpoint
-      '/provider/upload-service-image', // Existing provider endpoint
-      '/services/upload-service-image'  // Existing services endpoint
+      '/upload/service-image',
+      '/provider/upload-service-image',
+      '/services/upload-service-image'
     ];
     
     let lastError = null;
@@ -441,7 +462,6 @@ export const providerAPI = {
         console.log(`✅ Upload successful to: ${endpoint}`);
         return response;
       } catch (error) {
-        // Only log non-404 errors
         if (error.response?.status !== 404) {
           console.error(`❌ Upload to ${endpoint} failed:`, error.message);
           lastError = error;
@@ -451,31 +471,14 @@ export const providerAPI = {
       }
     }
     
-    // If all endpoints failed
     const errorMessage = 'Upload service image failed. Please check your connection and try again.';
     console.error('❌ All upload endpoints failed:', errorMessage);
     throw new Error(errorMessage);
   },
   
-  /**
-   * Upload profile image (alias for uploadAvatar)
-   * @param {FormData} formData - Form data containing the image file
-   * @returns {Promise} Axios response
-   */
   uploadProfileImage: (formData) => providerAPI.uploadAvatar(formData),
-  
-  /**
-   * Upload image (generic - uses avatar upload)
-   * @param {FormData} formData - Form data containing the image file
-   * @returns {Promise} Axios response
-   */
   uploadImage: (formData) => providerAPI.uploadAvatar(formData),
   
-  /**
-   * Upload multiple service images
-   * @param {FormData} formData - Form data containing multiple image files
-   * @returns {Promise} Axios response
-   */
   uploadMultipleServiceImages: async (formData) => {
     try {
       const response = await api.post('/upload/service-images', formData, {
@@ -484,7 +487,6 @@ export const providerAPI = {
       return response;
     } catch (error) {
       console.error('❌ Upload multiple service images failed:', error);
-      // Fallback to single image upload with array processing
       try {
         const files = formData.getAll('images');
         const results = [];
@@ -774,24 +776,9 @@ export const chatAPI = {
 // =========================================================================
 
 export const uploadAPI = {
-  /**
-   * Upload avatar image
-   */
   uploadAvatar: (formData) => providerAPI.uploadAvatar(formData),
-  
-  /**
-   * Upload service image
-   */
   uploadServiceImage: (formData) => providerAPI.uploadServiceImage(formData),
-  
-  /**
-   * Upload multiple service images
-   */
   uploadMultipleServiceImages: (formData) => providerAPI.uploadMultipleServiceImages(formData),
-  
-  /**
-   * Upload profile image (alias)
-   */
   uploadProfileImage: (formData) => providerAPI.uploadAvatar(formData),
 };
 
