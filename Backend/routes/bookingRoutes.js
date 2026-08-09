@@ -1,6 +1,6 @@
 // routes/bookingRoutes.js
 import express from 'express';
-import { body, query, param } from 'express-validator';
+import { body, query, param, validationResult } from 'express-validator';
 import { protect, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import pool from '../config/db.js';
@@ -8,7 +8,7 @@ import pool from '../config/db.js';
 const router = express.Router();
 
 // =========================================================================
-// VALIDATION RULES - FIXED
+// VALIDATION RULES - FIXED with better error messages
 // =========================================================================
 
 const bookingValidation = [
@@ -28,35 +28,24 @@ const bookingValidation = [
   body('location').optional().isString()
 ];
 
-const statusValidation = [
-  body('status').isIn(['pending', 'confirmed', 'accepted', 'in_progress', 'completed', 'cancelled', 'disputed'])
-    .withMessage('Invalid status')
-];
-
-const rescheduleValidation = [
-  body('new_date').isISO8601().withMessage('Valid new date is required'),
-  body('new_time').optional().isString(),
-  body('reason').optional().isString()
-];
-
-const rateValidation = [
-  body('rating').isInt({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
-  body('comment').optional().isString()
-];
-
 // =========================================================================
 // ALL BOOKING ROUTES REQUIRE AUTHENTICATION
 // =========================================================================
 router.use(protect);
 
 // =========================================================================
-// BOOKING CREATION & MANAGEMENT - FIXED
+// BOOKING CREATION - COMPLETELY REWRITTEN WITH BETTER DEBUGGING
 // =========================================================================
 
 // POST /api/bookings - Create a new booking
-router.post('/', bookingValidation, validate, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
+    console.log('📥 Received booking request body:', JSON.stringify(req.body, null, 2));
+    
     const userId = req.user.id;
+    console.log('👤 User ID:', userId);
+    
+    // Extract and validate fields
     const { 
       service_id, 
       booking_date, 
@@ -68,29 +57,38 @@ router.post('/', bookingValidation, validate, async (req, res) => {
       customer_address
     } = req.body;
 
-    // Additional validation for required fields
+    // Detailed validation with field-specific errors
+    const errors = [];
+    
     if (!service_id) {
-      return res.status(400).json({ 
-        message: 'service_id is required',
-        field: 'service_id'
-      });
+      errors.push({ field: 'service_id', message: 'Service ID is required' });
+    } else if (isNaN(Number(service_id))) {
+      errors.push({ field: 'service_id', message: 'Service ID must be a number' });
     }
-
+    
     if (!booking_date) {
-      return res.status(400).json({ 
-        message: 'booking_date is required',
-        field: 'booking_date'
-      });
+      errors.push({ field: 'booking_date', message: 'Booking date is required' });
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(booking_date)) {
+      errors.push({ field: 'booking_date', message: 'Booking date must be in YYYY-MM-DD format' });
+    }
+    
+    if (!booking_time) {
+      errors.push({ field: 'booking_time', message: 'Booking time is required' });
+    } else if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(booking_time)) {
+      errors.push({ field: 'booking_time', message: 'Booking time must be in HH:MM format' });
     }
 
-    if (!booking_time) {
+    if (errors.length > 0) {
+      console.log('❌ Validation errors:', errors);
       return res.status(400).json({ 
-        message: 'booking_time is required',
-        field: 'booking_time'
+        message: 'Validation failed', 
+        errors,
+        received: { service_id, booking_date, booking_time }
       });
     }
 
     // Check if service exists and is approved
+    console.log('🔍 Checking service:', service_id);
     const serviceCheck = await pool.query(
       `SELECT s.*, u.name as provider_name, u.id as provider_id
        FROM services s
@@ -100,6 +98,7 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     );
 
     if (serviceCheck.rows.length === 0) {
+      console.log('❌ Service not found:', service_id);
       return res.status(404).json({ 
         message: 'Service not found or not available',
         field: 'service_id'
@@ -107,12 +106,14 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     }
 
     const service = serviceCheck.rows[0];
+    console.log('✅ Service found:', service.title, 'Provider:', service.provider_id);
 
     // Validate date is not in the past
     const selectedDate = new Date(booking_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (selectedDate < today) {
+      console.log('❌ Date is in the past:', booking_date);
       return res.status(400).json({
         message: 'Booking date cannot be in the past',
         field: 'booking_date'
@@ -130,34 +131,59 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     );
 
     if (existingBooking.rows.length > 0) {
+      console.log('❌ Time slot already booked:', booking_time);
       return res.status(400).json({ 
         message: 'This time slot is already booked',
         field: 'booking_time'
       });
     }
 
+    // Prepare booking data
+    const bookingData = {
+      customer_id: userId,
+      provider_id: service.provider_id,
+      service_id: parseInt(service_id),
+      booking_date: booking_date,
+      booking_time: booking_time,
+      total_amount: parseFloat(service.price) || 0,
+      notes: notes || '',
+      location: location || '',
+      customer_name: customer_name || req.user?.name || 'Customer',
+      customer_phone: customer_phone || req.user?.phone || '',
+      customer_address: customer_address || req.user?.address || '',
+      status: 'pending',
+      payment_status: 'pending'
+    };
+
+    console.log('📝 Creating booking with data:', JSON.stringify(bookingData, null, 2));
+
     // Create booking
     const result = await pool.query(
       `INSERT INTO bookings (
         customer_id, provider_id, service_id, booking_date, booking_time,
         total_amount, status, notes, location,
-        customer_name, customer_phone, customer_address
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11)
+        customer_name, customer_phone, customer_address,
+        payment_status, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
       RETURNING *`,
       [
-        userId, 
-        service.provider_id, 
-        service_id, 
-        booking_date, 
-        booking_time,
-        service.price || 0, 
-        notes, 
-        location,
-        customer_name || req.user?.name || 'Customer', 
-        customer_phone || req.user?.phone || '',
-        customer_address || req.user?.address || ''
+        bookingData.customer_id,
+        bookingData.provider_id,
+        bookingData.service_id,
+        bookingData.booking_date,
+        bookingData.booking_time,
+        bookingData.total_amount,
+        bookingData.status,
+        bookingData.notes,
+        bookingData.location,
+        bookingData.customer_name,
+        bookingData.customer_phone,
+        bookingData.customer_address,
+        bookingData.payment_status
       ]
     );
+
+    console.log('✅ Booking created:', result.rows[0].id);
 
     // Create notification for provider
     await pool.query(
@@ -179,10 +205,12 @@ router.post('/', bookingValidation, validate, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error creating booking:', error);
+    console.error('❌ Error creating booking:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({ 
       message: 'Failed to create booking',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
@@ -470,7 +498,7 @@ router.put('/:id', authorize('admin'), async (req, res) => {
 // =========================================================================
 
 // PUT /api/bookings/:id/status - Update booking status (provider/admin)
-router.put('/:id/status', authorize('provider', 'admin'), statusValidation, validate, async (req, res) => {
+router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { status, reason } = req.body;
@@ -621,7 +649,7 @@ router.put('/:id/cancel', async (req, res) => {
 });
 
 // PUT /api/bookings/:id/reschedule - Reschedule a booking
-router.put('/:id/reschedule', rescheduleValidation, validate, async (req, res) => {
+router.put('/:id/reschedule', async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user.id;
@@ -791,11 +819,15 @@ router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => 
 // =========================================================================
 
 // PUT /api/bookings/:id/rate - Rate a booking (customer only)
-router.put('/:id/rate', rateValidation, validate, async (req, res) => {
+router.put('/:id/rate', async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user.id;
     const { rating, comment } = req.body;
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
 
     // Get booking details
     const bookingCheck = await pool.query(
