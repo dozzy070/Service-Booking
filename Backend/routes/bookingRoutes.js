@@ -24,9 +24,9 @@ router.post('/', async (req, res) => {
     const userId = req.user.id;
     console.log('👤 User ID:', userId);
     
-    const { 
-      service_id, 
-      booking_date, 
+    const {
+      service_id,
+      booking_date,
       booking_time,
       notes,
       location,
@@ -35,24 +35,28 @@ router.post('/', async (req, res) => {
       customer_address
     } = req.body;
 
+    const normalizedServiceId = service_id ?? req.body.serviceId ?? req.body.service_id ?? null;
+    const normalizedBookingDate = booking_date ?? req.body.bookingDate ?? req.body.date ?? null;
+    const normalizedBookingTime = booking_time ?? req.body.bookingTime ?? req.body.time ?? null;
+
     // Detailed validation with field-specific errors
     const errors = [];
     
-    if (!service_id) {
+    if (!normalizedServiceId) {
       errors.push({ field: 'service_id', message: 'Service ID is required' });
-    } else if (isNaN(Number(service_id))) {
+    } else if (isNaN(Number(normalizedServiceId))) {
       errors.push({ field: 'service_id', message: 'Service ID must be a number' });
     }
     
-    if (!booking_date) {
+    if (!normalizedBookingDate) {
       errors.push({ field: 'booking_date', message: 'Booking date is required' });
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(booking_date)) {
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedBookingDate)) {
       errors.push({ field: 'booking_date', message: 'Booking date must be in YYYY-MM-DD format' });
     }
     
-    if (!booking_time) {
+    if (!normalizedBookingTime) {
       errors.push({ field: 'booking_time', message: 'Booking time is required' });
-    } else if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(booking_time)) {
+    } else if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(normalizedBookingTime)) {
       errors.push({ field: 'booking_time', message: 'Booking time must be in HH:MM format' });
     }
 
@@ -61,22 +65,22 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ 
         message: 'Validation failed', 
         errors,
-        received: { service_id, booking_date, booking_time }
+        received: { service_id: normalizedServiceId, booking_date: normalizedBookingDate, booking_time: normalizedBookingTime }
       });
     }
 
     // Check if service exists and is approved
-    console.log('🔍 Checking service:', service_id);
+    console.log('🔍 Checking service:', normalizedServiceId);
     const serviceCheck = await pool.query(
       `SELECT s.*, u.name as provider_name, u.id as provider_id
        FROM services s
        JOIN users u ON s.provider_id = u.id
        WHERE s.id = $1 AND (s.status = 'approved' OR s.status = 'active')`,
-      [service_id]
+      [normalizedServiceId]
     );
 
     if (serviceCheck.rows.length === 0) {
-      console.log('❌ Service not found:', service_id);
+      console.log('❌ Service not found:', normalizedServiceId);
       return res.status(404).json({ 
         message: 'Service not found or not available',
         field: 'service_id'
@@ -87,11 +91,11 @@ router.post('/', async (req, res) => {
     console.log('✅ Service found:', service.title, 'Provider:', service.provider_id);
 
     // Validate date is not in the past
-    const selectedDate = new Date(booking_date);
+    const selectedDate = new Date(normalizedBookingDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (selectedDate < today) {
-      console.log('❌ Date is in the past:', booking_date);
+      console.log('❌ Date is in the past:', normalizedBookingDate);
       return res.status(400).json({
         message: 'Booking date cannot be in the past',
         field: 'booking_date'
@@ -105,11 +109,11 @@ router.post('/', async (req, res) => {
          AND booking_date = $2 
          AND booking_time = $3 
          AND status NOT IN ('cancelled', 'rejected')`,
-      [service_id, booking_date, booking_time]
+      [normalizedServiceId, normalizedBookingDate, normalizedBookingTime]
     );
 
     if (existingBooking.rows.length > 0) {
-      console.log('❌ Time slot already booked:', booking_time);
+      console.log('❌ Time slot already booked:', normalizedBookingTime);
       return res.status(400).json({ 
         message: 'This time slot is already booked',
         field: 'booking_time'
@@ -120,9 +124,9 @@ router.post('/', async (req, res) => {
     const bookingData = {
       customer_id: userId,
       provider_id: service.provider_id,
-      service_id: parseInt(service_id),
-      booking_date: booking_date,
-      booking_time: booking_time,
+      service_id: parseInt(normalizedServiceId),
+      booking_date: normalizedBookingDate,
+      booking_time: normalizedBookingTime,
       total_amount: parseFloat(service.price) || 0,
       notes: notes || '',
       location: location || '',
@@ -171,7 +175,7 @@ router.post('/', async (req, res) => {
       [
         service.provider_id,
         `New booking request for ${service.title}`,
-        JSON.stringify({ bookingId: result.rows[0].id, serviceId: service_id }),
+        JSON.stringify({ bookingId: result.rows[0].id, serviceId: normalizedServiceId }),
         `/provider/bookings/${result.rows[0].id}`
       ]
     );

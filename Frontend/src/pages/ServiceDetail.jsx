@@ -145,9 +145,9 @@ const ServiceDetail = () => {
     } else if (bookingStep === 2) {
       try {
         await api.post('/bookings', {
-          serviceId: service.id,
-          date: bookingDate,
-          time: bookingTime,
+          service_id: service.id,
+          booking_date: bookingDate,
+          booking_time: bookingTime,
           notes: bookingNotes
         });
         setBookingStep(3);
