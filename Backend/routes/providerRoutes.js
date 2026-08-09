@@ -588,7 +588,7 @@ router.get('/services/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER SERVICE CREATION - FIXED ✅
+// PROVIDER SERVICE CREATION - FIXED ✅ (short_description removed)
 // =========================================================================
 
 router.post('/services', authorize('provider', 'admin'), uploadMultiple('images', 5), async (req, res) => {
@@ -598,7 +598,6 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       title,
       description,
       category,
-      short_description,
       price,
       discount_price,
       currency,
@@ -653,14 +652,13 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
     // Handle uploaded images
     const uploadedImages = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : [];
 
-    // ✅ FIX: Use a more comprehensive INSERT with all fields
+    // ✅ FIX: Removed short_description - only use columns that exist
     const result = await pool.query(`
       INSERT INTO services (
         provider_id, 
         category_id, 
         title, 
         description, 
-        short_description, 
         price, 
         discount_price, 
         currency, 
@@ -687,14 +685,13 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
         status,
         created_at, 
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, NOW(), NOW())
       RETURNING *
     `, [
       providerId,
       categoryId,
       title,
       description,
-      short_description || null,
       price || 0,
       discount_price || null,
       currency || 'USD',
@@ -794,7 +791,6 @@ router.put('/services/:id',
         tags,
         is_remote,
         is_active,
-        short_description,
         preparation_time,
         certifications
       } = req.body;
@@ -822,42 +818,41 @@ router.put('/services/:id',
 
       const images = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : null;
 
+      // ✅ FIX: Removed short_description from UPDATE
       const result = await pool.query(`
         UPDATE services SET
           title = COALESCE($1, title),
           description = COALESCE($2, description),
-          short_description = COALESCE($3, short_description),
-          category_id = COALESCE($4, category_id),
-          price = COALESCE($5, price),
-          discount_price = COALESCE($6, discount_price),
-          currency = COALESCE($7, currency),
-          price_type = COALESCE($8, price_type),
-          duration = COALESCE($9, duration),
-          location = COALESCE($10, location),
-          address = COALESCE($11, address),
-          city = COALESCE($12, city),
-          state = COALESCE($13, state),
-          zip_code = COALESCE($14, zip_code),
-          features = COALESCE($15, features),
-          requirements = COALESCE($16, requirements),
-          images = COALESCE($17, images),
-          cancellation_policy = COALESCE($18, cancellation_policy),
-          max_bookings_per_day = COALESCE($19, max_bookings_per_day),
-          advance_booking = COALESCE($20, advance_booking),
-          service_type = COALESCE($21, service_type),
-          languages = COALESCE($22, languages),
-          tags = COALESCE($23, tags),
-          is_remote = COALESCE($24, is_remote),
-          is_active = COALESCE($25, is_active),
-          preparation_time = COALESCE($26, preparation_time),
-          certifications = COALESCE($27, certifications),
+          category_id = COALESCE($3, category_id),
+          price = COALESCE($4, price),
+          discount_price = COALESCE($5, discount_price),
+          currency = COALESCE($6, currency),
+          price_type = COALESCE($7, price_type),
+          duration = COALESCE($8, duration),
+          location = COALESCE($9, location),
+          address = COALESCE($10, address),
+          city = COALESCE($11, city),
+          state = COALESCE($12, state),
+          zip_code = COALESCE($13, zip_code),
+          features = COALESCE($14, features),
+          requirements = COALESCE($15, requirements),
+          images = COALESCE($16, images),
+          cancellation_policy = COALESCE($17, cancellation_policy),
+          max_bookings_per_day = COALESCE($18, max_bookings_per_day),
+          advance_booking = COALESCE($19, advance_booking),
+          service_type = COALESCE($20, service_type),
+          languages = COALESCE($21, languages),
+          tags = COALESCE($22, tags),
+          is_remote = COALESCE($23, is_remote),
+          is_active = COALESCE($24, is_active),
+          preparation_time = COALESCE($25, preparation_time),
+          certifications = COALESCE($26, certifications),
           updated_at = NOW()
-        WHERE id = $28
+        WHERE id = $27
         RETURNING *
       `, [
         title,
         description,
-        short_description,
         categoryId,
         price,
         discount_price,
