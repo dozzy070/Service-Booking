@@ -114,7 +114,7 @@ const Booking = () => {
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
-  // ✅ FIXED: handleBooking with correct field names
+  // ✅ FIXED: handleBooking with CORRECT field names
   const handleBooking = async () => {
     if (!selectedDate || !selectedTime) {
       toast.error('Please select date and time');
@@ -128,14 +128,14 @@ const Booking = () => {
     try {
       setSubmitting(true);
       
-      // Format date for backend
+      // Format date for backend - YYYY-MM-DD
       const dateStr = selectedDate.toISOString().split('T')[0];
       
-      // ✅ FIXED: Send correct field names that backend expects
+      // ✅ IMPORTANT: Use EXACT field names the backend expects
       const bookingData = {
-        service_id: parseInt(id),
-        booking_date: dateStr,
-        booking_time: selectedTime,
+        service_id: parseInt(id),           // ✅ NOT serviceId
+        booking_date: dateStr,              // ✅ NOT date
+        booking_time: selectedTime,         // ✅ NOT time
         notes: bookingDetails.notes || '',
         location: bookingDetails.address || '',
         customer_name: bookingDetails.name || user?.name || '',
@@ -143,7 +143,7 @@ const Booking = () => {
         customer_address: bookingDetails.address || user?.address || ''
       };
 
-      console.log('📤 Sending booking data:', bookingData);
+      console.log('📤 Sending booking data with correct field names:', JSON.stringify(bookingData, null, 2));
 
       const response = await api.post('/bookings', bookingData);
       
@@ -153,6 +153,7 @@ const Booking = () => {
       toast.success('Booking created successfully!');
     } catch (error) {
       console.error('Create booking error:', error);
+      console.error('Error response:', error.response?.data);
       toast.error(error.response?.data?.message || 'Failed to create booking');
     } finally {
       setSubmitting(false);
