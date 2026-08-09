@@ -139,30 +139,51 @@ router.post('/', async (req, res) => {
 
     console.log('📝 Creating booking with data:', JSON.stringify(bookingData, null, 2));
 
-    // Create booking
+    // Create booking using only columns that actually exist in the database schema.
+    const bookingColumnsResult = await pool.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'bookings'
+    `);
+
+    const availableColumns = new Set(
+      bookingColumnsResult.rows.map((row) => row.column_name.toLowerCase())
+    );
+
+    const insertFields = [];
+    const insertValues = [];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    const pushInsertField = (column, value) => {
+      insertFields.push(column);
+      insertValues.push(`$${paramIndex}`);
+      queryParams.push(value);
+      paramIndex += 1;
+    };
+
+    if (availableColumns.has('customer_id')) pushInsertField('customer_id', bookingData.customer_id);
+    if (availableColumns.has('provider_id')) pushInsertField('provider_id', bookingData.provider_id);
+    if (availableColumns.has('service_id')) pushInsertField('service_id', bookingData.service_id);
+    if (availableColumns.has('booking_date')) pushInsertField('booking_date', bookingData.booking_date);
+    if (availableColumns.has('booking_time')) pushInsertField('booking_time', bookingData.booking_time);
+    if (availableColumns.has('total_amount')) pushInsertField('total_amount', bookingData.total_amount);
+    if (availableColumns.has('status')) pushInsertField('status', bookingData.status);
+    if (availableColumns.has('payment_status')) pushInsertField('payment_status', bookingData.payment_status);
+    if (availableColumns.has('notes')) pushInsertField('notes', bookingData.notes);
+    if (availableColumns.has('location')) pushInsertField('location', bookingData.location);
+    if (availableColumns.has('customer_name')) pushInsertField('customer_name', bookingData.customer_name);
+    if (availableColumns.has('customer_phone')) pushInsertField('customer_phone', bookingData.customer_phone);
+    if (availableColumns.has('customer_address')) pushInsertField('customer_address', bookingData.customer_address);
+    if (availableColumns.has('created_at')) pushInsertField('created_at', new Date());
+
+    if (insertFields.length === 0) {
+      throw new Error('No compatible booking columns found in the bookings table');
+    }
+
     const result = await pool.query(
-      `INSERT INTO bookings (
-        customer_id, provider_id, service_id, booking_date, booking_time,
-        total_amount, status, notes, location,
-        customer_name, customer_phone, customer_address,
-        payment_status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
-      RETURNING *`,
-      [
-        bookingData.customer_id,
-        bookingData.provider_id,
-        bookingData.service_id,
-        bookingData.booking_date,
-        bookingData.booking_time,
-        bookingData.total_amount,
-        bookingData.status,
-        bookingData.notes,
-        bookingData.location,
-        bookingData.customer_name,
-        bookingData.customer_phone,
-        bookingData.customer_address,
-        bookingData.payment_status
-      ]
+      `INSERT INTO bookings (${insertFields.join(', ')}) VALUES (${insertValues.join(', ')}) RETURNING *`,
+      queryParams
     );
 
     console.log('✅ Booking created:', result.rows[0].id);
