@@ -15,7 +15,6 @@ import {
   Modal,
   Alert,
   Pagination,
-  ProgressBar,
   Nav,
   Toast,
   ToastContainer,
@@ -24,7 +23,8 @@ import {
   OverlayTrigger,
   Tooltip,
   Tabs,
-  Tab
+  Tab,
+  Offcanvas
 } from 'react-bootstrap';
 import {
   FaSearch,
@@ -171,7 +171,12 @@ import {
   FaArrowUp,
   FaArrowDown,
   FaSync,
-  FaSave
+  FaSave,
+  FaChevronLeft,
+  FaChevronRight,
+  FaChevronDown,
+  FaBars,
+  FaTimes
 } from 'react-icons/fa';
 import { getServiceImage, handleServiceImageError } from '../../utils/imageUtils';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -188,11 +193,13 @@ const ServiceManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showFilters, setShowFilters] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [showMobileTable, setShowMobileTable] = useState(false);
 
   // Data State
   const [services, setServices] = useState([]);
@@ -228,6 +235,18 @@ const ServiceManagement = () => {
     requirements: [], tags: [], status: 'pending', featured: false,
     discount: 0, available: true, maxBookings: 10, cancellationPolicy: 'flexible'
   });
+
+  // Window size tracking for responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = windowWidth < 768;
+  const isTablet = windowWidth >= 768 && windowWidth < 1024;
 
   // Format currency to NGN
   const formatNaira = (amount) => {
@@ -269,15 +288,11 @@ const ServiceManagement = () => {
 
       let response = null;
       
-      // Try getServices first
       if (typeof adminAPI.getServices === 'function') {
         response = await adminAPI.getServices(params);
-      } 
-      // Fallback to getServicesList
-      else if (typeof adminAPI.getServicesList === 'function') {
+      } else if (typeof adminAPI.getServicesList === 'function') {
         response = await adminAPI.getServicesList(params);
-      } 
-      else {
+      } else {
         throw new Error('Services API methods not available');
       }
 
@@ -404,7 +419,7 @@ const ServiceManagement = () => {
           isPolling.current = false;
         });
       }
-    }, 30000); // Poll every 30 seconds for real-time updates
+    }, 30000);
   };
 
   const stopPolling = () => {
@@ -706,8 +721,8 @@ const ServiceManagement = () => {
   const getStatusBadge = (status) => {
     if (!status) {
       return (
-        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
-          <FaClock />
+        <Badge bg="secondary" className="d-inline-flex align-items-center gap-1 px-2 py-1 rounded-pill" style={{ fontSize: '0.7rem' }}>
+          <FaClock size={10} />
           <span className="ms-1">Unknown</span>
         </Badge>
       );
@@ -715,15 +730,15 @@ const ServiceManagement = () => {
     
     const lowerStatus = status.toLowerCase();
     const badges = {
-      approved: { bg: 'success', icon: <FaCheckCircle />, label: 'Approved' },
-      active: { bg: 'success', icon: <FaCheckCircle />, label: 'Active' },
-      pending: { bg: 'warning', icon: <FaClock />, label: 'Pending' },
-      rejected: { bg: 'danger', icon: <FaTimesCircle />, label: 'Rejected' },
-      inactive: { bg: 'secondary', icon: <FaClock />, label: 'Inactive' }
+      approved: { bg: 'success', icon: <FaCheckCircle size={12} />, label: 'Approved' },
+      active: { bg: 'success', icon: <FaCheckCircle size={12} />, label: 'Active' },
+      pending: { bg: 'warning', icon: <FaClock size={12} />, label: 'Pending' },
+      rejected: { bg: 'danger', icon: <FaTimesCircle size={12} />, label: 'Rejected' },
+      inactive: { bg: 'secondary', icon: <FaClock size={12} />, label: 'Inactive' }
     };
     const b = badges[lowerStatus] || badges.pending;
     return (
-      <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-3 py-2 rounded-pill">
+      <Badge bg={b.bg} className="d-inline-flex align-items-center gap-1 px-2 py-1 rounded-pill" style={{ fontSize: '0.7rem' }}>
         {b.icon}
         <span className="ms-1">{b.label}</span>
       </Badge>
@@ -743,132 +758,335 @@ const ServiceManagement = () => {
     return fallback;
   };
 
-  // Loading state removed - component renders immediately with empty data
-  // Data loads in background via useEffect
+  // Mobile service card render
+  const renderMobileServiceCard = (service) => {
+    const serviceId = getServiceId(service);
+    const providerName = getField(service, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown');
+    const category = getField(service, ['category', 'categoryName'], 'Uncategorized');
+    const title = getField(service, ['title', 'name', 'serviceName'], 'Untitled');
+    const price = parseFloat(service?.price) || 0;
+    const bookings = parseInt(service?.bookings) || 0;
+    const rating = parseFloat(service?.rating) || 0;
+    const reviews = parseInt(service?.reviews) || 0;
+    const status = service?.status || 'pending';
+    const featured = service?.featured || false;
+    const images = service?.images || [];
+    const createdAt = service?.createdAt || service?.created_at || new Date().toISOString();
+
+    return (
+      <Card key={serviceId} className="mb-3 border-0 shadow-sm" style={{ borderRadius: '16px' }}>
+        <Card.Body className="p-3">
+          <div className="d-flex gap-3">
+            <img 
+              src={images[0] || getServiceImage(title, serviceId, 60, 60)} 
+              alt={title} 
+              className="rounded" 
+              style={{ width: '70px', height: '70px', objectFit: 'cover', flexShrink: 0 }} 
+              onError={(e) => handleServiceImageError(e, title)}
+            />
+            <div className="flex-grow-1 min-width-0">
+              <div className="d-flex justify-content-between align-items-start">
+                <h6 className="fw-bold mb-1 text-truncate">{title}</h6>
+                <div className="d-flex gap-1">
+                  <OverlayTrigger placement="top" overlay={<Tooltip>View</Tooltip>}>
+                    <Button 
+                      size="sm" 
+                      variant="outline-primary" 
+                      className="rounded-circle p-0"
+                      style={{ width: '28px', height: '28px', minWidth: '28px' }}
+                      onClick={() => { 
+                        setSelectedService(service); 
+                        setModalMode('view'); 
+                        setShowServiceModal(true); 
+                      }}
+                    >
+                      <FaEye size={12} />
+                    </Button>
+                  </OverlayTrigger>
+                  <Dropdown>
+                    <Dropdown.Toggle 
+                      size="sm" 
+                      variant="outline-secondary" 
+                      className="rounded-circle p-0"
+                      style={{ width: '28px', height: '28px', minWidth: '28px' }}
+                    >
+                      <FaEllipsisV size={12} />
+                    </Dropdown.Toggle>
+                    <Dropdown.Menu align="end">
+                      <Dropdown.Item onClick={() => { 
+                        setSelectedService(service); 
+                        setModalMode('edit'); 
+                        setFormData({ ...service }); 
+                        setShowServiceModal(true); 
+                      }}>
+                        <FaEdit className="me-2" /> Edit
+                      </Dropdown.Item>
+                      {(status === 'pending' || status === 'Pending') && (
+                        <>
+                          <Dropdown.Item onClick={() => { 
+                            setSelectedService(service); 
+                            setShowApproveModal(true); 
+                          }} className="text-success">
+                            <FaCheckCircle className="me-2" /> Approve
+                          </Dropdown.Item>
+                          <Dropdown.Item onClick={() => { 
+                            setSelectedService(service); 
+                            setShowRejectModal(true); 
+                          }} className="text-danger">
+                            <FaTimesCircle className="me-2" /> Reject
+                          </Dropdown.Item>
+                        </>
+                      )}
+                      <Dropdown.Item onClick={() => handleFeaturedToggle(serviceId)}>
+                        {featured ? 
+                          <FaStar className="me-2 text-warning" /> : 
+                          <FaStar className="me-2" />
+                        }
+                        {featured ? 'Remove Featured' : 'Mark Featured'}
+                      </Dropdown.Item>
+                      <Dropdown.Divider />
+                      <Dropdown.Item 
+                        className="text-danger"
+                        onClick={() => { 
+                          setSelectedService(service); 
+                          setShowDeleteModal(true); 
+                        }}
+                      >
+                        <FaTrash className="me-2" /> Delete
+                      </Dropdown.Item>
+                    </Dropdown.Menu>
+                  </Dropdown>
+                </div>
+              </div>
+              <div className="d-flex flex-wrap gap-2 mt-1">
+                <Badge bg="secondary" className="rounded-pill" style={{ fontSize: '0.65rem' }}>
+                  <FaTag className="me-1" size={10} /> {category}
+                </Badge>
+                {getStatusBadge(status)}
+                {featured && (
+                  <Badge bg="warning" className="rounded-pill" style={{ fontSize: '0.65rem' }}>
+                    <FaStar className="me-1" size={10} /> Featured
+                  </Badge>
+                )}
+              </div>
+              <div className="d-flex flex-wrap gap-3 mt-2">
+                <span className="text-primary fw-bold">{formatNaira(price)}</span>
+                <span className="text-muted small"><FaCalendarAlt className="me-1" /> {format(new Date(createdAt), 'MMM dd, yyyy')}</span>
+                <span className="text-muted small">
+                  <FaStar className="text-warning me-1" /> 
+                  {rating > 0 ? `${rating.toFixed(1)} (${reviews})` : 'No ratings'}
+                </span>
+              </div>
+              <div className="mt-1">
+                <small className="text-muted">Provider: {providerName}</small>
+              </div>
+            </div>
+          </div>
+        </Card.Body>
+      </Card>
+    );
+  };
+
+  // Desktop table columns - responsive visibility classes
+  const getColumnVisibility = () => {
+    if (isMobile) {
+      return {
+        checkbox: false,
+        service: true,
+        category: false,
+        provider: false,
+        price: true,
+        status: true,
+        bookings: false,
+        rating: false,
+        created: false,
+        actions: true
+      };
+    } else if (isTablet) {
+      return {
+        checkbox: true,
+        service: true,
+        category: true,
+        provider: false,
+        price: true,
+        status: true,
+        bookings: false,
+        rating: true,
+        created: false,
+        actions: true
+      };
+    } else {
+      return {
+        checkbox: true,
+        service: true,
+        category: true,
+        provider: true,
+        price: true,
+        status: true,
+        bookings: true,
+        rating: true,
+        created: true,
+        actions: true
+      };
+    }
+  };
+
+  const colVisibility = getColumnVisibility();
 
   return (
-    <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
-      <Container fluid className="py-4">
+    <div style={{ background: '#f8f9fa', minHeight: '100vh', paddingTop: '70px' }}>
+      <Container fluid className="py-3 py-md-4">
         {/* Error Alert */}
         {error && (
-          <Alert variant="danger" className="mb-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
+          <Alert variant="danger" className="mb-3 mb-md-4" dismissible onClose={() => setError(null)} style={{ borderRadius: '12px' }}>
             <FaExclamationTriangle className="me-2" />
             {error}
           </Alert>
         )}
 
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 gap-md-3 mb-3 mb-md-4">
           <div>
-            <h2 className="mb-1 fw-bold">Service Management</h2>
-            <p className="text-muted mb-0">Manage and monitor all services on the platform</p>
+            <h4 className="mb-0 fw-bold" style={{ fontSize: isMobile ? '1.1rem' : '1.5rem' }}>Service Management</h4>
+            <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.7rem' : '0.875rem' }}>
+              Manage and monitor all services on the platform
+            </p>
           </div>
-          <div className="d-flex gap-2">
-            <Button
-              variant="outline-primary"
-              onClick={refreshData}
-              disabled={refreshing}
+          <div className="d-flex flex-wrap gap-2">
+            {!isMobile && (
+              <>
+                <Button
+                  variant="outline-primary"
+                  onClick={refreshData}
+                  disabled={refreshing}
+                  className="d-flex align-items-center gap-2"
+                  size={isMobile ? 'sm' : 'md'}
+                >
+                  <FaSync className={refreshing ? 'spin' : ''} />
+                  {!isMobile && (refreshing ? 'Refreshing...' : 'Refresh')}
+                </Button>
+                <Button variant="outline-primary" onClick={handleExportServices} className="d-flex align-items-center gap-2" size={isMobile ? 'sm' : 'md'}>
+                  <FaDownload /> {!isMobile && 'Export'}
+                </Button>
+              </>
+            )}
+            <Button 
+              variant="primary" 
+              onClick={() => { 
+                setModalMode('add'); 
+                setFormData({
+                  title: '', description: '', category: '', providerId: '',
+                  price: '', duration: '', location: '', images: [], features: [],
+                  requirements: [], tags: [], status: 'pending', featured: false,
+                  discount: 0, available: true, maxBookings: 10, cancellationPolicy: 'flexible'
+                });
+                setShowServiceModal(true); 
+              }} 
               className="d-flex align-items-center gap-2"
+              size={isMobile ? 'sm' : 'md'}
             >
-              <FaSync className={refreshing ? 'spin' : ''} />
-              {refreshing ? 'Refreshing...' : 'Refresh'}
+              <FaPlus /> {!isMobile && 'Add Service'}
             </Button>
-            <Button variant="outline-primary" onClick={handleExportServices} className="d-flex align-items-center gap-2">
-              <FaDownload /> Export
-            </Button>
-            <Button variant="primary" onClick={() => { setModalMode('add'); setShowServiceModal(true); }} className="d-flex align-items-center gap-2">
-              <FaPlus /> Add Service
-            </Button>
+            {isMobile && (
+              <Button 
+                variant="outline-secondary" 
+                onClick={() => setShowMobileFilters(true)}
+                size="sm"
+                className="d-flex align-items-center"
+              >
+                <FaSlidersH />
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <Row className="g-4 mb-4">
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#3b82f620' }}>
-                    <FaServicestack size={24} color="#3b82f6" />
+        {/* Stats Cards - Responsive grid */}
+        <Row className="g-2 g-md-3 g-lg-4 mb-3 mb-md-4">
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#3b82f620' }}>
+                    <FaServicestack size={isMobile ? 16 : 24} color="#3b82f6" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Total Services</p>
-                    <h3 className="fw-bold mb-0">{stats.total}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Total</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{stats.total}</h5>
                   </div>
                 </div>
               </Card.Body>
             </Card>
           </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#f59e0b20' }}>
-                    <FaClock size={24} color="#f59e0b" />
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#f59e0b20' }}>
+                    <FaClock size={isMobile ? 16 : 24} color="#f59e0b" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Pending</p>
-                    <h3 className="fw-bold mb-0">{stats.pending}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Pending</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{stats.pending}</h5>
                   </div>
                 </div>
               </Card.Body>
             </Card>
           </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <FaCheckCircle size={24} color="#10b981" />
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#10b98120' }}>
+                    <FaCheckCircle size={isMobile ? 16 : 24} color="#10b981" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Approved</p>
-                    <h3 className="fw-bold mb-0">{stats.approved}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Approved</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{stats.approved}</h5>
                   </div>
                 </div>
               </Card.Body>
             </Card>
           </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#ef444420' }}>
-                    <FaTimesCircle size={24} color="#ef4444" />
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#ef444420' }}>
+                    <FaTimesCircle size={isMobile ? 16 : 24} color="#ef4444" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Rejected</p>
-                    <h3 className="fw-bold mb-0">{stats.rejected}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Rejected</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{stats.rejected}</h5>
                   </div>
                 </div>
               </Card.Body>
             </Card>
           </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#8b5cf620' }}>
-                    <FaStar size={24} color="#8b5cf6" />
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#8b5cf620' }}>
+                    <FaStar size={isMobile ? 16 : 24} color="#8b5cf6" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Featured</p>
-                    <h3 className="fw-bold mb-0">{stats.featured}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Featured</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{stats.featured}</h5>
                   </div>
                 </div>
               </Card.Body>
             </Card>
           </Col>
-          <Col xl={2} lg={4} md={6}>
-            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '16px' }}>
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="rounded-circle p-3" style={{ background: '#10b98120' }}>
-                    <FaMoneyBillWave size={24} color="#10b981" />
+          <Col xs={6} sm={4} md={3} lg={2} xl={2}>
+            <Card className="border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+              <Card.Body className="p-2 p-sm-3">
+                <div className="d-flex align-items-center gap-2 gap-sm-3">
+                  <div className="rounded-circle p-2 p-sm-3" style={{ background: '#10b98120' }}>
+                    <FaMoneyBillWave size={isMobile ? 16 : 24} color="#10b981" />
                   </div>
                   <div>
-                    <p className="text-muted mb-0 small">Avg Price</p>
-                    <h3 className="fw-bold mb-0">{formatCompactNaira(stats.averagePrice)}</h3>
+                    <p className="text-muted mb-0 small" style={{ fontSize: isMobile ? '0.5rem' : '0.7rem' }}>Avg Price</p>
+                    <h5 className="fw-bold mb-0" style={{ fontSize: isMobile ? '0.7rem' : '1.25rem' }}>{formatCompactNaira(stats.averagePrice)}</h5>
                   </div>
                 </div>
               </Card.Body>
@@ -876,82 +1094,89 @@ const ServiceManagement = () => {
           </Col>
         </Row>
 
-        {/* Tabs */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
+        {/* Tabs - Scrollable on mobile */}
+        <Card className="border-0 shadow-sm mb-3 mb-md-4" style={{ borderRadius: '16px' }}>
           <Card.Body className="p-0">
-            <Nav variant="tabs" className="px-3 pt-3" style={{ borderBottom: 'none' }}>
-              <Nav.Item>
+            <Nav variant="tabs" className="px-2 px-md-3 pt-2 pt-md-3" style={{ borderBottom: 'none', overflowX: 'auto', flexWrap: 'nowrap' }}>
+              <Nav.Item className="flex-shrink-0">
                 <Nav.Link 
                   active={activeTab === 'all'} 
                   onClick={() => setActiveTab('all')}
                   className="fw-semibold"
+                  style={{ fontSize: isMobile ? '0.75rem' : '0.9rem', padding: isMobile ? '0.4rem 0.6rem' : '0.75rem 1.5rem' }}
                 >
-                  <FaServicestack className="me-2" /> All Services
+                  <FaServicestack className="me-1 me-md-2" size={isMobile ? 12 : 16} /> All
                 </Nav.Link>
               </Nav.Item>
-              <Nav.Item>
+              <Nav.Item className="flex-shrink-0">
                 <Nav.Link 
                   active={activeTab === 'pending'} 
                   onClick={() => setActiveTab('pending')}
                   className="fw-semibold"
+                  style={{ fontSize: isMobile ? '0.75rem' : '0.9rem', padding: isMobile ? '0.4rem 0.6rem' : '0.75rem 1.5rem' }}
                 >
-                  <FaClock className="me-2 text-warning" /> Pending
+                  <FaClock className="me-1 me-md-2 text-warning" size={isMobile ? 12 : 16} /> Pending
                   {stats.pending > 0 && (
-                    <Badge bg="warning" pill className="ms-2">{stats.pending}</Badge>
+                    <Badge bg="warning" pill className="ms-1 ms-md-2" style={{ fontSize: isMobile ? '0.6rem' : '0.75rem' }}>{stats.pending}</Badge>
                   )}
                 </Nav.Link>
               </Nav.Item>
-              <Nav.Item>
+              <Nav.Item className="flex-shrink-0">
                 <Nav.Link 
                   active={activeTab === 'approved'} 
                   onClick={() => setActiveTab('approved')}
                   className="fw-semibold"
+                  style={{ fontSize: isMobile ? '0.75rem' : '0.9rem', padding: isMobile ? '0.4rem 0.6rem' : '0.75rem 1.5rem' }}
                 >
-                  <FaCheckCircle className="me-2 text-success" /> Approved
+                  <FaCheckCircle className="me-1 me-md-2 text-success" size={isMobile ? 12 : 16} /> Approved
                 </Nav.Link>
               </Nav.Item>
-              <Nav.Item>
+              <Nav.Item className="flex-shrink-0">
                 <Nav.Link 
                   active={activeTab === 'rejected'} 
                   onClick={() => setActiveTab('rejected')}
                   className="fw-semibold"
+                  style={{ fontSize: isMobile ? '0.75rem' : '0.9rem', padding: isMobile ? '0.4rem 0.6rem' : '0.75rem 1.5rem' }}
                 >
-                  <FaTimesCircle className="me-2 text-danger" /> Rejected
+                  <FaTimesCircle className="me-1 me-md-2 text-danger" size={isMobile ? 12 : 16} /> Rejected
                 </Nav.Link>
               </Nav.Item>
-              <Nav.Item>
+              <Nav.Item className="flex-shrink-0">
                 <Nav.Link 
                   active={activeTab === 'featured'} 
                   onClick={() => setActiveTab('featured')}
                   className="fw-semibold"
+                  style={{ fontSize: isMobile ? '0.75rem' : '0.9rem', padding: isMobile ? '0.4rem 0.6rem' : '0.75rem 1.5rem' }}
                 >
-                  <FaStar className="me-2 text-warning" /> Featured
+                  <FaStar className="me-1 me-md-2 text-warning" size={isMobile ? 12 : 16} /> Featured
                 </Nav.Link>
               </Nav.Item>
             </Nav>
           </Card.Body>
         </Card>
 
-        {/* Filters */}
-        <Card className="border-0 shadow-sm mb-4" style={{ borderRadius: '16px' }}>
-          <Card.Body className="p-4">
-            <div className="d-flex flex-wrap gap-3 align-items-center justify-content-between">
-              <div className="d-flex flex-wrap gap-3 flex-grow-1">
-                <InputGroup style={{ maxWidth: '300px' }}>
+        {/* Filters - Desktop */}
+        {!isMobile && (
+          <Card className="border-0 shadow-sm mb-3 mb-md-4" style={{ borderRadius: '16px' }}>
+            <Card.Body className="p-3 p-md-4">
+              <div className="d-flex flex-wrap gap-2 gap-md-3 align-items-center">
+                <InputGroup style={{ maxWidth: isMobile ? '100%' : '280px' }}>
                   <InputGroup.Text className="bg-white border-end-0">
-                    <FaSearch className="text-muted" />
+                    <FaSearch className="text-muted" size={isMobile ? 12 : 16} />
                   </InputGroup.Text>
                   <Form.Control 
                     placeholder="Search services..." 
                     value={searchTerm} 
                     onChange={(e) => setSearchTerm(e.target.value)} 
                     className="border-start-0"
+                    size={isMobile ? 'sm' : 'md'}
                   />
                 </InputGroup>
                 <Form.Select 
-                  style={{ width: '150px' }} 
+                  style={{ width: isMobile ? '100%' : '150px' }} 
                   value={filterCategory} 
                   onChange={(e) => setFilterCategory(e.target.value)}
+                  size={isMobile ? 'sm' : 'md'}
                 >
                   <option value="all">All Categories</option>
                   {categories.map(cat => (
@@ -961,9 +1186,10 @@ const ServiceManagement = () => {
                   ))}
                 </Form.Select>
                 <Form.Select 
-                  style={{ width: '180px' }} 
+                  style={{ width: isMobile ? '100%' : '180px' }} 
                   value={filterProvider} 
                   onChange={(e) => setFilterProvider(e.target.value)}
+                  size={isMobile ? 'sm' : 'md'}
                 >
                   <option value="all">All Providers</option>
                   {providers.map(prov => (
@@ -973,9 +1199,10 @@ const ServiceManagement = () => {
                   ))}
                 </Form.Select>
                 <Form.Select 
-                  style={{ width: '150px' }} 
+                  style={{ width: isMobile ? '100%' : '150px' }} 
                   value={filterStatus} 
                   onChange={(e) => setFilterStatus(e.target.value)}
+                  size={isMobile ? 'sm' : 'md'}
                 >
                   <option value="all">All Status</option>
                   <option value="pending">Pending</option>
@@ -983,18 +1210,78 @@ const ServiceManagement = () => {
                   <option value="rejected">Rejected</option>
                 </Form.Select>
                 <Form.Select 
-                  style={{ width: '100px' }} 
+                  style={{ width: isMobile ? '100%' : '100px' }} 
                   value={itemsPerPage} 
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  size={isMobile ? 'sm' : 'md'}
                 >
                   <option value="10">10</option>
                   <option value="25">25</option>
                   <option value="50">50</option>
                   <option value="100">100</option>
                 </Form.Select>
+                <div className="d-flex gap-2 ms-auto">
+                  <Button 
+                    variant="outline-secondary" 
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="d-flex align-items-center gap-2"
+                    size={isMobile ? 'sm' : 'md'}
+                  >
+                    <FaSlidersH /> {showFilters ? 'Hide Filters' : 'More Filters'}
+                  </Button>
+                </div>
               </div>
+
+              {showFilters && (
+                <Row className="mt-3 pt-3 border-top">
+                  <Col md={6}>
+                    <Form.Group>
+                      <Form.Label className="fw-semibold" style={{ fontSize: '0.85rem' }}>Date Range</Form.Label>
+                      <div className="d-flex gap-2">
+                        <Form.Control 
+                          type="date" 
+                          placeholder="Start" 
+                          value={dateRange.start} 
+                          onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                          size="sm"
+                        />
+                        <Form.Control 
+                          type="date" 
+                          placeholder="End" 
+                          value={dateRange.end} 
+                          onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                          size="sm"
+                        />
+                      </div>
+                    </Form.Group>
+                  </Col>
+                  <Col md={6}>
+                    <Form.Group>
+                      <Form.Label className="fw-semibold" style={{ fontSize: '0.85rem' }}>Price Range (₦)</Form.Label>
+                      <div className="d-flex gap-2">
+                        <Form.Control 
+                          type="number" 
+                          placeholder="Min" 
+                          value={priceRange.min} 
+                          onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })}
+                          size="sm"
+                        />
+                        <Form.Control 
+                          type="number" 
+                          placeholder="Max" 
+                          value={priceRange.max} 
+                          onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })}
+                          size="sm"
+                        />
+                      </div>
+                    </Form.Group>
+                  </Col>
+                </Row>
+              )}
+
               {selectedServices.length > 0 && (
-                <div className="d-flex gap-2">
+                <div className="mt-3 pt-3 border-top d-flex flex-wrap gap-2">
+                  <span className="text-muted small me-2">{selectedServices.length} selected</span>
                   <Button 
                     variant="success" 
                     size="sm" 
@@ -1002,7 +1289,7 @@ const ServiceManagement = () => {
                     className="d-flex align-items-center gap-1"
                     disabled={processing}
                   >
-                    <FaCheckCircle /> Approve ({selectedServices.length})
+                    <FaCheckCircle size={12} /> Approve
                   </Button>
                   <Button 
                     variant="warning" 
@@ -1010,70 +1297,170 @@ const ServiceManagement = () => {
                     onClick={() => setShowBulkActions(true)}
                     className="d-flex align-items-center gap-1"
                   >
-                    <FaSlidersH /> More Actions
+                    <FaSlidersH size={12} /> More
+                  </Button>
+                  <Button 
+                    variant="outline-danger" 
+                    size="sm" 
+                    onClick={handleBulkDelete}
+                    className="d-flex align-items-center gap-1"
+                    disabled={processing}
+                  >
+                    <FaTrash size={12} /> Delete
                   </Button>
                 </div>
               )}
+            </Card.Body>
+          </Card>
+        )}
+
+        {/* Mobile Filters Offcanvas */}
+        <Offcanvas show={showMobileFilters} onHide={() => setShowMobileFilters(false)} placement="bottom" style={{ height: '80%' }}>
+          <Offcanvas.Header closeButton className="border-0 pb-0">
+            <Offcanvas.Title className="fw-bold"><FaSlidersH className="me-2" /> Filters</Offcanvas.Title>
+          </Offcanvas.Header>
+          <Offcanvas.Body>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Search</Form.Label>
+              <InputGroup>
+                <InputGroup.Text><FaSearch /></InputGroup.Text>
+                <Form.Control 
+                  placeholder="Search services..." 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                />
+              </InputGroup>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Category</Form.Label>
+              <Form.Select 
+                value={filterCategory} 
+                onChange={(e) => setFilterCategory(e.target.value)}
+              >
+                <option value="all">All Categories</option>
+                {categories.map(cat => (
+                  <option key={cat.id || cat._id} value={cat.name || cat.categoryName}>
+                    {cat.name || cat.categoryName}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Provider</Form.Label>
+              <Form.Select 
+                value={filterProvider} 
+                onChange={(e) => setFilterProvider(e.target.value)}
+              >
+                <option value="all">All Providers</option>
+                {providers.map(prov => (
+                  <option key={prov.id || prov._id} value={prov.id || prov._id}>
+                    {prov.name || prov.providerName || prov.fullName}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Status</Form.Label>
+              <Form.Select 
+                value={filterStatus} 
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Items Per Page</Form.Label>
+              <Form.Select 
+                value={itemsPerPage} 
+                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+              >
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Date Range</Form.Label>
+              <div className="d-flex gap-2">
+                <Form.Control 
+                  type="date" 
+                  placeholder="Start" 
+                  value={dateRange.start} 
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  size="sm"
+                />
+                <Form.Control 
+                  type="date" 
+                  placeholder="End" 
+                  value={dateRange.end} 
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  size="sm"
+                />
+              </div>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold">Price Range (₦)</Form.Label>
+              <div className="d-flex gap-2">
+                <Form.Control 
+                  type="number" 
+                  placeholder="Min" 
+                  value={priceRange.min} 
+                  onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })}
+                  size="sm"
+                />
+                <Form.Control 
+                  type="number" 
+                  placeholder="Max" 
+                  value={priceRange.max} 
+                  onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })}
+                  size="sm"
+                />
+              </div>
+            </Form.Group>
+            <div className="d-grid gap-2 mt-4">
+              <Button 
+                variant="primary" 
+                onClick={() => { 
+                  setShowMobileFilters(false); 
+                  setCurrentPage(1);
+                }}
+              >
+                Apply Filters
+              </Button>
               <Button 
                 variant="outline-secondary" 
-                onClick={() => setShowFilters(!showFilters)}
-                className="d-flex align-items-center gap-2"
+                onClick={() => { 
+                  setSearchTerm(''); 
+                  setFilterCategory('all'); 
+                  setFilterStatus('all'); 
+                  setFilterProvider('all'); 
+                  setDateRange({ start: '', end: '' }); 
+                  setPriceRange({ min: '', max: '' }); 
+                  setActiveTab('all'); 
+                  setCurrentPage(1);
+                }}
               >
-                <FaSlidersH /> {showFilters ? 'Hide Filters' : 'More Filters'}
+                Clear All Filters
               </Button>
             </div>
+          </Offcanvas.Body>
+        </Offcanvas>
 
-            {showFilters && (
-              <Row className="mt-3 pt-3 border-top">
-                <Col md={6}>
-                  <Form.Group>
-                    <Form.Label className="fw-semibold">Date Range</Form.Label>
-                    <div className="d-flex gap-2">
-                      <Form.Control 
-                        type="date" 
-                        placeholder="Start" 
-                        value={dateRange.start} 
-                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                      />
-                      <Form.Control 
-                        type="date" 
-                        placeholder="End" 
-                        value={dateRange.end} 
-                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                      />
-                    </div>
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group>
-                    <Form.Label className="fw-semibold">Price Range (₦)</Form.Label>
-                    <div className="d-flex gap-2">
-                      <Form.Control 
-                        type="number" 
-                        placeholder="Min" 
-                        value={priceRange.min} 
-                        onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })}
-                      />
-                      <Form.Control 
-                        type="number" 
-                        placeholder="Max" 
-                        value={priceRange.max} 
-                        onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })}
-                      />
-                    </div>
-                  </Form.Group>
-                </Col>
-              </Row>
-            )}
-          </Card.Body>
-        </Card>
-
-        {/* Services Table */}
+        {/* Services Table / Cards */}
         <Card className="border-0 shadow-sm" style={{ borderRadius: '20px', overflow: 'hidden' }}>
           <Card.Body className="p-0">
-            {currentItems.length === 0 ? (
+            {loading ? (
               <div className="text-center py-5">
-                <FaServicestack size={48} className="text-muted mb-3 opacity-50" />
+                <Spinner animation="border" variant="primary" />
+                <p className="mt-3 text-muted">Loading services...</p>
+              </div>
+            ) : currentItems.length === 0 ? (
+              <div className="text-center py-5">
+                <FaServicestack size={isMobile ? 32 : 48} className="text-muted mb-3 opacity-50" />
                 <h6 className="text-muted">No services found</h6>
                 <p className="text-muted small">Try adjusting your search or filter criteria</p>
                 <Button 
@@ -1095,256 +1482,290 @@ const ServiceManagement = () => {
               </div>
             ) : (
               <>
-                <div className="table-responsive">
-                  <Table hover className="mb-0" style={{ minWidth: '1200px' }}>
-                    <thead style={{ background: '#f8fafc' }}>
-                      <tr>
-                        <th style={{ padding: '16px', width: '40px' }}>
-                          <Form.Check 
-                            type="checkbox" 
-                            checked={selectedServices.length === filteredServices.length && filteredServices.length > 0} 
-                            onChange={handleSelectAll} 
-                          />
-                        </th>
-                        <th style={{ padding: '16px', cursor: 'pointer', minWidth: '250px' }} onClick={() => handleSort('title')}>
-                          Service {getSortIcon('title')}
-                        </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('category')}>
-                          Category {getSortIcon('category')}
-                        </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('providerName')}>
-                          Provider {getSortIcon('providerName')}
-                        </th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('price')}>
-                          Price {getSortIcon('price')}
-                        </th>
-                        <th style={{ padding: '16px' }}>Status</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('bookings')}>
-                          Bookings {getSortIcon('bookings')}
-                        </th>
-                        <th style={{ padding: '16px' }}>Rating</th>
-                        <th style={{ padding: '16px', cursor: 'pointer' }} onClick={() => handleSort('createdAt')}>
-                          Created {getSortIcon('createdAt')}
-                        </th>
-                        <th style={{ padding: '16px', width: '180px' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentItems.map(service => {
-                        const serviceId = getServiceId(service);
-                        const providerName = getField(service, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown');
-                        const category = getField(service, ['category', 'categoryName'], 'Uncategorized');
-                        const title = getField(service, ['title', 'name', 'serviceName'], 'Untitled');
-                        const description = getField(service, ['description', 'shortDescription'], '');
-                        const price = parseFloat(service?.price) || 0;
-                        const bookings = parseInt(service?.bookings) || 0;
-                        const revenue = parseFloat(service?.revenue) || 0;
-                        const rating = parseFloat(service?.rating) || 0;
-                        const reviews = parseInt(service?.reviews) || 0;
-                        const discount = parseInt(service?.discount) || 0;
-                        const status = service?.status || 'pending';
-                        const featured = service?.featured || false;
-                        const images = service?.images || [];
-                        const createdAt = service?.createdAt || service?.created_at || new Date().toISOString();
-                        
-                        return (
-                          <tr key={serviceId} className={selectedServices.includes(serviceId) ? 'table-active' : ''}>
-                            <td style={{ padding: '16px' }}>
+                {isMobile ? (
+                  // Mobile Card View
+                  <div className="p-2 p-md-3">
+                    {currentItems.map(service => renderMobileServiceCard(service))}
+                  </div>
+                ) : (
+                  // Desktop Table View
+                  <div className="table-responsive" style={{ overflowX: 'auto' }}>
+                    <Table hover className="mb-0" style={{ minWidth: '800px' }}>
+                      <thead style={{ background: '#f8fafc' }}>
+                        <tr>
+                          {colVisibility.checkbox && (
+                            <th style={{ padding: '12px 16px', width: '40px' }}>
                               <Form.Check 
                                 type="checkbox" 
-                                checked={selectedServices.includes(serviceId)} 
-                                onChange={() => handleSelectService(serviceId)} 
+                                checked={selectedServices.length === filteredServices.length && filteredServices.length > 0} 
+                                onChange={handleSelectAll} 
                               />
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex align-items-center gap-3">
-                                <img 
-                                  src={images[0] || getServiceImage(title, serviceId, 50, 50)} 
-                                  alt={title} 
-                                  className="rounded" 
-                                  style={{ width: '50px', height: '50px', objectFit: 'cover' }} 
-                                  onError={(e) => handleServiceImageError(e, title)}
-                                />
-                                <div>
-                                  <div className="fw-semibold">{title}</div>
-                                  {description && <small className="text-muted">{description.substring(0, 50)}...</small>}
-                                </div>
-                              </div>
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <Badge bg="secondary" className="px-3 py-2 rounded-pill">
-                                <FaTag className="me-1" size={10} /> {category}
-                              </Badge>
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex align-items-center gap-2">
-                                <img 
-                                  src={service.providerAvatar || `https://ui-avatars.com/api/?name=${providerName}&background=6366f1&color=fff&size=30`} 
-                                  alt={providerName} 
-                                  className="rounded-circle" 
-                                  style={{ width: '30px', height: '30px' }} 
-                                />
-                                <div>
-                                  <div>{providerName}</div>
-                                  <small className="text-warning">
-                                    <FaStar className="me-1" size={10} /> {service.providerRating || 'New'}
-                                  </small>
-                                </div>
-                              </div>
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="fw-bold text-primary">
-                                {formatNaira(price)}
-                                {discount > 0 && (
-                                  <Badge bg="danger" className="ms-2">-{discount}%</Badge>
-                                )}
-                              </div>
-                            </td>
-                            <td style={{ padding: '16px' }}>{getStatusBadge(status)}</td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="fw-semibold">{bookings}</div>
-                              <small className="text-muted">{formatCompactNaira(revenue)}</small>
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              {rating > 0 ? (
-                                <span className="text-warning">
-                                  <FaStar className="me-1" />{rating.toFixed(1)} ({reviews})
-                                </span>
-                              ) : (
-                                <span className="text-muted">No ratings</span>
+                            </th>
+                          )}
+                          <th style={{ padding: '12px 16px', cursor: 'pointer', minWidth: '200px' }} onClick={() => handleSort('title')}>
+                            Service {getSortIcon('title')}
+                          </th>
+                          {colVisibility.category && (
+                            <th style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => handleSort('category')}>
+                              Category {getSortIcon('category')}
+                            </th>
+                          )}
+                          {colVisibility.provider && (
+                            <th style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => handleSort('providerName')}>
+                              Provider {getSortIcon('providerName')}
+                            </th>
+                          )}
+                          {colVisibility.price && (
+                            <th style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => handleSort('price')}>
+                              Price {getSortIcon('price')}
+                            </th>
+                          )}
+                          {colVisibility.status && (
+                            <th style={{ padding: '12px 16px' }}>Status</th>
+                          )}
+                          {colVisibility.bookings && (
+                            <th style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => handleSort('bookings')}>
+                              Bookings {getSortIcon('bookings')}
+                            </th>
+                          )}
+                          {colVisibility.rating && (
+                            <th style={{ padding: '12px 16px' }}>Rating</th>
+                          )}
+                          {colVisibility.created && (
+                            <th style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => handleSort('createdAt')}>
+                              Created {getSortIcon('createdAt')}
+                            </th>
+                          )}
+                          <th style={{ padding: '12px 16px', width: isTablet ? '120px' : '160px' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentItems.map(service => {
+                          const serviceId = getServiceId(service);
+                          const providerName = getField(service, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown');
+                          const category = getField(service, ['category', 'categoryName'], 'Uncategorized');
+                          const title = getField(service, ['title', 'name', 'serviceName'], 'Untitled');
+                          const description = getField(service, ['description', 'shortDescription'], '');
+                          const price = parseFloat(service?.price) || 0;
+                          const bookings = parseInt(service?.bookings) || 0;
+                          const revenue = parseFloat(service?.revenue) || 0;
+                          const rating = parseFloat(service?.rating) || 0;
+                          const reviews = parseInt(service?.reviews) || 0;
+                          const status = service?.status || 'pending';
+                          const featured = service?.featured || false;
+                          const images = service?.images || [];
+                          const createdAt = service?.createdAt || service?.created_at || new Date().toISOString();
+                          
+                          return (
+                            <tr key={serviceId} className={selectedServices.includes(serviceId) ? 'table-active' : ''}>
+                              {colVisibility.checkbox && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <Form.Check 
+                                    type="checkbox" 
+                                    checked={selectedServices.includes(serviceId)} 
+                                    onChange={() => handleSelectService(serviceId)} 
+                                  />
+                                </td>
                               )}
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <small>
-                                <FaCalendarAlt className="me-1 text-muted" size={10} /> 
-                                {format(new Date(createdAt), 'MMM dd, yyyy')}
-                              </small>
-                              <div className="small text-muted">
-                                {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
-                              </div>
-                            </td>
-                            <td style={{ padding: '16px' }}>
-                              <div className="d-flex gap-1">
-                                <OverlayTrigger placement="top" overlay={<Tooltip>View Details</Tooltip>}>
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline-primary" 
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => { 
-                                      setSelectedService(service); 
-                                      setModalMode('view'); 
-                                      setShowServiceModal(true); 
-                                    }}
-                                  >
-                                    <FaEye size={14} />
-                                  </Button>
-                                </OverlayTrigger>
-                                
-                                <OverlayTrigger placement="top" overlay={<Tooltip>Edit Service</Tooltip>}>
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline-info" 
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                    onClick={() => { 
-                                      setSelectedService(service); 
-                                      setModalMode('edit'); 
-                                      setFormData({ ...service }); 
-                                      setShowServiceModal(true); 
-                                    }}
-                                  >
-                                    <FaEdit size={14} />
-                                  </Button>
-                                </OverlayTrigger>
-
-                                {(status === 'pending' || status === 'Pending') && (
-                                  <>
-                                    <OverlayTrigger placement="top" overlay={<Tooltip>Approve Service</Tooltip>}>
-                                      <Button 
-                                        size="sm" 
-                                        variant="outline-success" 
-                                        className="rounded-circle p-1"
-                                        style={{ width: '32px', height: '32px' }}
-                                        onClick={() => { 
-                                          setSelectedService(service); 
-                                          setShowApproveModal(true); 
-                                        }}
-                                      >
-                                        <FaCheckCircle size={14} />
-                                      </Button>
-                                    </OverlayTrigger>
-                                    <OverlayTrigger placement="top" overlay={<Tooltip>Reject Service</Tooltip>}>
-                                      <Button 
-                                        size="sm" 
-                                        variant="outline-danger" 
-                                        className="rounded-circle p-1"
-                                        style={{ width: '32px', height: '32px' }}
-                                        onClick={() => { 
-                                          setSelectedService(service); 
-                                          setShowRejectModal(true); 
-                                        }}
-                                      >
-                                        <FaTimesCircle size={14} />
-                                      </Button>
-                                    </OverlayTrigger>
-                                  </>
-                                )}
-
-                                <Dropdown>
-                                  <Dropdown.Toggle 
-                                    size="sm" 
-                                    variant="outline-secondary" 
-                                    className="rounded-circle p-1"
-                                    style={{ width: '32px', height: '32px' }}
-                                  >
-                                    <FaEllipsisV size={14} />
-                                  </Dropdown.Toggle>
-                                  <Dropdown.Menu align="end">
-                                    <Dropdown.Item onClick={() => handleFeaturedToggle(serviceId)}>
-                                      {featured ? 
-                                        <FaStar className="me-2 text-warning" /> : 
-                                        <FaStar className="me-2 text-muted" />
-                                      }
-                                      {featured ? 'Remove Featured' : 'Mark Featured'}
-                                    </Dropdown.Item>
-                                    <Dropdown.Item onClick={() => { 
-                                      setSelectedService(service); 
-                                      setShowImageModal(true); 
-                                    }}>
-                                      <FaImage className="me-2" /> Manage Images
-                                    </Dropdown.Item>
-                                    <Dropdown.Divider />
-                                    <Dropdown.Item 
-                                      className="text-danger"
+                              <td style={{ padding: '12px 16px' }}>
+                                <div className="d-flex align-items-center gap-3">
+                                  <img 
+                                    src={images[0] || getServiceImage(title, serviceId, 50, 50)} 
+                                    alt={title} 
+                                    className="rounded" 
+                                    style={{ width: '45px', height: '45px', objectFit: 'cover', flexShrink: 0 }} 
+                                    onError={(e) => handleServiceImageError(e, title)}
+                                  />
+                                  <div className="min-width-0">
+                                    <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }}>{title}</div>
+                                    {description && <small className="text-muted d-block text-truncate" style={{ maxWidth: '150px' }}>{description.substring(0, 40)}...</small>}
+                                  </div>
+                                </div>
+                              </td>
+                              {colVisibility.category && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <Badge bg="secondary" className="px-2 py-1 rounded-pill" style={{ fontSize: '0.7rem' }}>
+                                    <FaTag className="me-1" size={10} /> {category}
+                                  </Badge>
+                                </td>
+                              )}
+                              {colVisibility.provider && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <div className="d-flex align-items-center gap-2">
+                                    <img 
+                                      src={service.providerAvatar || `https://ui-avatars.com/api/?name=${providerName}&background=6366f1&color=fff&size=30`} 
+                                      alt={providerName} 
+                                      className="rounded-circle" 
+                                      style={{ width: '28px', height: '28px' }} 
+                                    />
+                                    <div>
+                                      <div className="text-truncate" style={{ maxWidth: '100px' }}>{providerName}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                              )}
+                              {colVisibility.price && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <div className="fw-bold text-primary" style={{ fontSize: '0.9rem' }}>
+                                    {formatNaira(price)}
+                                  </div>
+                                </td>
+                              )}
+                              {colVisibility.status && (
+                                <td style={{ padding: '12px 16px' }}>{getStatusBadge(status)}</td>
+                              )}
+                              {colVisibility.bookings && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <div className="fw-semibold">{bookings}</div>
+                                  <small className="text-muted">{formatCompactNaira(revenue)}</small>
+                                </td>
+                              )}
+                              {colVisibility.rating && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  {rating > 0 ? (
+                                    <span className="text-warning" style={{ fontSize: '0.85rem' }}>
+                                      <FaStar className="me-1" size={12} />{rating.toFixed(1)} ({reviews})
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted" style={{ fontSize: '0.8rem' }}>No ratings</span>
+                                  )}
+                                </td>
+                              )}
+                              {colVisibility.created && (
+                                <td style={{ padding: '12px 16px' }}>
+                                  <small style={{ fontSize: '0.7rem' }}>
+                                    <FaCalendarAlt className="me-1 text-muted" size={10} /> 
+                                    {format(new Date(createdAt), 'MMM dd, yyyy')}
+                                  </small>
+                                  <div className="small text-muted" style={{ fontSize: '0.65rem' }}>
+                                    {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                                  </div>
+                                </td>
+                              )}
+                              <td style={{ padding: '12px 16px' }}>
+                                <div className="d-flex gap-1 flex-wrap">
+                                  <OverlayTrigger placement="top" overlay={<Tooltip>View</Tooltip>}>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline-primary" 
+                                      className="rounded-circle p-0"
+                                      style={{ width: '30px', height: '30px', minWidth: '30px' }}
                                       onClick={() => { 
                                         setSelectedService(service); 
-                                        setShowDeleteModal(true); 
+                                        setModalMode('view'); 
+                                        setShowServiceModal(true); 
                                       }}
                                     >
-                                      <FaTrash className="me-2" /> Delete
-                                    </Dropdown.Item>
-                                  </Dropdown.Menu>
-                                </Dropdown>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </Table>
-                </div>
+                                      <FaEye size={13} />
+                                    </Button>
+                                  </OverlayTrigger>
+                                  
+                                  <OverlayTrigger placement="top" overlay={<Tooltip>Edit</Tooltip>}>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline-info" 
+                                      className="rounded-circle p-0"
+                                      style={{ width: '30px', height: '30px', minWidth: '30px' }}
+                                      onClick={() => { 
+                                        setSelectedService(service); 
+                                        setModalMode('edit'); 
+                                        setFormData({ ...service }); 
+                                        setShowServiceModal(true); 
+                                      }}
+                                    >
+                                      <FaEdit size={13} />
+                                    </Button>
+                                  </OverlayTrigger>
+
+                                  {(status === 'pending' || status === 'Pending') && (
+                                    <>
+                                      <OverlayTrigger placement="top" overlay={<Tooltip>Approve</Tooltip>}>
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline-success" 
+                                          className="rounded-circle p-0"
+                                          style={{ width: '30px', height: '30px', minWidth: '30px' }}
+                                          onClick={() => { 
+                                            setSelectedService(service); 
+                                            setShowApproveModal(true); 
+                                          }}
+                                        >
+                                          <FaCheckCircle size={13} />
+                                        </Button>
+                                      </OverlayTrigger>
+                                      <OverlayTrigger placement="top" overlay={<Tooltip>Reject</Tooltip>}>
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline-danger" 
+                                          className="rounded-circle p-0"
+                                          style={{ width: '30px', height: '30px', minWidth: '30px' }}
+                                          onClick={() => { 
+                                            setSelectedService(service); 
+                                            setShowRejectModal(true); 
+                                          }}
+                                        >
+                                          <FaTimesCircle size={13} />
+                                        </Button>
+                                      </OverlayTrigger>
+                                    </>
+                                  )}
+
+                                  <Dropdown>
+                                    <Dropdown.Toggle 
+                                      size="sm" 
+                                      variant="outline-secondary" 
+                                      className="rounded-circle p-0"
+                                      style={{ width: '30px', height: '30px', minWidth: '30px' }}
+                                    >
+                                      <FaEllipsisV size={13} />
+                                    </Dropdown.Toggle>
+                                    <Dropdown.Menu align="end">
+                                      <Dropdown.Item onClick={() => handleFeaturedToggle(serviceId)}>
+                                        {featured ? 
+                                          <FaStar className="me-2 text-warning" /> : 
+                                          <FaStar className="me-2" />
+                                        }
+                                        {featured ? 'Remove Featured' : 'Mark Featured'}
+                                      </Dropdown.Item>
+                                      <Dropdown.Item onClick={() => { 
+                                        setSelectedService(service); 
+                                        setShowImageModal(true); 
+                                      }}>
+                                        <FaImage className="me-2" /> Images
+                                      </Dropdown.Item>
+                                      <Dropdown.Divider />
+                                      <Dropdown.Item 
+                                        className="text-danger"
+                                        onClick={() => { 
+                                          setSelectedService(service); 
+                                          setShowDeleteModal(true); 
+                                        }}
+                                      >
+                                        <FaTrash className="me-2" /> Delete
+                                      </Dropdown.Item>
+                                    </Dropdown.Menu>
+                                  </Dropdown>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
 
                 {/* Pagination */}
                 {filteredServices.length > 0 && (
-                  <div className="d-flex justify-content-between align-items-center p-4 border-top">
-                    <div className="text-muted small">
-                      Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredServices.length)} of {filteredServices.length} services
+                  <div className="d-flex flex-wrap justify-content-between align-items-center p-3 p-md-4 border-top gap-2">
+                    <div className="text-muted small" style={{ fontSize: isMobile ? '0.65rem' : '0.8rem' }}>
+                      Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredServices.length)} of {filteredServices.length}
                     </div>
-                    <Pagination>
+                    <Pagination className="mb-0 flex-wrap">
                       <Pagination.Prev 
                         onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} 
                         disabled={currentPage === 1} 
+                        size={isMobile ? 'sm' : 'md'}
                       />
                       {[...Array(Math.min(5, totalPages))].map((_, idx) => {
                         let pageNum;
@@ -1357,6 +1778,7 @@ const ServiceManagement = () => {
                             key={pageNum} 
                             active={pageNum === currentPage} 
                             onClick={() => setCurrentPage(pageNum)}
+                            size={isMobile ? 'sm' : 'md'}
                           >
                             {pageNum}
                           </Pagination.Item>
@@ -1365,6 +1787,7 @@ const ServiceManagement = () => {
                       <Pagination.Next 
                         onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} 
                         disabled={currentPage === totalPages} 
+                        size={isMobile ? 'sm' : 'md'}
                       />
                     </Pagination>
                   </div>
@@ -1375,12 +1798,12 @@ const ServiceManagement = () => {
         </Card>
       </Container>
 
-      {/* Modals - same as before but with proper field access */}
+      {/* ==================== MODALS ==================== */}
 
-      {/* View/Edit/Add Modal */}
-      <Modal show={showServiceModal} onHide={() => setShowServiceModal(false)} size="xl" centered>
+      {/* View/Edit/Add Modal - Responsive */}
+      <Modal show={showServiceModal} onHide={() => setShowServiceModal(false)} size={isMobile ? 'fullscreen' : 'xl'} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
+          <Modal.Title className="fw-bold" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>
             {modalMode === 'view' ? <FaEye className="me-2" /> : 
              modalMode === 'edit' ? <FaEdit className="me-2" /> : 
              <FaPlus className="me-2" />}
@@ -1388,46 +1811,46 @@ const ServiceManagement = () => {
              modalMode === 'edit' ? 'Edit Service' : 'Add New Service'}
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="pt-4">
+        <Modal.Body className="pt-3 pt-md-4">
           {modalMode === 'view' && selectedService && (
             <div>
-              <Row className="g-4">
+              <Row className="g-3 g-md-4">
                 <Col lg={8}>
-                  <h4>{getField(selectedService, ['title', 'name', 'serviceName'], 'Untitled')}</h4>
-                  <div className="d-flex gap-2 mb-3">
+                  <h5 className="fw-bold">{getField(selectedService, ['title', 'name', 'serviceName'], 'Untitled')}</h5>
+                  <div className="d-flex flex-wrap gap-2 mb-3">
                     {getStatusBadge(selectedService.status)}
                     {selectedService.featured && (
                       <Badge bg="warning" className="d-flex align-items-center gap-1 px-3 py-2 rounded-pill">
-                        <FaStar /> Featured
+                        <FaStar size={12} /> Featured
                       </Badge>
                     )}
                   </div>
                   <p>{getField(selectedService, ['description', 'shortDescription'], 'No description provided')}</p>
-                  <Row className="g-3">
-                    <Col md={4}>
-                      <Card className="border-0 bg-light text-center">
-                        <Card.Body>
-                          <FaMoneyBillWave className="text-primary mb-2" size={24} />
-                          <h6>Price</h6>
-                          <h5 className="text-primary">{formatNaira(selectedService.price)}</h5>
+                  <Row className="g-2 g-md-3">
+                    <Col md={4} sm={6}>
+                      <Card className="border-0 bg-light">
+                        <Card.Body className="text-center p-2 p-md-3">
+                          <FaMoneyBillWave className="text-primary mb-2" size={isMobile ? 20 : 24} />
+                          <h6 style={{ fontSize: isMobile ? '0.8rem' : '1rem' }}>Price</h6>
+                          <h6 className="text-primary mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{formatNaira(selectedService.price)}</h6>
                         </Card.Body>
                       </Card>
                     </Col>
-                    <Col md={4}>
-                      <Card className="border-0 bg-light text-center">
-                        <Card.Body>
-                          <FaClock className="text-success mb-2" size={24} />
-                          <h6>Duration</h6>
-                          <h5>{getField(selectedService, ['duration', 'estimatedDuration'], 'N/A')} hours</h5>
+                    <Col md={4} sm={6}>
+                      <Card className="border-0 bg-light">
+                        <Card.Body className="text-center p-2 p-md-3">
+                          <FaClock className="text-success mb-2" size={isMobile ? 20 : 24} />
+                          <h6 style={{ fontSize: isMobile ? '0.8rem' : '1rem' }}>Duration</h6>
+                          <h6 className="mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{getField(selectedService, ['duration', 'estimatedDuration'], 'N/A')} hrs</h6>
                         </Card.Body>
                       </Card>
                     </Col>
-                    <Col md={4}>
-                      <Card className="border-0 bg-light text-center">
-                        <Card.Body>
-                          <FaMapMarkerAlt className="text-danger mb-2" size={24} />
-                          <h6>Location</h6>
-                          <h5>{getField(selectedService, ['location', 'serviceLocation', 'address'], 'N/A')}</h5>
+                    <Col md={4} sm={6}>
+                      <Card className="border-0 bg-light">
+                        <Card.Body className="text-center p-2 p-md-3">
+                          <FaMapMarkerAlt className="text-danger mb-2" size={isMobile ? 20 : 24} />
+                          <h6 style={{ fontSize: isMobile ? '0.8rem' : '1rem' }}>Location</h6>
+                          <h6 className="mb-0" style={{ fontSize: isMobile ? '0.9rem' : '1.25rem' }}>{getField(selectedService, ['location', 'serviceLocation', 'address'], 'N/A')}</h6>
                         </Card.Body>
                       </Card>
                     </Col>
@@ -1436,17 +1859,17 @@ const ServiceManagement = () => {
                 <Col lg={4}>
                   <Card className="border-0 bg-light">
                     <Card.Body>
-                      <h6>Provider</h6>
+                      <h6 style={{ fontSize: isMobile ? '0.9rem' : '1rem' }}>Provider</h6>
                       <div className="d-flex align-items-center gap-2">
                         <img 
                           src={selectedService.providerAvatar || `https://ui-avatars.com/api/?name=${getField(selectedService, ['providerName', 'provider.name', 'provider.fullName'], 'P')}&background=6366f1&color=fff&size=50`} 
                           className="rounded-circle" 
-                          style={{ width: '50px', height: '50px' }} 
+                          style={{ width: '40px', height: '40px' }} 
                           alt="" 
                         />
                         <div>
-                          <h6 className="mb-1">{getField(selectedService, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown')}</h6>
-                          <div className="text-warning">
+                          <h6 className="mb-1" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>{getField(selectedService, ['providerName', 'provider.name', 'provider.fullName'], 'Unknown')}</h6>
+                          <div className="text-warning" style={{ fontSize: isMobile ? '0.8rem' : '0.9rem' }}>
                             <FaStar /> {selectedService.providerRating || 'New'}
                           </div>
                         </div>
@@ -1459,43 +1882,47 @@ const ServiceManagement = () => {
           )}
           {(modalMode === 'edit' || modalMode === 'add') && (
             <Form>
-              <Row>
+              <Row className="g-2 g-md-3">
                 <Col md={8}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Title</Form.Label>
+                    <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Title</Form.Label>
                     <Form.Control 
                       value={formData.title} 
                       onChange={(e) => setFormData({ ...formData, title: e.target.value })} 
+                      size={isMobile ? 'sm' : 'md'}
                     />
                   </Form.Group>
                 </Col>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Price (₦)</Form.Label>
+                    <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Price (₦)</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.price} 
                       onChange={(e) => setFormData({ ...formData, price: e.target.value })} 
+                      size={isMobile ? 'sm' : 'md'}
                     />
                   </Form.Group>
                 </Col>
               </Row>
               <Form.Group className="mb-3">
-                <Form.Label className="fw-semibold">Description</Form.Label>
+                <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Description</Form.Label>
                 <Form.Control 
                   as="textarea" 
-                  rows={4} 
+                  rows={isMobile ? 3 : 4} 
                   value={formData.description} 
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })} 
+                  size={isMobile ? 'sm' : 'md'}
                 />
               </Form.Group>
-              <Row>
+              <Row className="g-2 g-md-3">
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Category</Form.Label>
+                    <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Category</Form.Label>
                     <Form.Select 
                       value={formData.category} 
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      size={isMobile ? 'sm' : 'md'}
                     >
                       <option value="">Select</option>
                       {categories.map(c => (
@@ -1506,10 +1933,11 @@ const ServiceManagement = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Provider</Form.Label>
+                    <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Provider</Form.Label>
                     <Form.Select 
                       value={formData.providerId} 
                       onChange={(e) => setFormData({ ...formData, providerId: e.target.value })}
+                      size={isMobile ? 'sm' : 'md'}
                     >
                       <option value="">Select</option>
                       {providers.map(p => (
@@ -1520,11 +1948,12 @@ const ServiceManagement = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group className="mb-3">
-                    <Form.Label className="fw-semibold">Duration (hours)</Form.Label>
+                    <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Duration (hours)</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.duration} 
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })} 
+                      size={isMobile ? 'sm' : 'md'}
                     />
                   </Form.Group>
                 </Col>
@@ -1533,11 +1962,11 @@ const ServiceManagement = () => {
           )}
         </Modal.Body>
         <Modal.Footer className="border-0 pt-0">
-          <Button variant="secondary" onClick={() => setShowServiceModal(false)}>
+          <Button variant="secondary" onClick={() => setShowServiceModal(false)} size={isMobile ? 'sm' : 'md'}>
             Close
           </Button>
           {(modalMode === 'edit' || modalMode === 'add') && (
-            <Button variant="primary" onClick={handleSaveService} disabled={processing}>
+            <Button variant="primary" onClick={handleSaveService} disabled={processing} size={isMobile ? 'sm' : 'md'}>
               {processing ? 'Saving...' : 'Save'}
             </Button>
           )}
@@ -1547,7 +1976,7 @@ const ServiceManagement = () => {
       {/* Approve Modal */}
       <Modal show={showApproveModal} onHide={() => setShowApproveModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-success">
+          <Modal.Title className="fw-bold text-success" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>
             <FaCheckCircle className="me-2" /> Approve Service
           </Modal.Title>
         </Modal.Header>
@@ -1557,7 +1986,7 @@ const ServiceManagement = () => {
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowApproveModal(false)}>
+          <Button variant="secondary" onClick={() => setShowApproveModal(false)} size={isMobile ? 'sm' : 'md'}>
             Cancel
           </Button>
           <Button 
@@ -1568,6 +1997,7 @@ const ServiceManagement = () => {
               await handleStatusChange(serviceId, 'approved');
             }} 
             disabled={processing}
+            size={isMobile ? 'sm' : 'md'}
           >
             {processing ? 'Processing...' : 'Approve'}
           </Button>
@@ -1577,7 +2007,7 @@ const ServiceManagement = () => {
       {/* Reject Modal */}
       <Modal show={showRejectModal} onHide={() => setShowRejectModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-danger">
+          <Modal.Title className="fw-bold text-danger" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>
             <FaTimesCircle className="me-2" /> Reject Service
           </Modal.Title>
         </Modal.Header>
@@ -1586,18 +2016,19 @@ const ServiceManagement = () => {
             Are you sure you want to reject <strong>{getField(selectedService, ['title', 'name', 'serviceName'], 'this service')}</strong>?
           </Alert>
           <Form.Group>
-            <Form.Label className="fw-semibold">Reason for rejection</Form.Label>
+            <Form.Label className="fw-semibold" style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>Reason for rejection</Form.Label>
             <Form.Control 
               as="textarea" 
-              rows={3} 
+              rows={isMobile ? 2 : 3} 
               value={rejectionReason} 
               onChange={(e) => setRejectionReason(e.target.value)} 
               placeholder="Provide a reason for rejection..."
+              size={isMobile ? 'sm' : 'md'}
             />
           </Form.Group>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowRejectModal(false)}>
+          <Button variant="secondary" onClick={() => setShowRejectModal(false)} size={isMobile ? 'sm' : 'md'}>
             Cancel
           </Button>
           <Button 
@@ -1609,6 +2040,7 @@ const ServiceManagement = () => {
               setRejectionReason('');
             }} 
             disabled={!rejectionReason || processing}
+            size={isMobile ? 'sm' : 'md'}
           >
             {processing ? 'Processing...' : 'Reject'}
           </Button>
@@ -1618,7 +2050,7 @@ const ServiceManagement = () => {
       {/* Delete Modal */}
       <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold text-danger">
+          <Modal.Title className="fw-bold text-danger" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>
             <FaTrash className="me-2" /> Delete Service
           </Modal.Title>
         </Modal.Header>
@@ -1630,10 +2062,10 @@ const ServiceManagement = () => {
           </Alert>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)} size={isMobile ? 'sm' : 'md'}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={handleDeleteService} disabled={processing}>
+          <Button variant="danger" onClick={handleDeleteService} disabled={processing} size={isMobile ? 'sm' : 'md'}>
             {processing ? 'Deleting...' : 'Delete'}
           </Button>
         </Modal.Footer>
@@ -1642,49 +2074,49 @@ const ServiceManagement = () => {
       {/* Image Management Modal */}
       <Modal show={showImageModal} onHide={() => setShowImageModal(false)} size="lg" centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">
+          <Modal.Title className="fw-bold" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>
             <FaImage className="me-2" /> Manage Images
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
-          <Row className="g-3">
+          <Row className="g-2 g-md-3">
             {(selectedService?.images || []).map((img, i) => (
-              <Col xs={4} key={i}>
+              <Col xs={4} md={3} key={i}>
                 <div className="position-relative">
                   <img 
                     src={img} 
                     className="img-fluid rounded" 
-                    style={{ height: '150px', width: '100%', objectFit: 'cover' }} 
+                    style={{ height: isMobile ? '100px' : '150px', width: '100%', objectFit: 'cover' }} 
                   />
                   <Button 
                     variant="danger" 
                     size="sm" 
-                    className="position-absolute top-0 end-0 rounded-circle p-1"
-                    style={{ width: '28px', height: '28px', transform: 'translate(50%, -50%)' }}
+                    className="position-absolute top-0 end-0 rounded-circle p-0"
+                    style={{ width: '24px', height: '24px', transform: 'translate(50%, -50%)' }}
                   >
-                    <FaTrash size={12} />
+                    <FaTrash size={10} />
                   </Button>
                 </div>
               </Col>
             ))}
-            <Col xs={4}>
+            <Col xs={4} md={3}>
               <div 
                 className="border border-2 border-dashed rounded d-flex align-items-center justify-content-center" 
-                style={{ height: '150px', cursor: 'pointer', background: '#f8fafc' }}
+                style={{ height: isMobile ? '100px' : '150px', cursor: 'pointer', background: '#f8fafc' }}
               >
                 <div className="text-center">
-                  <FaUpload className="text-muted mb-2" size={24} />
-                  <small className="text-muted">Upload</small>
+                  <FaUpload className="text-muted mb-1" size={isMobile ? 16 : 24} />
+                  <small className="text-muted d-block" style={{ fontSize: isMobile ? '0.6rem' : '0.8rem' }}>Upload</small>
                 </div>
               </div>
             </Col>
           </Row>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowImageModal(false)}>
+          <Button variant="secondary" onClick={() => setShowImageModal(false)} size={isMobile ? 'sm' : 'md'}>
             Close
           </Button>
-          <Button variant="primary">
+          <Button variant="primary" size={isMobile ? 'sm' : 'md'}>
             <FaSave className="me-2" /> Save Images
           </Button>
         </Modal.Footer>
@@ -1693,27 +2125,27 @@ const ServiceManagement = () => {
       {/* Bulk Actions Modal */}
       <Modal show={showBulkActions} onHide={() => setShowBulkActions(false)} centered>
         <Modal.Header closeButton className="border-0 pb-0">
-          <Modal.Title className="fw-bold">Bulk Actions</Modal.Title>
+          <Modal.Title className="fw-bold" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>Bulk Actions</Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-4">
           <p className="mb-4">Selected services: <strong className="text-primary">{selectedServices.length}</strong></p>
           <div className="d-grid gap-2">
-            <Button variant="success" onClick={() => handleBulkStatusChange('approved')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
+            <Button variant="success" onClick={() => handleBulkStatusChange('approved')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing} size={isMobile ? 'sm' : 'md'}>
               <FaCheckCircle /> Approve All
             </Button>
-            <Button variant="warning" onClick={() => handleBulkStatusChange('pending')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
+            <Button variant="warning" onClick={() => handleBulkStatusChange('pending')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing} size={isMobile ? 'sm' : 'md'}>
               <FaClock /> Set to Pending
             </Button>
-            <Button variant="danger" onClick={() => handleBulkStatusChange('rejected')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
+            <Button variant="danger" onClick={() => handleBulkStatusChange('rejected')} className="d-flex align-items-center justify-content-center gap-2" disabled={processing} size={isMobile ? 'sm' : 'md'}>
               <FaTimesCircle /> Reject All
             </Button>
-            <Button variant="outline-danger" onClick={handleBulkDelete} className="d-flex align-items-center justify-content-center gap-2" disabled={processing}>
+            <Button variant="outline-danger" onClick={handleBulkDelete} className="d-flex align-items-center justify-content-center gap-2" disabled={processing} size={isMobile ? 'sm' : 'md'}>
               <FaTrash /> Delete All
             </Button>
           </div>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-3">
-          <Button variant="secondary" onClick={() => setShowBulkActions(false)}>
+          <Button variant="secondary" onClick={() => setShowBulkActions(false)} size={isMobile ? 'sm' : 'md'}>
             Cancel
           </Button>
         </Modal.Footer>
@@ -1730,8 +2162,9 @@ const ServiceManagement = () => {
         .nav-tabs .nav-link {
           color: #4b5563;
           border: none;
-          padding: 0.75rem 1.5rem;
+          padding: 0.5rem 1rem;
           border-radius: 12px 12px 0 0;
+          font-size: 0.85rem;
         }
         .nav-tabs .nav-link.active {
           color: #6366f1;
@@ -1746,7 +2179,7 @@ const ServiceManagement = () => {
           border-style: dashed !important;
         }
         .table > :not(caption) > * > * {
-          padding: 16px 12px;
+          padding: 12px 16px;
           vertical-align: middle;
         }
         .table tbody tr:hover {
@@ -1755,9 +2188,24 @@ const ServiceManagement = () => {
         .table-active {
           background-color: #e7f1ff !important;
         }
-        @media (max-width: 768px) {
+        .min-width-0 {
+          min-width: 0;
+        }
+        @media (max-width: 992px) {
           .table-responsive {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
+          }
+        }
+        @media (max-width: 768px) {
+          .nav-tabs .nav-link {
+            font-size: 0.7rem;
+            padding: 0.3rem 0.6rem;
+          }
+        }
+        @media (max-width: 576px) {
+          .container-fluid {
+            padding-left: 8px;
+            padding-right: 8px;
           }
         }
       `}</style>

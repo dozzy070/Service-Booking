@@ -558,40 +558,6 @@ router.put('/users/:id/unsuspend', async (req, res) => {
   }
 });
 
-// Bulk user actions
-router.post('/users/bulk', async (req, res) => {
-  try {
-    const { userIds, action } = req.body;
-    if (!userIds || userIds.length === 0) {
-      return res.status(400).json({ message: 'No users selected' });
-    }
-    
-    let query = '';
-    switch(action) {
-      case 'verify':
-        query = `UPDATE users SET verified = true WHERE id = ANY($1)`;
-        break;
-      case 'suspend':
-        query = `UPDATE users SET is_active = false WHERE id = ANY($1)`;
-        break;
-      case 'activate':
-        query = `UPDATE users SET is_active = true WHERE id = ANY($1)`;
-        break;
-      case 'delete':
-        query = `DELETE FROM users WHERE id = ANY($1)`;
-        break;
-      default:
-        return res.status(400).json({ message: 'Invalid action' });
-    }
-    
-    await pool.query(query, [userIds]);
-    res.json({ message: `Bulk action ${action} completed` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ========================
 // PROVIDER MANAGEMENT
 // ========================
@@ -636,7 +602,7 @@ router.get('/providers/:id', async (req, res) => {
 });
 
 // ========================
-// SERVICE MANAGEMENT
+// SERVICE MANAGEMENT - FIXED
 // ========================
 
 // Get all services with filters
@@ -760,11 +726,55 @@ router.get('/services/:id', async (req, res) => {
   }
 });
 
+// ✅ FIXED: Update individual service
+router.put('/services/:id', async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+    const {
+      title,
+      description,
+      category_id,
+      price,
+      duration,
+      status,
+      is_featured,
+      is_active
+    } = req.body;
+
+    const result = await pool.query(`
+      UPDATE services SET
+        title = COALESCE($1, title),
+        description = COALESCE($2, description),
+        category_id = COALESCE($3, category_id),
+        price = COALESCE($4, price),
+        duration = COALESCE($5, duration),
+        status = COALESCE($6, status),
+        is_featured = COALESCE($7, is_featured),
+        is_active = COALESCE($8, is_active),
+        updated_at = NOW()
+      WHERE id = $9
+      RETURNING *
+    `, [title, description, category_id, price, duration, status, is_featured, is_active, serviceId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+
+    res.json({ 
+      message: 'Service updated successfully', 
+      service: result.rows[0] 
+    });
+  } catch (err) {
+    console.error('Service update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Approve service
 router.put('/services/:id/approve', async (req, res) => {
   try {
-    await pool.query("UPDATE services SET status = 'approved' WHERE id = $1", [req.params.id]);
-    res.json({ message: 'Service approved' });
+    await pool.query("UPDATE services SET status = 'approved', updated_at = NOW() WHERE id = $1", [req.params.id]);
+    res.json({ message: 'Service approved successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -775,7 +785,7 @@ router.put('/services/:id/approve', async (req, res) => {
 router.put('/services/:id/reject', async (req, res) => {
   try {
     const { reason } = req.body;
-    await pool.query("UPDATE services SET status = 'rejected', rejection_reason = $1 WHERE id = $2", [reason, req.params.id]);
+    await pool.query("UPDATE services SET status = 'rejected', rejection_reason = $1, updated_at = NOW() WHERE id = $2", [reason, req.params.id]);
     res.json({ message: 'Service rejected' });
   } catch (err) {
     console.error(err);
@@ -787,7 +797,7 @@ router.put('/services/:id/reject', async (req, res) => {
 router.put('/services/:id/featured', async (req, res) => {
   try {
     const { featured } = req.body;
-    await pool.query('UPDATE services SET is_featured = $1 WHERE id = $2', [featured, req.params.id]);
+    await pool.query('UPDATE services SET is_featured = $1, updated_at = NOW() WHERE id = $2', [featured, req.params.id]);
     res.json({ message: 'Featured status updated' });
   } catch (err) {
     console.error(err);
@@ -799,41 +809,100 @@ router.put('/services/:id/featured', async (req, res) => {
 router.delete('/services/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM services WHERE id = $1', [req.params.id]);
-    res.json({ message: 'Service deleted' });
+    res.json({ message: 'Service deleted successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Bulk service actions
+// ✅ FIXED: Bulk service actions
 router.post('/services/bulk', async (req, res) => {
   try {
     const { serviceIds, action } = req.body;
+    
     if (!serviceIds || serviceIds.length === 0) {
       return res.status(400).json({ message: 'No services selected' });
     }
-    
+
+    if (!action) {
+      return res.status(400).json({ message: 'Action is required' });
+    }
+
     let query = '';
+    let result;
+
     switch(action) {
       case 'approve':
-        query = `UPDATE services SET status = 'approved' WHERE id = ANY($1)`;
+        query = `UPDATE services SET status = 'approved', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
         break;
+      
       case 'reject':
-        query = `UPDATE services SET status = 'rejected' WHERE id = ANY($1)`;
+        query = `UPDATE services SET status = 'rejected', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
         break;
+      
       case 'delete':
-        query = `DELETE FROM services WHERE id = ANY($1)`;
+        const bookingCheck = await pool.query(
+          'SELECT COUNT(*) as count FROM bookings WHERE service_id = ANY($1)',
+          [serviceIds]
+        );
+        if (parseInt(bookingCheck.rows[0].count) > 0) {
+          return res.status(400).json({ 
+            message: 'Cannot delete services with existing bookings. Remove or reassign bookings first.' 
+          });
+        }
+        query = `DELETE FROM services WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
         break;
+      
+      case 'feature':
+        query = `UPDATE services SET is_featured = true, updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
+        break;
+      
+      case 'unfeature':
+        query = `UPDATE services SET is_featured = false, updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
+        break;
+      
+      case 'activate':
+        query = `UPDATE services SET is_active = true, updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
+        break;
+      
+      case 'deactivate':
+        query = `UPDATE services SET is_active = false, updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
+        break;
+      
+      case 'pending':
+        query = `UPDATE services SET status = 'pending', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [serviceIds]);
+        break;
+      
       default:
-        return res.status(400).json({ message: 'Invalid action' });
+        return res.status(400).json({ 
+          message: `Invalid action: "${action}". Allowed actions: approve, reject, delete, feature, unfeature, activate, deactivate, pending` 
+        });
     }
+
+    const updatedCount = result?.rowCount || 0;
     
-    await pool.query(query, [serviceIds]);
-    res.json({ message: `Bulk action ${action} completed` });
+    res.json({ 
+      success: true,
+      message: `Bulk action "${action}" completed on ${updatedCount} service(s)`,
+      count: updatedCount,
+      action: action
+    });
+    
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Bulk action error:', err);
+    res.status(500).json({ 
+      message: 'Failed to perform bulk action',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
@@ -969,34 +1038,69 @@ router.put('/bookings/:id', async (req, res) => {
   }
 });
 
-// Bulk booking actions
+// ✅ FIXED: Bulk booking actions
 router.post('/bookings/bulk', async (req, res) => {
   try {
     const { bookingIds, action } = req.body;
+    
     if (!bookingIds || bookingIds.length === 0) {
       return res.status(400).json({ message: 'No bookings selected' });
     }
-    
-    let query = '';
-    switch(action) {
-      case 'confirm':
-        query = `UPDATE bookings SET status = 'confirmed' WHERE id = ANY($1)`;
-        break;
-      case 'cancel':
-        query = `UPDATE bookings SET status = 'cancelled' WHERE id = ANY($1)`;
-        break;
-      case 'complete':
-        query = `UPDATE bookings SET status = 'completed' WHERE id = ANY($1)`;
-        break;
-      default:
-        return res.status(400).json({ message: 'Invalid action' });
+
+    if (!action) {
+      return res.status(400).json({ message: 'Action is required' });
     }
     
-    await pool.query(query, [bookingIds]);
-    res.json({ message: `Bulk action ${action} completed` });
+    let query = '';
+    let result;
+
+    switch(action) {
+      case 'confirm':
+        query = `UPDATE bookings SET status = 'confirmed', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [bookingIds]);
+        break;
+      
+      case 'cancel':
+        query = `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [bookingIds]);
+        break;
+      
+      case 'complete':
+        query = `UPDATE bookings SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [bookingIds]);
+        break;
+      
+      case 'pending':
+        query = `UPDATE bookings SET status = 'pending', updated_at = NOW() WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [bookingIds]);
+        break;
+      
+      case 'delete':
+        query = `DELETE FROM bookings WHERE id = ANY($1) RETURNING id`;
+        result = await pool.query(query, [bookingIds]);
+        break;
+      
+      default:
+        return res.status(400).json({ 
+          message: `Invalid action: "${action}". Allowed actions: confirm, cancel, complete, pending, delete` 
+        });
+    }
+
+    const updatedCount = result?.rowCount || 0;
+    
+    res.json({ 
+      success: true,
+      message: `Bulk action "${action}" completed on ${updatedCount} booking(s)`,
+      count: updatedCount,
+      action: action
+    });
+    
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Bulk booking action error:', err);
+    res.status(500).json({ 
+      message: 'Failed to perform bulk action',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
@@ -1167,7 +1271,7 @@ router.post('/payments/:id/refund', async (req, res) => {
 });
 
 // ========================
-// CATEGORY MANAGEMENT - FIXED (removed 'image' column)
+// CATEGORY MANAGEMENT
 // ========================
 
 // Get all categories
@@ -1193,7 +1297,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Create category - FIXED (removed 'image')
+// Create category
 router.post('/categories', async (req, res) => {
   try {
     const { name, description, icon, color, slug } = req.body;
@@ -1210,7 +1314,7 @@ router.post('/categories', async (req, res) => {
   }
 });
 
-// Update category - FIXED (removed 'image')
+// Update category
 router.put('/categories/:id', async (req, res) => {
   try {
     const { name, description, icon, color, slug } = req.body;
@@ -1241,7 +1345,6 @@ router.put('/categories/:id', async (req, res) => {
 // Delete category
 router.delete('/categories/:id', async (req, res) => {
   try {
-    // Check if category has services
     const serviceCheck = await pool.query(
       'SELECT COUNT(*) as count FROM services WHERE category_id = $1',
       [req.params.id]
@@ -1272,7 +1375,6 @@ router.post('/categories/bulk', async (req, res) => {
     let query = '';
     switch(action) {
       case 'delete':
-        // Check if any categories have services
         const checkResult = await pool.query(
           'SELECT COUNT(*) as count FROM services WHERE category_id = ANY($1)',
           [categoryIds]
@@ -1371,13 +1473,10 @@ router.get('/analytics/overview', async (req, res) => {
   }
 });
 
-// Backend/routes/adminRoutes.js
-
 // ========================
-// ACTIVITY LOGS - FIXED
+// ACTIVITY LOGS
 // ========================
 
-// GET /api/admin/activities - Get activity logs with pagination
 router.get('/activities', async (req, res) => {
   try {
     const { 
@@ -1394,7 +1493,6 @@ router.get('/activities', async (req, res) => {
     
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    // ✅ Check if activity_logs table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -1402,7 +1500,6 @@ router.get('/activities', async (req, res) => {
       );
     `);
     
-    // ✅ If table doesn't exist, return empty array
     if (!tableCheck.rows[0].exists) {
       return res.json({
         activities: [],
@@ -1431,11 +1528,6 @@ router.get('/activities', async (req, res) => {
       params.push(type);
       paramIndex++;
     }
-    if (status) {
-      conditions.push(`status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
     if (search) {
       conditions.push(`(user ILIKE $${paramIndex} OR action ILIKE $${paramIndex} OR details ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
@@ -1450,7 +1542,6 @@ router.get('/activities', async (req, res) => {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const orderClause = sortBy ? `ORDER BY ${sortBy} ${sortOrder || 'DESC'}` : 'ORDER BY timestamp DESC';
     
-    // ✅ Get total count
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM activity_logs 
@@ -1459,7 +1550,6 @@ router.get('/activities', async (req, res) => {
     const countResult = await pool.query(countQuery, params);
     const total = parseInt(countResult.rows[0]?.total || 0);
     
-    // ✅ Get activities
     const query = `
       SELECT id, user, user_type, action, type, details, timestamp, ip, status, user_id
       FROM activity_logs
@@ -1471,7 +1561,6 @@ router.get('/activities', async (req, res) => {
     
     const result = await pool.query(query, params);
     
-    // ✅ Format activities
     const activities = result.rows.map(row => ({
       id: row.id,
       user: row.user || 'System',
@@ -1494,7 +1583,6 @@ router.get('/activities', async (req, res) => {
     
   } catch (error) {
     console.error('Error fetching activities:', error);
-    // ✅ Return empty array instead of 500
     res.json({
       activities: [],
       total: 0,
@@ -1509,7 +1597,6 @@ router.post('/activities', async (req, res) => {
   try {
     const { user, userType, action, type, details, userId, ip, status } = req.body;
     
-    // ✅ Check if table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -1554,7 +1641,6 @@ router.post('/activities', async (req, res) => {
 // GET /api/admin/settings - Get platform settings
 router.get('/settings', async (req, res) => {
   try {
-    // Check if platform_settings table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -1562,7 +1648,6 @@ router.get('/settings', async (req, res) => {
       );
     `);
     
-    // If table doesn't exist, return default settings
     if (!tableCheck.rows[0].exists) {
       return res.json({
         siteName: 'ServiceHub',
@@ -1602,7 +1687,6 @@ router.get('/settings', async (req, res) => {
     const result = await pool.query('SELECT * FROM platform_settings LIMIT 1');
     
     if (result.rows.length === 0) {
-      // Insert default settings if table is empty
       const defaultSettings = {
         site_name: 'ServiceHub',
         site_email: 'admin@servicehub.com',
@@ -1630,7 +1714,6 @@ router.get('/settings', async (req, res) => {
         RETURNING *
       `, Object.values(defaultSettings));
       
-      // Map snake_case to camelCase for frontend
       const settings = insertResult.rows[0];
       return res.json({
         siteName: settings.site_name,
@@ -1651,7 +1734,6 @@ router.get('/settings', async (req, res) => {
       });
     }
     
-    // Map snake_case to camelCase for frontend
     const settings = result.rows[0];
     res.json({
       siteName: settings.site_name,
@@ -1672,7 +1754,6 @@ router.get('/settings', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching settings:', err);
-    // Return default settings on error
     res.json({
       siteName: 'ServiceHub',
       siteEmail: 'admin@servicehub.com',
@@ -1702,7 +1783,6 @@ router.put('/settings', async (req, res) => {
       maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
     } = req.body;
     
-    // Check if platform_settings table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -1710,7 +1790,6 @@ router.put('/settings', async (req, res) => {
       );
     `);
     
-    // Create table if it doesn't exist
     if (!tableCheck.rows[0].exists) {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS platform_settings (
@@ -1735,12 +1814,10 @@ router.put('/settings', async (req, res) => {
       `);
     }
     
-    // Check if settings exist
     const check = await pool.query('SELECT id FROM platform_settings LIMIT 1');
     
     let result;
     if (check.rows.length === 0) {
-      // Insert new settings
       result = await pool.query(`
         INSERT INTO platform_settings (
           site_name, site_email, site_phone, timezone, date_format, currency,
@@ -1755,7 +1832,6 @@ router.put('/settings', async (req, res) => {
         maintenanceMode, enableBookings, enablePayments, enableReviews, enableChat
       ]);
     } else {
-      // Update existing settings
       result = await pool.query(`
         UPDATE platform_settings SET
           site_name = $1,
@@ -1943,7 +2019,6 @@ router.get('/payouts', async (req, res) => {
     let params = [];
     let paramIndex = 1;
     
-    // Always filter by payouts (not all payments)
     conditions.push(`p.type = 'payout'`);
     
     if (status && status !== 'all') {
@@ -1966,7 +2041,6 @@ router.get('/payouts', async (req, res) => {
     
     const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
     
-    // Get total count and stats
     const countQuery = `
       SELECT 
         COUNT(*) as total,
@@ -1984,7 +2058,6 @@ router.get('/payouts', async (req, res) => {
     
     const countResult = await pool.query(countQuery, params);
     
-    // Get payouts with provider info
     const query = `
       SELECT 
         p.id,
@@ -2012,7 +2085,6 @@ router.get('/payouts', async (req, res) => {
     
     const result = await pool.query(query, params);
     
-    // Format payout data
     const payouts = result.rows.map(p => ({
       id: p.id,
       providerId: p.provider_id,
@@ -2203,9 +2275,9 @@ router.get('/payouts/provider/:providerId', async (req, res) => {
   }
 });
 
-// =========================================================================
-// HELP CENTER MANAGEMENT - NEW
-// =========================================================================
+// ========================
+// HELP CENTER MANAGEMENT
+// ========================
 
 // ========================
 // FAQ MANAGEMENT
