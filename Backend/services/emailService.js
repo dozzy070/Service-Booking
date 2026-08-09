@@ -20,7 +20,7 @@ const isTerminalMode = () => {
 // CREATE TRANSPORTER - WITH PORT 465 SUPPORT
 // =========================================================================
 
-const createTransporter = () => {
+const createTransporter = async () => {
   // Terminal mode
   if (isTerminalMode()) {
     console.log('📧 EMAIL MODE: Terminal (printing to console)');
@@ -34,43 +34,42 @@ const createTransporter = () => {
     
     console.log('📧 EMAIL MODE: SMTP Production');
     console.log(`📧 Host: ${process.env.EMAIL_HOST}:${port} (Secure: ${secure})`);
-    
-    // ✅ Use different config based on port
+
     const config = {
       host: process.env.EMAIL_HOST,
-      port: port,
-      secure: secure, // true for port 465, false for port 587
+      port,
+      secure,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-      // ✅ KEY FIX: Force IPv4 to avoid connection issues
       family: 4,
-      // ✅ Better TLS settings
       tls: {
         rejectUnauthorized: false,
-        ciphers: 'SSLv3',
       },
-      // ✅ Longer timeouts for slow connections
       connectionTimeout: 20000,
       socketTimeout: 20000,
       greetingTimeout: 20000,
     };
 
-    // For port 465, we need different settings
-    if (port === 465) {
-      // Remove these for port 465 as they're not needed
-      config.tls = {
-        rejectUnauthorized: false,
-      };
-      // SSL works differently on port 465
-      config.secure = true;
-    }
-
     return nodemailer.createTransport(config);
   }
 
-  // No SMTP config - fallback to terminal
+  // Ethereal mode - create a test email account when SMTP is unavailable
+  if (getEmailMode() === 'ethereal' || !process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log('📧 EMAIL MODE: Ethereal (test account)');
+    const testAccount = await nodemailer.createTestAccount();
+    return nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: {
+        user: testAccount.user,
+        pass: testAccount.pass,
+      },
+    });
+  }
+
   console.log('📧 EMAIL MODE: Terminal (fallback - no SMTP config)');
   return null;
 };
@@ -79,9 +78,8 @@ let transporter = null;
 
 const getTransporter = async () => {
   if (!transporter && !isTerminalMode()) {
-    transporter = createTransporter();
-    
-    // Verify connection
+    transporter = await createTransporter();
+
     if (transporter) {
       try {
         await transporter.verify();

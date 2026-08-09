@@ -1,22 +1,29 @@
 // src/api/api.jsx
 import axios from 'axios';
 
-// ==================== CONFIGURATION ====================
-const API_BASE_URL = 'https://service-booking-3l1j.onrender.com/api';
+// =========================================================================
+// CONFIGURATION
+// =========================================================================
+
+const rawApiUrl = import.meta.env.VITE_API_URL || 'https://service-booking-3l1j.onrender.com/api';
+const API_BASE_URL = rawApiUrl.replace(/\/+$/g, '').endsWith('/api')
+  ? rawApiUrl.replace(/\/+$/g, '')
+  : `${rawApiUrl.replace(/\/+$/g, '')}/api`;
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
   withCredentials: true,
   timeout: 30000,
 });
 
-// ==================== INTERCEPTORS ====================
+// =========================================================================
+// INTERCEPTORS
+// =========================================================================
+
+// Request Interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -24,9 +31,9 @@ api.interceptors.request.use(
       const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
       config.headers.Authorization = `Bearer ${cleanToken}`;
     }
-    // ✅ Only log in development and skip expected 404 endpoints
+    
+    // Only log in development and skip expected 404 endpoints
     if (process.env.NODE_ENV === 'development') {
-      // Skip logging for known 404 endpoints
       const skipLogging = ['/customer/reminders', '/customer/reviews/stats'];
       const shouldSkip = skipLogging.some(path => config.url?.includes(path));
       if (!shouldSkip) {
@@ -41,9 +48,9 @@ api.interceptors.request.use(
   }
 );
 
+// Response Interceptor
 api.interceptors.response.use(
   (response) => {
-    // ✅ Only log in development and skip expected 404 endpoints
     if (process.env.NODE_ENV === 'development') {
       const skipLogging = ['/customer/reminders', '/customer/reviews/stats'];
       const shouldSkip = skipLogging.some(path => response.config.url?.includes(path));
@@ -57,7 +64,7 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const url = error.config?.url;
     
-    // ✅ SILENT HANDLING for expected 404s - Return empty data without logging
+    // SILENT HANDLING for expected 404s
     const expected404s = [
       '/customer/reminders',
       '/customer/reviews/stats',
@@ -68,9 +75,8 @@ api.interceptors.response.use(
     const isExpected404 = status === 404 && expected404s.some(path => url?.includes(path));
     
     if (isExpected404) {
-      // ✅ Return empty data silently - no error logged
-      return Promise.resolve({ 
-        data: url?.includes('/reminders') ? [] : 
+      return Promise.resolve({
+        data: url?.includes('/reminders') ? [] :
               url?.includes('/stats') ? { total: 0, average: 0, distribution: {} } :
               url?.includes('/favorites') ? [] :
               url?.includes('/notification-preferences') ? { email: true, push: true } :
@@ -105,7 +111,10 @@ api.interceptors.response.use(
   }
 );
 
-// ==================== HEALTH CHECK ====================
+// =========================================================================
+// HEALTH CHECK
+// =========================================================================
+
 export const checkBackendHealth = async () => {
   try {
     const healthUrl = `${API_BASE_URL.replace('/api', '')}/health`;
@@ -138,19 +147,38 @@ export const checkBackendHealth = async () => {
   }
 };
 
-// ==================== CUSTOMER API ====================
+// =========================================================================
+// AUTH API
+// =========================================================================
+
+export const authAPI = {
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  register: (userData) => api.post('/auth/register', userData),
+  getProfile: () => api.get('/auth/profile'),
+  updateProfile: (data) => api.put('/auth/profile', data),
+  changePassword: (data) => api.put('/auth/change-password', data),
+  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
+  logout: () => api.post('/auth/logout'),
+  googleAuth: () => {
+    window.location.href = `${API_BASE_URL}/auth/google`;
+  },
+};
+
+// =========================================================================
+// CUSTOMER API
+// =========================================================================
+
 export const customerAPI = {
   // Dashboard
   getDashboardStats: () => api.get('/customer/dashboard/stats'),
   getRecentBookings: () => api.get('/customer/bookings/recent'),
   
-  // ✅ FIXED: Get reminders with silent 404 handling
   getReminders: async () => {
     try {
       const response = await api.get('/customer/reminders');
       return response;
     } catch (error) {
-      // ✅ Silent handling - return empty array for 404
       if (error.response?.status === 404) {
         return { data: [] };
       }
@@ -164,8 +192,6 @@ export const customerAPI = {
   getRecommendedServices: () => api.get('/services/recommended'),
   getServiceById: (id) => api.get(`/services/${id}`),
   getCategories: () => api.get('/categories'),
-  
-  // Featured & Trending Services
   getFeaturedServices: () => api.get('/customer/featured-services'),
   getTrendingServices: () => api.get('/customer/trending-services'),
   
@@ -257,11 +283,7 @@ export const customerAPI = {
   getPaymentSummary: () => api.get('/customer/payment-summary'),
   confirmPayment: (data) => api.post('/payments/confirm', data),
   
-  // =========================================================================
-  // HELP CENTER - CUSTOMER
-  // =========================================================================
-  
-  // FAQs
+  // Help Center
   getFAQs: async (params) => {
     try {
       const query = new URLSearchParams();
@@ -279,7 +301,6 @@ export const customerAPI = {
   },
   getHelpFAQs: (params) => customerAPI.getFAQs(params),
   
-  // Support Tickets
   getSupportTickets: async (params) => {
     try {
       const query = new URLSearchParams();
@@ -300,7 +321,6 @@ export const customerAPI = {
   replyToTicket: (ticketId, data) => api.post(`/customer/tickets/${ticketId}/reply`, data),
   addTicketReply: (ticketId, data) => customerAPI.replyToTicket(ticketId, data),
   
-  // Knowledge Base
   getKnowledgeBase: async (params) => {
     try {
       const query = new URLSearchParams();
@@ -318,26 +338,37 @@ export const customerAPI = {
   getHelpArticles: (params) => customerAPI.getKnowledgeBase(params),
 };
 
-// ==================== PROVIDER API ====================
+// =========================================================================
+// PROVIDER API
+// =========================================================================
+
 export const providerAPI = {
   // Dashboard
   getDashboardStats: () => api.get('/provider/dashboard/stats'),
   getRecentBookings: () => api.get('/provider/dashboard/recent-bookings'),
   getTodaySchedule: () => api.get('/provider/dashboard/today-schedule'),
   getStats: () => api.get('/provider/stats'),
+  
+  // Bookings
   getBookings: () => api.get('/provider/bookings'),
   getBookingById: (id) => api.get(`/provider/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/provider/bookings/${id}/status`, { status }),
   completeBooking: (id) => api.put(`/provider/bookings/${id}/complete`),
   startBooking: (id) => api.post(`/provider/bookings/${id}/start`),
   rescheduleBooking: (id, newDate) => api.put(`/provider/bookings/${id}/reschedule`, { new_date: newDate }),
+  
+  // Services
   getServices: () => api.get('/provider/services'),
   getServiceById: (id) => api.get(`/provider/services/${id}`),
   createService: (data) => api.post('/provider/services', data),
   updateService: (id, data) => api.put(`/provider/services/${id}`, data),
   deleteService: (id) => api.delete(`/provider/services/${id}`),
+  
+  // Reviews
   getReviews: () => api.get('/provider/reviews'),
   respondToReview: (id, response) => api.post(`/provider/reviews/${id}/respond`, { response }),
+  
+  // Wallet
   getWallet: () => api.get('/wallet'),
   getTransactions: () => api.get('/wallet/transactions'),
   withdrawFunds: (amount, methodId) => api.post('/wallet/withdraw', { amount, withdrawalMethodId: methodId }),
@@ -347,14 +378,134 @@ export const providerAPI = {
   getRedeemHistory: () => api.get('/wallet/redeem-history'),
   getPaymentMethods: () => api.get('/wallet/payment-methods'),
   getWithdrawalMethods: () => api.get('/wallet/withdrawal-methods'),
+  
+  // Profile
   getProfile: () => api.get('/provider/profile'),
   updateProfile: (data) => api.put('/provider/profile', data),
   
-  // =========================================================================
-  // HELP CENTER / SUPPORT - PROVIDER SIDE
-  // =========================================================================
-
-  // FAQs
+  // Categories
+  getCategories: () => api.get('/services/categories'),
+  getCategoryList: () => api.get('/services/categories'),
+  
+  // =======================================================================
+  // UPLOAD FUNCTIONS - INTEGRATED VERSION
+  // =======================================================================
+  
+  /**
+   * Upload avatar image
+   * @param {FormData} formData - Form data containing the image file
+   * @returns {Promise} Axios response
+   */
+  uploadAvatar: async (formData) => {
+    try {
+      const response = await api.post('/upload/avatar', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response;
+    } catch (error) {
+      console.error('❌ Upload avatar failed:', error);
+      // Fallback to old endpoint if new one doesn't exist
+      try {
+        const fallbackResponse = await api.post('/user/avatar', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        return fallbackResponse;
+      } catch (fallbackError) {
+        console.error('❌ Fallback avatar upload also failed:', fallbackError);
+        throw new Error('Avatar upload failed. Please try again.');
+      }
+    }
+  },
+  
+  /**
+   * Upload service image with fallback endpoints
+   * @param {FormData} formData - Form data containing the image file
+   * @returns {Promise} Axios response
+   */
+  uploadServiceImage: async (formData) => {
+    // Try multiple endpoints in order of preference
+    const endpoints = [
+      '/upload/service-image',    // New dedicated endpoint
+      '/provider/upload-service-image', // Existing provider endpoint
+      '/services/upload-service-image'  // Existing services endpoint
+    ];
+    
+    let lastError = null;
+    
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`📤 Attempting upload to: ${endpoint}`);
+        const response = await api.post(endpoint, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        console.log(`✅ Upload successful to: ${endpoint}`);
+        return response;
+      } catch (error) {
+        // Only log non-404 errors
+        if (error.response?.status !== 404) {
+          console.error(`❌ Upload to ${endpoint} failed:`, error.message);
+          lastError = error;
+        } else {
+          console.log(`ℹ️ Endpoint ${endpoint} not found, trying next...`);
+        }
+      }
+    }
+    
+    // If all endpoints failed
+    const errorMessage = 'Upload service image failed. Please check your connection and try again.';
+    console.error('❌ All upload endpoints failed:', errorMessage);
+    throw new Error(errorMessage);
+  },
+  
+  /**
+   * Upload profile image (alias for uploadAvatar)
+   * @param {FormData} formData - Form data containing the image file
+   * @returns {Promise} Axios response
+   */
+  uploadProfileImage: (formData) => providerAPI.uploadAvatar(formData),
+  
+  /**
+   * Upload image (generic - uses avatar upload)
+   * @param {FormData} formData - Form data containing the image file
+   * @returns {Promise} Axios response
+   */
+  uploadImage: (formData) => providerAPI.uploadAvatar(formData),
+  
+  /**
+   * Upload multiple service images
+   * @param {FormData} formData - Form data containing multiple image files
+   * @returns {Promise} Axios response
+   */
+  uploadMultipleServiceImages: async (formData) => {
+    try {
+      const response = await api.post('/upload/service-images', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response;
+    } catch (error) {
+      console.error('❌ Upload multiple service images failed:', error);
+      // Fallback to single image upload with array processing
+      try {
+        const files = formData.getAll('images');
+        const results = [];
+        for (const file of files) {
+          const singleFormData = new FormData();
+          singleFormData.append('image', file);
+          const result = await providerAPI.uploadServiceImage(singleFormData);
+          results.push(result.data);
+        }
+        return { data: { images: results } };
+      } catch (fallbackError) {
+        console.error('❌ Fallback multiple upload failed:', fallbackError);
+        throw new Error('Multiple image upload failed. Please try again.');
+      }
+    }
+  },
+  
+  // =======================================================================
+  // HELP CENTER
+  // =======================================================================
+  
   getFAQs: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -365,7 +516,6 @@ export const providerAPI = {
   },
   getHelpFAQs: (params) => providerAPI.getFAQs(params),
   
-  // Support Tickets
   getSupportTickets: (params) => {
     const query = new URLSearchParams();
     if (params?.status) query.append('status', params.status);
@@ -379,7 +529,6 @@ export const providerAPI = {
   replyToTicket: (ticketId, data) => api.post(`/provider/tickets/${ticketId}/reply`, data),
   addTicketReply: (ticketId, data) => providerAPI.replyToTicket(ticketId, data),
   
-  // Announcements
   getAnnouncements: (params) => {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit);
@@ -388,7 +537,6 @@ export const providerAPI = {
   },
   getAnnouncementsList: (params) => providerAPI.getAnnouncements(params),
   
-  // Knowledge Base
   getKnowledgeBase: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -398,16 +546,17 @@ export const providerAPI = {
   },
   getHelpArticles: (params) => providerAPI.getKnowledgeBase(params),
   
-  // FAQ Feedback
   submitFAQFeedback: (faqId, data) => api.post(`/provider/faqs/${faqId}/feedback`, data),
   faqFeedback: (faqId, data) => providerAPI.submitFAQFeedback(faqId, data),
   
-  // Contact Form
   submitContactForm: (data) => api.post('/provider/contact', data),
   sendContactMessage: (data) => providerAPI.submitContactForm(data),
 };
 
-// ==================== ADMIN API ====================
+// =========================================================================
+// ADMIN API
+// =========================================================================
+
 export const adminAPI = {
   // Dashboard
   getStats: () => api.get('/admin/dashboard/stats'),
@@ -451,15 +600,12 @@ export const adminAPI = {
   
   // Categories
   getCategories: () => api.get('/admin/categories'),
+  getCategoryList: () => api.get('/admin/categories'),
   createCategory: (data) => api.post('/admin/categories', data),
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
   
-  // =========================================================================
-  // HELP CENTER - ADMIN
-  // =========================================================================
-
-  // FAQs
+  // Help Center - FAQs
   getFAQs: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -475,8 +621,8 @@ export const adminAPI = {
   editFAQ: (id, data) => adminAPI.updateFAQ(id, data),
   deleteFAQ: (id) => api.delete(`/admin/faqs/${id}`),
   removeFAQ: (id) => adminAPI.deleteFAQ(id),
-
-  // Announcements
+  
+  // Help Center - Announcements
   getAnnouncements: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -492,8 +638,8 @@ export const adminAPI = {
   editAnnouncement: (id, data) => adminAPI.updateAnnouncement(id, data),
   deleteAnnouncement: (id) => api.delete(`/admin/announcements/${id}`),
   removeAnnouncement: (id) => adminAPI.deleteAnnouncement(id),
-
-  // Knowledge Base
+  
+  // Help Center - Knowledge Base
   getKnowledgeBase: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -510,15 +656,17 @@ export const adminAPI = {
   editKnowledgeArticle: (id, data) => adminAPI.updateKnowledgeArticle(id, data),
   deleteKnowledgeArticle: (id) => api.delete(`/admin/knowledge-base/${id}`),
   removeKnowledgeArticle: (id) => adminAPI.deleteKnowledgeArticle(id),
-
-  // FAQ Feedback
+  
+  // Help Center - FAQ Feedback
   getFAQFeedback: (faqId) => api.get(`/admin/faqs/${faqId}/feedback`),
   getFAQStats: (faqId) => api.get(`/admin/faqs/${faqId}/stats`),
+};
 
-  // =========================================================================
-  // PAYMENT MANAGEMENT
-  // =========================================================================
+// =========================================================================
+// PAYMENT API
+// =========================================================================
 
+export const paymentAPI = {
   getPayments: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);
@@ -553,34 +701,22 @@ export const adminAPI = {
   updatePaymentStatus: (id, status) => api.put(`/admin/payments/${id}/status`, { status }),
   getProviderPayoutSummary: (providerId) => api.get(`/admin/payouts/provider/${providerId}`),
   processBulkPayouts: (data) => api.post('/admin/payouts/bulk', data),
-
-  // =========================================================================
-  // SETTINGS
-  // =========================================================================
-
+  
+  // Settings
   getSettings: () => api.get('/admin/settings'),
   updateSettings: (data) => api.put('/admin/settings', data),
   getPlatformSettings: () => api.get('/admin/settings'),
   updatePlatformSettings: (data) => api.put('/admin/settings', data),
-
-  // =========================================================================
-  // REPORTS & ANALYTICS
-  // =========================================================================
-
+  
+  // Reports & Analytics
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
-
-  // =========================================================================
-  // NOTIFICATIONS
-  // =========================================================================
-
+  
+  // Notifications
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
-
-  // =========================================================================
-  // ACTIVITY LOG
-  // =========================================================================
-
+  
+  // Activity Log
   getActivityLog: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);
@@ -595,11 +731,14 @@ export const adminAPI = {
     if (params?.sortOrder) query.append('sortOrder', params.sortOrder);
     return api.get(`/admin/activities${query.toString() ? `?${query.toString()}` : ''}`);
   },
-  getAuditLogs: (params) => adminAPI.getActivityLog(params),
-  getActivities: (params) => adminAPI.getActivityLog(params),
+  getAuditLogs: (params) => paymentAPI.getActivityLog(params),
+  getActivities: (params) => paymentAPI.getActivityLog(params),
 };
 
-// ==================== NOTIFICATION API ====================
+// =========================================================================
+// NOTIFICATION API
+// =========================================================================
+
 export const notificationAPI = {
   getNotifications: (params) => {
     const query = params ? `?${new URLSearchParams(params).toString()}` : '';
@@ -613,7 +752,10 @@ export const notificationAPI = {
   updatePreferences: (data) => api.put('/notifications/preferences', data),
 };
 
-// ==================== CHAT API ====================
+// =========================================================================
+// CHAT API
+// =========================================================================
+
 export const chatAPI = {
   getConversations: () => api.get('/chat/conversations'),
   getMessages: (conversationId) => api.get(`/chat/conversations/${conversationId}/messages`),
@@ -627,21 +769,35 @@ export const chatAPI = {
   deleteMessage: (messageId) => api.delete(`/chat/messages/${messageId}`),
 };
 
-// ==================== AUTH API ====================
-export const authAPI = {
-  login: (email, password) => api.post('/auth/login', { email, password }),
-  register: (userData) => api.post('/auth/register', userData),
-  getProfile: () => api.get('/auth/profile'),
-  updateProfile: (data) => api.put('/auth/profile', data),
-  changePassword: (data) => api.put('/auth/change-password', data),
-  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
-  resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
-  logout: () => api.post('/auth/logout'),
-  googleAuth: () => {
-    window.location.href = `${API_BASE_URL}/auth/google`;
-  },
+// =========================================================================
+// UPLOAD API (Standalone)
+// =========================================================================
+
+export const uploadAPI = {
+  /**
+   * Upload avatar image
+   */
+  uploadAvatar: (formData) => providerAPI.uploadAvatar(formData),
+  
+  /**
+   * Upload service image
+   */
+  uploadServiceImage: (formData) => providerAPI.uploadServiceImage(formData),
+  
+  /**
+   * Upload multiple service images
+   */
+  uploadMultipleServiceImages: (formData) => providerAPI.uploadMultipleServiceImages(formData),
+  
+  /**
+   * Upload profile image (alias)
+   */
+  uploadProfileImage: (formData) => providerAPI.uploadAvatar(formData),
 };
 
-// ==================== EXPORTS ====================
+// =========================================================================
+// EXPORTS
+// =========================================================================
+
 export default api;
 export { API_BASE_URL };

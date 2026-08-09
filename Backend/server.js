@@ -1,6 +1,6 @@
 // server.js
 // =========================================================================
-// GLOBAL ERROR HANDLERS – must be first
+// GLOBAL ERROR HANDLERS – MUST BE FIRST
 // =========================================================================
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -31,7 +31,23 @@ import session from 'express-session';
 import connectRedis from 'connect-redis';
 import IORedis from 'ioredis';
 
+// Load environment variables
+dotenv.config();
+
+// Import configurations
 import pool from './config/db.js';
+import './config/passport.js';
+
+// Import middleware
+import { protect, authorize } from './middleware/auth.js';
+import { uploadSingle } from './middleware/upload.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { notFound } from './middleware/notFound.js';
+
+// Import services
+import { testEmailConfig, sendTestEmail } from './services/emailService.js';
+
+// Import routes
 import authRoutes from './routes/authRoutes.js';
 import serviceRoutes from './routes/serviceRoutes.js';
 import bookingRoutes from './routes/bookingRoutes.js';
@@ -44,46 +60,46 @@ import userRoutes from './routes/userRoutes.js';
 import walletRoutes from './routes/walletRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
-import { testEmailConfig, sendTestEmail } from './services/emailService.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 
-import { errorHandler } from './middleware/errorHandler.js';
-import { notFound } from './middleware/notFound.js';
+// Import socket
 import { initializeSocket } from './socket/index.js';
 
-dotenv.config();
-
+// =========================================================================
+// PATH CONFIGURATION
+// =========================================================================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // =========================================================================
-// PASSPORT CONFIGURATION
-// =========================================================================
-import('./config/passport.js').then(() => {
-  console.log('✅ Passport configured');
-}).catch(err => console.error('❌ Passport config error:', err));
-
-// =========================================================================
-// EXPRESS APP
+// EXPRESS APP INITIALIZATION
 // =========================================================================
 const app = express();
 const httpServer = createServer(app);
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// =========================================================================
+// DIRECTORY SETUP
+// =========================================================================
+const uploadDirectories = [
+  path.join(__dirname, 'uploads'),
+  path.join(__dirname, 'uploads', 'avatars'),
+  path.join(__dirname, 'uploads', 'services'),
+  path.join(__dirname, 'uploads', 'reviews'),
+  path.join(__dirname, 'uploads', 'documents'),
+  path.join(__dirname, 'uploads', 'general')
+];
 
-const serviceUploadsDir = path.join(__dirname, 'uploads', 'services');
-if (!fs.existsSync(serviceUploadsDir)) {
-  fs.mkdirSync(serviceUploadsDir, { recursive: true });
-}
+uploadDirectories.forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+console.log('✅ Upload directories created');
 
 // =========================================================================
-// MIDDLEWARE
+// CORS CONFIGURATION
 // =========================================================================
-
-// CORS configuration
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
@@ -93,15 +109,19 @@ const allowedOrigins = [
   'https://service-booking-1-g46o.onrender.com'
 ];
 
-app.set('trust proxy', 1); // Trust first proxy (Render)
-
+app.set('trust proxy', 1);
 
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.includes('vercel.app') || origin.includes('render.com')) {
+  origin: (origin, callback) => {
+    // Allow all in development, check origins in production
+    if (!origin || 
+        allowedOrigins.indexOf(origin) !== -1 || 
+        origin.includes('vercel.app') || 
+        origin.includes('render.com') ||
+        process.env.NODE_ENV === 'development') {
       callback(null, true);
     } else {
-      callback(null, true);
+      callback(null, true); // Allow all for flexibility
     }
   },
   credentials: true,
@@ -112,31 +132,29 @@ app.use(cors({
 }));
 
 // =========================================================================
-// SESSION CONFIGURATION WITH REDIS FALLBACK (SILENT)
+// SESSION & REDIS CONFIGURATION
 // =========================================================================
-
 let sessionStore;
 let sessionStoreType = 'Memory';
 let redisNotified = false;
 
-try {
-  const RedisStore = connectRedis;
-  const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST || 'redis://127.0.0.1:6379';
-  
-  if (process.env.REDIS_DISABLED === 'true') {
-    if (!redisNotified) {
-      console.log('ℹ️ Using memory session store (Redis disabled)');
-      redisNotified = true;
+const setupSessionStore = () => {
+  try {
+    const RedisStore = connectRedis;
+    const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST || 'redis://127.0.0.1:6379';
+    
+    if (process.env.REDIS_DISABLED === 'true') {
+      if (!redisNotified) {
+        console.log('ℹ️ Using memory session store (Redis disabled)');
+        redisNotified = true;
+      }
+      return new session.MemoryStore();
     }
-    sessionStore = new session.MemoryStore();
-    sessionStoreType = 'Memory (disabled)';
-  } else {
+
     const redisClient = new IORedis(redisUrl, {
-      retryStrategy: (times) => {
-        return null; // Don't retry
-      },
+      retryStrategy: () => null, // Don't retry
       maxRetriesPerRequest: 0,
-      lazyConnect: true, // Don't connect immediately
+      lazyConnect: true
     });
 
     let redisConnected = false;
@@ -145,10 +163,6 @@ try {
       if (!redisNotified && err.code === 'ECONNREFUSED') {
         console.log('ℹ️ Using memory session store (Redis unavailable)');
         redisNotified = true;
-      }
-      if (!sessionStore) {
-        sessionStore = new session.MemoryStore();
-        sessionStoreType = 'Memory (fallback)';
       }
     });
 
@@ -159,7 +173,7 @@ try {
       }
     });
 
-    // Try to connect with timeout
+    // Set timeout for Redis connection
     const timeout = setTimeout(() => {
       if (!sessionStore) {
         if (!redisNotified) {
@@ -171,31 +185,22 @@ try {
       }
     }, 2000);
 
-    redisClient.on('ready', () => {
-      clearTimeout(timeout);
-    });
+    redisClient.on('ready', () => clearTimeout(timeout));
 
-    // Only use Redis if client is ready
-    if (!sessionStore) {
-      sessionStore = new RedisStore({ client: redisClient, prefix: 'sess:' });
-      sessionStoreType = 'Redis';
+    return new RedisStore({ client: redisClient, prefix: 'sess:' });
+  } catch (error) {
+    if (!redisNotified) {
+      console.log('ℹ️ Using memory session store (Redis error)');
+      redisNotified = true;
     }
+    return new session.MemoryStore();
   }
-} catch (error) {
-  if (!redisNotified) {
-    console.log('ℹ️ Using memory session store (Redis error)');
-    redisNotified = true;
-  }
-  sessionStore = new session.MemoryStore();
-  sessionStoreType = 'Memory (fallback)';
-}
+};
 
-// Ensure sessionStore is defined
-if (!sessionStore) {
-  sessionStore = new session.MemoryStore();
-  sessionStoreType = 'Memory (fallback)';
-}
+sessionStore = setupSessionStore();
+sessionStoreType = sessionStore instanceof session.MemoryStore ? 'Memory' : 'Redis';
 
+// Session middleware
 app.use(session({
   store: sessionStore,
   secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
@@ -211,18 +216,26 @@ app.use(session({
   proxy: true,
 }));
 
-// Passport middleware
+// =========================================================================
+// PASSPORT MIDDLEWARE
+// =========================================================================
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Security middleware
+console.log('✅ Passport configured');
+
+// =========================================================================
+// SECURITY & UTILITY MIDDLEWARE
+// =========================================================================
+
+// Helmet security
 app.use(helmet({ 
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   contentSecurityPolicy: false
 }));
 
-// Logging - only in development
+// Logging (development only)
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
@@ -247,7 +260,7 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // =========================================================================
-// ROOT & HEALTH CHECK ENDPOINTS
+// HEALTH & STATUS ENDPOINTS
 // =========================================================================
 
 app.get('/', (req, res) => {
@@ -283,6 +296,7 @@ app.get('/api/info', (req, res) => {
     name: 'Service Booking API',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'production',
+    sessionStore: sessionStoreType,
     endpoints: {
       auth: '/api/auth',
       services: '/api/services',
@@ -295,16 +309,20 @@ app.get('/api/info', (req, res) => {
       customer: '/api/customer',
       user: '/api/user',
       chat: '/api/chat',
-      notifications: '/api/notifications'
+      notifications: '/api/notifications',
+      upload: '/api/upload'
     }
   });
 });
+
+// =========================================================================
+// EMAIL TEST ENDPOINT
+// =========================================================================
 
 app.get('/api/test-email', async (req, res) => {
   try {
     console.log('📧 Testing email configuration...');
     
-    // Test the configuration
     const configValid = await testEmailConfig();
     if (!configValid) {
       return res.status(500).json({
@@ -313,7 +331,6 @@ app.get('/api/test-email', async (req, res) => {
       });
     }
 
-    // Send test email
     const testEmail = req.query.email || process.env.EMAIL_USER || 'test@example.com';
     console.log(`📧 Sending test email to: ${testEmail}`);
     
@@ -323,7 +340,8 @@ app.get('/api/test-email', async (req, res) => {
       success: true,
       message: `Test email sent to ${testEmail}`,
       messageId: result?.messageId,
-      previewUrl: result?.messageId?.includes('ethereal') ? `https://ethereal.email/message/${result.messageId}` : null
+      previewUrl: result?.messageId?.includes('ethereal') ? 
+        `https://ethereal.email/message/${result.messageId}` : null
     });
   } catch (error) {
     console.error('❌ Test email failed:', error.message);
@@ -339,6 +357,7 @@ app.get('/api/test-email', async (req, res) => {
 // API ROUTES
 // =========================================================================
 
+// Main API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/bookings', bookingRoutes);
@@ -351,10 +370,80 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/upload', uploadRoutes);
+
+console.log('✅ All routes mounted');
+
+// =========================================================================
+// DIRECT UPLOAD ROUTES - FIXED (No /api prefix)
+// =========================================================================
+
+const handleServiceImageUpload = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'No file uploaded' 
+      });
+    }
+
+    const imageUrl = `/uploads/services/${req.file.filename}`;
+    console.log('✅ Image uploaded successfully (fallback):', imageUrl);
+    
+    return res.status(200).json({ 
+      success: true,
+      url: imageUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('❌ Error uploading service image (fallback):', error);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Failed to upload service image',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// FIX: These routes are already under /api, so don't add /api prefix
+app.post('/provider/upload-service-image', protect, authorize('provider', 'admin'), uploadSingle('image'), handleServiceImageUpload);
+app.post('/services/upload-service-image', protect, authorize('provider', 'admin'), uploadSingle('image'), handleServiceImageUpload);
+
+console.log('✅ Fallback upload routes registered');
+
+// =========================================================================
+// ROUTE DEBUGGING (Development only)
+// =========================================================================
+
+if (process.env.NODE_ENV === 'development') {
+  console.log('\n📋 Registered Upload Routes:');
+  const listRoutes = (stack, basePath = '') => {
+    stack.forEach(layer => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
+        console.log(`  ${methods.padEnd(7)} ${basePath}${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        const routerPath = layer.regexp.source
+          .replace('\\/?(?=\\/|$)', '')
+          .replace(/\\\//g, '/')
+          .replace(/\^/g, '')
+          .replace(/\?/g, '')
+          .replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':param');
+        if (basePath.includes('upload') || basePath.includes('provider') || basePath.includes('services')) {
+          listRoutes(layer.handle.stack, `${basePath}${routerPath}`);
+        }
+      }
+    });
+  };
+  
+  listRoutes(app._router.stack, '');
+  console.log('✅ Route debugging complete\n');
+}
 
 // =========================================================================
 // STATIC FRONTEND SERVING (Optional)
 // =========================================================================
+
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'true') {
   const frontendPath = path.join(__dirname, '../Frontend/dist');
   if (fs.existsSync(frontendPath)) {
@@ -369,33 +458,55 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'tru
 // =========================================================================
 // ERROR HANDLING
 // =========================================================================
+
 app.use(notFound);
 app.use(errorHandler);
 
 // =========================================================================
-// SOCKET.IO
+// SOCKET.IO INITIALIZATION
 // =========================================================================
+
 const io = initializeSocket(httpServer);
 app.set('io', io);
 
 // =========================================================================
-// START SERVER
+// SERVER STARTUP
 // =========================================================================
+
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
+    // Test database connection
     await pool.query('SELECT NOW()');
     console.log('✅ Database connected');
 
+    // Start server
     httpServer.listen(PORT, () => {
       console.log(`
-🚀 Server running on port ${PORT}
-📡 API: http://localhost:${PORT}/api
-❤️  Health: http://localhost:${PORT}/health
-💾 Session Store: ${sessionStoreType}
-🔌 WebSocket: Ready
+╔══════════════════════════════════════════════════════════════╗
+║                    🚀 SERVER STARTED                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  Port:          ${PORT.padEnd(40)}║
+║  Environment:   ${(process.env.NODE_ENV || 'production').padEnd(40)}║
+║  Session Store: ${sessionStoreType.padEnd(40)}║
+║  API:           http://localhost:${PORT}/api${' '.repeat(40 - String(PORT).length - 14)}║
+║  Health:        http://localhost:${PORT}/health${' '.repeat(40 - String(PORT).length - 17)}║
+║  Upload:        http://localhost:${PORT}/api/upload${' '.repeat(40 - String(PORT).length - 15)}║
+║  WebSocket:     Ready${' '.repeat(43)}║
+╚══════════════════════════════════════════════════════════════╝
       `.trim());
+      
+      console.log('\n📡 Available Upload Endpoints:');
+      console.log(`  ✅ POST /api/upload/service-image (Preferred)`);
+      console.log(`  ✅ POST /api/upload/service-images (Multiple)`);
+      console.log(`  ✅ POST /api/upload/avatar`);
+      console.log(`  ✅ POST /api/upload/review-image`);
+      console.log(`  ✅ POST /api/upload/document`);
+      console.log(`  ✅ POST /api/upload/test (Test endpoint)`);
+      console.log(`  ✅ POST /api/provider/upload-service-image (Fallback)`);
+      console.log(`  ✅ POST /api/services/upload-service-image (Fallback)`);
+      console.log('');
     });
   } catch (error) {
     console.error('❌ Failed to connect to database:', error.message);
@@ -408,28 +519,36 @@ startServer();
 // =========================================================================
 // GRACEFUL SHUTDOWN
 // =========================================================================
+
 const gracefulShutdown = async (signal) => {
-  console.log(`\n${signal} received, closing server...`);
+  console.log(`\n📡 ${signal} received, initiating graceful shutdown...`);
   
   httpServer.close(async () => {
     console.log('✅ HTTP server closed');
+    
     try {
       await pool.end();
       console.log('✅ Database pool closed');
     } catch (err) {
       console.error('❌ Error closing database pool:', err);
     }
+    
     console.log('✅ Shutdown complete');
     process.exit(0);
   });
   
+  // Force shutdown after timeout
   setTimeout(() => {
-    console.error('⚠️ Force shutdown');
+    console.error('⚠️ Force shutdown after timeout');
     process.exit(1);
   }, 10000);
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// =========================================================================
+// EXPORTS
+// =========================================================================
 
 export { io, app };

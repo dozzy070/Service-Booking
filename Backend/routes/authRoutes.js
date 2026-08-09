@@ -8,7 +8,7 @@ import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { sendEmail } from '../services/emailService.js';
+import { sendEmail, sendWelcomeEmail, sendPasswordResetEmail, sendLoginNotificationEmail } from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -148,24 +148,9 @@ router.post('/register', registerValidation, validate, async (req, res) => {
     );
     console.log('✅ Notification preferences created for user:', newUser.id);
 
-    // Try to send verification email (optional - won't block registration)
+    // Send a welcome email after registration (does not block the response)
     try {
-      const verificationToken = generateVerificationToken();
-      await pool.query(
-        'UPDATE users SET verification_token = $1 WHERE id = $2',
-        [verificationToken, newUser.id]
-      );
-      
-      await sendEmail({
-        to: email,
-        subject: 'Welcome to SmartServices!',
-        html: `
-          <h1>🎉 Welcome to SmartServices!</h1>
-          <p>Hi ${name},</p>
-          <p>Your account has been created successfully. You can now log in and start using our services.</p>
-          <p>Best regards,<br>The SmartServices Team</p>
-        `
-      });
+      await sendWelcomeEmail(newUser);
       console.log('✅ Welcome email sent to:', email);
     } catch (emailError) {
       console.error('Error sending welcome email:', emailError);
@@ -236,6 +221,14 @@ router.post('/login', loginValidation, validate, async (req, res) => {
       'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'30 days\')',
       [user.id, refreshToken]
     );
+
+    // Send login notification email in background
+    const loginData = {
+      ip: req.headers['x-forwarded-for']?.split(',')?.[0]?.trim() || req.ip,
+      device: req.headers['user-agent'] || 'Unknown device',
+      time: new Date().toLocaleString()
+    };
+    sendLoginNotificationEmail(user, loginData).catch(err => console.error('Login notification email failed:', err));
 
     res.json({
       token,
@@ -351,18 +344,9 @@ router.post('/forgot-password', emailValidation, validate, async (req, res) => {
 
     // Send reset email
     try {
-      await sendEmail({
-        to: user.email,
-        subject: 'Reset Your Password - SmartServices',
-        html: `
-          <h1>Reset Your Password</h1>
-          <p>Hi ${user.name},</p>
-          <p>Click the link below to reset your password:</p>
-          <a href="${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/reset-password?token=${resetToken}">Reset Password</a>
-          <p>This link expires in 1 hour.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        `
-      });
+      const resetLink = `${process.env.FRONTEND_URL || 'https://service-booking-snowy.vercel.app'}/reset-password?token=${resetToken}`;
+      await sendPasswordResetEmail(user, resetLink);
+      console.log('✅ Password reset email sent to:', email);
     } catch (emailError) {
       console.error('Error sending reset email:', emailError);
     }
@@ -405,6 +389,21 @@ router.post('/reset-password', resetPasswordValidation, validate, async (req, re
        WHERE id = $2`,
       [hashedPassword, user.id]
     );
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: 'Your password has been reset',
+        html: `
+          <h1>Password Reset Successful</h1>
+          <p>Hi,</p>
+          <p>Your password was reset successfully. If you did not perform this action, please contact support immediately.</p>
+        `
+      });
+      console.log('✅ Password reset confirmation email sent to:', user.email);
+    } catch (emailError) {
+      console.error('Error sending password reset confirmation email:', emailError);
+    }
 
     res.json({ message: 'Password reset successfully' });
   } catch (error) {

@@ -1,7 +1,7 @@
 // Backend/routes/providerRoutes.js
 import express from 'express';
 import { protect, authorize } from '../middleware/auth.js';
-import { uploadMultiple } from '../middleware/upload.js';
+import { uploadMultiple, uploadSingle } from '../middleware/upload.js';
 import pool from '../config/db.js';
 
 const router = express.Router();
@@ -15,7 +15,7 @@ router.use(protect);
 router.use(authorize('provider', 'admin'));
 
 // =========================================================================
-// HEALTH CHECK ROUTE (for debugging)
+// HEALTH CHECK
 // =========================================================================
 router.get('/health', (req, res) => {
   res.json({ 
@@ -27,396 +27,10 @@ router.get('/health', (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER TICKETS - ✅ FIXED
+// PROVIDER DASHBOARD
 // =========================================================================
 
-// GET /api/provider/tickets - Get provider's tickets with pagination
-router.get('/tickets', async (req, res) => {
-  console.log('📋 GET /tickets - Request received');
-  try {
-    const userId = req.user.id;
-    const { limit = 10, page = 1, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    console.log(`📋 Fetching tickets for user ${userId}, page ${page}, limit ${limit}`);
-    
-    // Check if support_tickets table exists
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'support_tickets'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      console.log('⚠️ support_tickets table does not exist - returning empty array');
-      return res.json({
-        tickets: [],
-        total: 0,
-        page: parseInt(page),
-        totalPages: 0
-      });
-    }
-    
-    let conditions = ['user_id = $1'];
-    let params = [userId];
-    let paramIndex = 2;
-    
-    if (status && status !== 'all') {
-      conditions.push(`status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    // Get total count
-    const countResult = await pool.query(`
-      SELECT COUNT(*) as total FROM support_tickets WHERE ${whereClause}
-    `, params.slice(0, paramIndex - 1));
-    const total = parseInt(countResult.rows[0]?.total || 0);
-    
-    // Get paginated tickets
-    const result = await pool.query(`
-      SELECT * FROM support_tickets 
-      WHERE ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, [...params, parseInt(limit), offset]);
-    
-    // Get messages for each ticket
-    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
-      const messages = await pool.query(
-        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
-        [ticket.id]
-      );
-      return { ...ticket, messages: messages.rows };
-    }));
-    
-    console.log(`✅ Found ${ticketsWithMessages.length} tickets`);
-    
-    res.json({
-      tickets: ticketsWithMessages,
-      total: total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)) || 1
-    });
-  } catch (error) {
-    console.error('❌ Error fetching provider tickets:', error);
-    res.status(500).json({
-      tickets: [],
-      total: 0,
-      page: 1,
-      totalPages: 0,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// POST /api/provider/tickets - Create ticket
-router.post('/tickets', async (req, res) => {
-  console.log('📝 POST /tickets - Request received');
-  try {
-    const userId = req.user.id;
-    const { subject, category, priority = 'medium', message } = req.body;
-    
-    if (!subject || !message) {
-      return res.status(400).json({ 
-        message: 'Subject and message are required' 
-      });
-    }
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'support_tickets'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.status(400).json({ 
-        message: 'Support tickets table not available' 
-      });
-    }
-    
-    const result = await pool.query(`
-      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
-      RETURNING *
-    `, [userId, subject, category || 'general', priority]);
-    
-    const ticket = result.rows[0];
-    
-    await pool.query(`
-      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
-      VALUES ($1, $2, 'user', $3, NOW())
-    `, [ticket.id, userId, message]);
-    
-    console.log(`✅ Ticket created: ${ticket.id}`);
-    res.status(201).json(ticket);
-  } catch (error) {
-    console.error('❌ Error creating ticket:', error);
-    res.status(500).json({ 
-      message: 'Failed to create ticket',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// POST /api/provider/tickets/:id/reply - Reply to ticket
-router.post('/tickets/:id/reply', async (req, res) => {
-  console.log('📝 POST /tickets/:id/reply - Request received');
-  try {
-    const userId = req.user.id;
-    const ticketId = req.params.id;
-    const { message } = req.body;
-    
-    if (!message || !message.trim()) {
-      return res.status(400).json({ message: 'Reply message is required' });
-    }
-    
-    const ticketCheck = await pool.query(
-      'SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2',
-      [ticketId, userId]
-    );
-    
-    if (ticketCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Ticket not found' });
-    }
-    
-    await pool.query(`
-      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
-      VALUES ($1, $2, 'user', $3, NOW())
-    `, [ticketId, userId, message.trim()]);
-    
-    await pool.query(`
-      UPDATE support_tickets 
-      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
-          updated_at = NOW()
-      WHERE id = $1
-    `, [ticketId]);
-    
-    console.log(`✅ Reply sent to ticket: ${ticketId}`);
-    res.status(201).json({ message: 'Reply sent successfully' });
-  } catch (error) {
-    console.error('❌ Error replying to ticket:', error);
-    res.status(500).json({ 
-      message: 'Failed to reply to ticket',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// =========================================================================
-// PROVIDER KNOWLEDGE BASE - ✅ FIXED
-// =========================================================================
-
-// GET /api/provider/knowledge-base - Get knowledge base for providers
-router.get('/knowledge-base', async (req, res) => {
-  console.log('📚 GET /knowledge-base - Request received');
-  try {
-    const { search, category, limit = 10, page = 1 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'knowledge_base'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      console.log('⚠️ knowledge_base table does not exist - returning empty array');
-      return res.json({
-        articles: [],
-        total: 0,
-        page: parseInt(page),
-        totalPages: 0
-      });
-    }
-    
-    let conditions = ['is_published = true'];
-    let params = [];
-    let paramIndex = 1;
-    
-    if (search) {
-      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-    if (category) {
-      conditions.push(`category = $${paramIndex}`);
-      params.push(category);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    const countResult = await pool.query(`
-      SELECT COUNT(*) as total FROM knowledge_base WHERE ${whereClause}
-    `, params);
-    const total = parseInt(countResult.rows[0]?.total || 0);
-    
-    const query = `
-      SELECT id, title, content, category, tags, read_time, created_at, updated_at
-      FROM knowledge_base
-      WHERE ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-    params.push(parseInt(limit), offset);
-    
-    const result = await pool.query(query, params);
-    
-    const articles = result.rows.map(article => ({
-      ...article,
-      read_time: article.read_time || Math.ceil((article.content || '').length / 1000) + 1
-    }));
-    
-    console.log(`✅ Found ${articles.length} knowledge base articles`);
-    
-    res.json({
-      articles: articles,
-      total: total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)) || 1
-    });
-  } catch (error) {
-    console.error('❌ Error fetching provider knowledge base:', error);
-    res.status(500).json({
-      articles: [],
-      total: 0,
-      page: 1,
-      totalPages: 0,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// =========================================================================
-// PROVIDER FAQs - ✅ FIXED
-// =========================================================================
-
-router.get('/faqs', async (req, res) => {
-  console.log('❓ GET /faqs - Request received');
-  try {
-    const { limit = 20, category, search } = req.query;
-    
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'faqs'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.json([]);
-    }
-    
-    let conditions = ["status = 'published'"];
-    let params = [];
-    let paramIndex = 1;
-    
-    if (category) {
-      conditions.push(`category = $${paramIndex}`);
-      params.push(category);
-      paramIndex++;
-    }
-    if (search) {
-      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
-    
-    const query = `
-      SELECT id, question, answer, category, icon, helpful_count, created_at
-      FROM faqs
-      WHERE ${whereClause}
-      ORDER BY helpful_count DESC, created_at DESC
-      LIMIT $${paramIndex}
-    `;
-    params.push(parseInt(limit));
-    
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('❌ Error fetching provider FAQs:', error);
-    res.json([]);
-  }
-});
-
-// =========================================================================
-// PROVIDER STATISTICS
-// =========================================================================
-
-router.get('/stats', async (req, res) => {
-  try {
-    const providerId = req.user.id;
-
-    const providerCheck = await pool.query(
-      'SELECT id FROM users WHERE id = $1 AND role = $2',
-      [providerId, 'provider']
-    );
-
-    if (providerCheck.rows.length === 0) {
-      return res.json({
-        totalServices: 0,
-        totalBookings: 0,
-        pendingBookings: 0,
-        completedBookings: 0,
-        totalEarnings: 0,
-        averageRating: 0
-      });
-    }
-
-    const servicesResult = await pool.query(
-      'SELECT COUNT(*) as count FROM services WHERE provider_id = $1 AND deleted_at IS NULL',
-      [providerId]
-    );
-
-    const bookingsResult = await pool.query(
-      `SELECT 
-         COUNT(*) as total_bookings,
-         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_bookings,
-         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_bookings,
-         COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) as total_earnings
-       FROM bookings 
-       WHERE provider_id = $1`,
-      [providerId]
-    );
-
-    const ratingResult = await pool.query(
-      `SELECT COALESCE(AVG(r.rating), 0) as average_rating
-       FROM reviews r
-       JOIN services s ON r.service_id = s.id
-       WHERE s.provider_id = $1`,
-      [providerId]
-    );
-
-    res.json({
-      totalServices: parseInt(servicesResult.rows[0].count || 0),
-      totalBookings: parseInt(bookingsResult.rows[0].total_bookings || 0),
-      pendingBookings: parseInt(bookingsResult.rows[0].pending_bookings || 0),
-      completedBookings: parseInt(bookingsResult.rows[0].completed_bookings || 0),
-      totalEarnings: parseFloat(bookingsResult.rows[0].total_earnings || 0),
-      averageRating: parseFloat(ratingResult.rows[0].average_rating || 0)
-    });
-  } catch (error) {
-    console.error('Error in provider stats:', error);
-    res.json({
-      totalServices: 0,
-      totalBookings: 0,
-      pendingBookings: 0,
-      completedBookings: 0,
-      totalEarnings: 0,
-      averageRating: 0
-    });
-  }
-});
-
-// GET /api/provider/dashboard/stats - Detailed dashboard stats
+// GET /api/provider/dashboard/stats - Dashboard statistics
 router.get('/dashboard/stats', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -450,6 +64,7 @@ router.get('/dashboard/stats', async (req, res) => {
       });
     }
 
+    // Date calculations
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
@@ -460,69 +75,122 @@ router.get('/dashboard/stats', async (req, res) => {
     const lastMonthStart = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
     const lastMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
 
-    const todayResult = await pool.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as today_earnings
-       FROM bookings
-       WHERE provider_id = $1 AND status = 'completed'
-         AND booking_date BETWEEN $2 AND $3`,
-      [providerId, todayStart, todayEnd]
-    );
+    // Parallel queries for performance
+    const [
+      todayResult,
+      weeklyResult,
+      monthlyResult,
+      totalEarningsResult,
+      earningsGrowthResult,
+      bookingCounts,
+      bookingGrowthResult,
+      activeServices,
+      pendingApproval,
+      totalClients,
+      newClients,
+      reviews,
+      completionRateResult
+    ] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(total_amount), 0) as today_earnings
+         FROM bookings
+         WHERE provider_id = $1 AND status = 'completed'
+           AND booking_date BETWEEN $2 AND $3`,
+        [providerId, todayStart, todayEnd]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(total_amount), 0) as weekly_earnings
+         FROM bookings
+         WHERE provider_id = $1 AND status = 'completed' AND booking_date >= $2`,
+        [providerId, weekAgo]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(total_amount), 0) as monthly_earnings
+         FROM bookings
+         WHERE provider_id = $1 AND status = 'completed' AND booking_date >= $2`,
+        [providerId, monthStart]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(total_amount), 0) as total_earnings
+         FROM bookings
+         WHERE provider_id = $1 AND status = 'completed'`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(CASE WHEN booking_date >= $1 THEN total_amount ELSE 0 END), 0) as this_month,
+           COALESCE(SUM(CASE WHEN booking_date BETWEEN $2 AND $3 THEN total_amount ELSE 0 END), 0) as last_month
+         FROM bookings
+         WHERE provider_id = $4 AND status = 'completed'`,
+        [monthStart, lastMonthStart, lastMonthEnd, providerId]
+      ),
+      pool.query(
+        `SELECT
+           COUNT(*) as total_bookings,
+           COUNT(*) FILTER (WHERE status = 'completed') as completed_bookings,
+           COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
+           COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings
+         FROM bookings
+         WHERE provider_id = $1`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT 
+           COUNT(*) FILTER (WHERE booking_date >= $1) as this_month_count,
+           COUNT(*) FILTER (WHERE booking_date BETWEEN $2 AND $3) as last_month_count
+         FROM bookings
+         WHERE provider_id = $4`,
+        [monthStart, lastMonthStart, lastMonthEnd, providerId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as active_services
+         FROM services
+         WHERE provider_id = $1 AND status = 'approved' AND deleted_at IS NULL`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as pending_approval
+         FROM services
+         WHERE provider_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT customer_id) as total_clients
+         FROM bookings
+         WHERE provider_id = $1`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT customer_id) as new_clients_this_month
+         FROM bookings
+         WHERE provider_id = $1 AND booking_date >= $2`,
+        [providerId, monthStart]
+      ),
+      pool.query(
+        `SELECT 
+           COALESCE(AVG(r.rating), 0) as average_rating, 
+           COUNT(r.id) as total_reviews
+         FROM reviews r
+         JOIN services s ON r.service_id = s.id
+         WHERE s.provider_id = $1 AND r.status = 'approved'`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT 
+           COUNT(*) as total,
+           COUNT(*) FILTER (WHERE status IN ('completed', 'in_progress')) as completed
+         FROM bookings
+         WHERE provider_id = $1 AND status NOT IN ('cancelled')`,
+        [providerId]
+      )
+    ]);
 
-    const weeklyResult = await pool.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as weekly_earnings
-       FROM bookings
-       WHERE provider_id = $1 AND status = 'completed' AND booking_date >= $2`,
-      [providerId, weekAgo]
-    );
-
-    const monthlyResult = await pool.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as monthly_earnings
-       FROM bookings
-       WHERE provider_id = $1 AND status = 'completed' AND booking_date >= $2`,
-      [providerId, monthStart]
-    );
-
-    const totalEarningsResult = await pool.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as total_earnings
-       FROM bookings
-       WHERE provider_id = $1 AND status = 'completed'`,
-      [providerId]
-    );
-
-    const earningsGrowthResult = await pool.query(
-      `SELECT 
-         COALESCE(SUM(CASE WHEN booking_date >= $1 THEN total_amount ELSE 0 END), 0) as this_month,
-         COALESCE(SUM(CASE WHEN booking_date BETWEEN $2 AND $3 THEN total_amount ELSE 0 END), 0) as last_month
-       FROM bookings
-       WHERE provider_id = $4 AND status = 'completed'`,
-      [monthStart, lastMonthStart, lastMonthEnd, providerId]
-    );
-
+    // Calculate derived metrics
     const thisMonthEarnings = parseFloat(earningsGrowthResult.rows[0].this_month || 0);
     const lastMonthEarnings = parseFloat(earningsGrowthResult.rows[0].last_month || 0);
     const earningsGrowth = lastMonthEarnings > 0 
       ? ((thisMonthEarnings - lastMonthEarnings) / lastMonthEarnings * 100)
       : 0;
-
-    const bookingCounts = await pool.query(
-      `SELECT
-         COUNT(*) as total_bookings,
-         COUNT(*) FILTER (WHERE status = 'completed') as completed_bookings,
-         COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
-         COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings
-       FROM bookings
-       WHERE provider_id = $1`,
-      [providerId]
-    );
-
-    const bookingGrowthResult = await pool.query(
-      `SELECT 
-         COUNT(*) FILTER (WHERE booking_date >= $1) as this_month_count,
-         COUNT(*) FILTER (WHERE booking_date BETWEEN $2 AND $3) as last_month_count
-       FROM bookings
-       WHERE provider_id = $4`,
-      [monthStart, lastMonthStart, lastMonthEnd, providerId]
-    );
 
     const thisMonthBookings = parseInt(bookingGrowthResult.rows[0].this_month_count || 0);
     const lastMonthBookings = parseInt(bookingGrowthResult.rows[0].last_month_count || 0);
@@ -530,53 +198,6 @@ router.get('/dashboard/stats', async (req, res) => {
       ? ((thisMonthBookings - lastMonthBookings) / lastMonthBookings * 100)
       : 0;
 
-    const activeServices = await pool.query(
-      `SELECT COUNT(*) as active_services
-       FROM services
-       WHERE provider_id = $1 AND status = 'approved' AND deleted_at IS NULL`,
-      [providerId]
-    );
-
-    const pendingApproval = await pool.query(
-      `SELECT COUNT(*) as pending_approval
-       FROM services
-       WHERE provider_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
-      [providerId]
-    );
-
-    const totalClients = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) as total_clients
-       FROM bookings
-       WHERE provider_id = $1`,
-      [providerId]
-    );
-
-    const newClients = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) as new_clients_this_month
-       FROM bookings
-       WHERE provider_id = $1 AND booking_date >= $2`,
-      [providerId, monthStart]
-    );
-
-    const reviews = await pool.query(
-      `SELECT 
-         COALESCE(AVG(r.rating), 0) as average_rating, 
-         COUNT(r.id) as total_reviews
-       FROM reviews r
-       JOIN services s ON r.service_id = s.id
-       WHERE s.provider_id = $1 AND r.status = 'approved'`,
-      [providerId]
-    );
-
-    const completionRateResult = await pool.query(
-      `SELECT 
-         COUNT(*) as total,
-         COUNT(*) FILTER (WHERE status IN ('completed', 'in_progress')) as completed
-       FROM bookings
-       WHERE provider_id = $1 AND status NOT IN ('cancelled')`,
-      [providerId]
-    );
-    
     const totalNonCancelled = parseInt(completionRateResult.rows[0].total || 0);
     const completedCount = parseInt(completionRateResult.rows[0].completed || 0);
     const completionRate = totalNonCancelled > 0 ? (completedCount / totalNonCancelled * 100) : 0;
@@ -718,9 +339,177 @@ router.get('/dashboard/today-schedule', async (req, res) => {
 });
 
 // =========================================================================
+// PROVIDER STATISTICS
+// =========================================================================
+
+router.get('/stats', async (req, res) => {
+  try {
+    const providerId = req.user.id;
+
+    const providerCheck = await pool.query(
+      'SELECT id FROM users WHERE id = $1 AND role = $2',
+      [providerId, 'provider']
+    );
+
+    if (providerCheck.rows.length === 0) {
+      return res.json({
+        totalServices: 0,
+        totalBookings: 0,
+        pendingBookings: 0,
+        completedBookings: 0,
+        totalEarnings: 0,
+        averageRating: 0
+      });
+    }
+
+    const [
+      servicesResult,
+      bookingsResult,
+      ratingResult
+    ] = await Promise.all([
+      pool.query(
+        'SELECT COUNT(*) as count FROM services WHERE provider_id = $1 AND deleted_at IS NULL',
+        [providerId]
+      ),
+      pool.query(
+        `SELECT 
+           COUNT(*) as total_bookings,
+           COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_bookings,
+           COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_bookings,
+           COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) as total_earnings
+         FROM bookings 
+         WHERE provider_id = $1`,
+        [providerId]
+      ),
+      pool.query(
+        `SELECT COALESCE(AVG(r.rating), 0) as average_rating
+         FROM reviews r
+         JOIN services s ON r.service_id = s.id
+         WHERE s.provider_id = $1`,
+        [providerId]
+      )
+    ]);
+
+    res.json({
+      totalServices: parseInt(servicesResult.rows[0].count || 0),
+      totalBookings: parseInt(bookingsResult.rows[0].total_bookings || 0),
+      pendingBookings: parseInt(bookingsResult.rows[0].pending_bookings || 0),
+      completedBookings: parseInt(bookingsResult.rows[0].completed_bookings || 0),
+      totalEarnings: parseFloat(bookingsResult.rows[0].total_earnings || 0),
+      averageRating: parseFloat(ratingResult.rows[0].average_rating || 0)
+    });
+  } catch (error) {
+    console.error('Error in provider stats:', error);
+    res.json({
+      totalServices: 0,
+      totalBookings: 0,
+      pendingBookings: 0,
+      completedBookings: 0,
+      totalEarnings: 0,
+      averageRating: 0
+    });
+  }
+});
+
+// =========================================================================
+// PROVIDER EARNINGS
+// =========================================================================
+
+router.get('/earnings', async (req, res) => {
+  try {
+    const providerId = req.user.id;
+    const { range = 'month' } = req.query;
+    
+    let dateFilter;
+    switch(range) {
+      case 'week': dateFilter = "INTERVAL '7 days'"; break;
+      case 'month': dateFilter = "INTERVAL '30 days'"; break;
+      case 'quarter': dateFilter = "INTERVAL '90 days'"; break;
+      case 'year': dateFilter = "INTERVAL '365 days'"; break;
+      default: dateFilter = "INTERVAL '30 days'";
+    }
+    
+    const result = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) as total,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' THEN total_amount ELSE 0 END), 0) as available,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status != 'paid' THEN total_amount ELSE 0 END), 0) as pending,
+        COUNT(*) as total_bookings,
+        COALESCE(AVG(total_amount), 0) as average_booking_value,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
+                   AND booking_date >= NOW() - INTERVAL '7 days' THEN total_amount ELSE 0 END), 0) as this_week,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
+                   AND booking_date >= NOW() - INTERVAL '30 days' THEN total_amount ELSE 0 END), 0) as this_month,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
+                   AND booking_date BETWEEN NOW() - INTERVAL '60 days' AND NOW() - INTERVAL '30 days' 
+                   THEN total_amount ELSE 0 END), 0) as last_month
+      FROM bookings
+      WHERE provider_id = $1 AND booking_date >= NOW() - $2
+    `, [providerId, dateFilter]);
+    
+    const transactions = await pool.query(`
+      SELECT 
+        b.id,
+        b.booking_date as date,
+        u.name as customer,
+        s.title as service,
+        b.total_amount as amount,
+        b.status,
+        b.payment_status,
+        b.created_at
+      FROM bookings b
+      JOIN users u ON b.customer_id = u.id
+      JOIN services s ON b.service_id = s.id
+      WHERE b.provider_id = $1 AND b.booking_date >= NOW() - $2
+      ORDER BY b.booking_date DESC
+      LIMIT 20
+    `, [providerId, dateFilter]);
+    
+    const row = result.rows[0];
+    res.json({
+      total: parseFloat(row.total || 0),
+      available: parseFloat(row.available || 0),
+      pending: parseFloat(row.pending || 0),
+      totalBookings: parseInt(row.total_bookings || 0),
+      averageBookingValue: parseFloat(row.average_booking_value || 0),
+      thisWeek: parseFloat(row.this_week || 0),
+      thisMonth: parseFloat(row.this_month || 0),
+      lastMonth: parseFloat(row.last_month || 0),
+      growth: row.last_month > 0 
+        ? ((row.this_month - row.last_month) / row.last_month * 100).toFixed(1)
+        : 0,
+      transactions: transactions.rows.map(t => ({
+        id: t.id,
+        date: t.date,
+        customer: t.customer || 'Unknown',
+        service: t.service || 'Unknown',
+        amount: parseFloat(t.amount || 0),
+        status: t.status || 'pending',
+        paymentStatus: t.payment_status || 'pending'
+      }))
+    });
+  } catch (err) {
+    console.error('Earnings error:', err);
+    res.json({
+      total: 0,
+      available: 0,
+      pending: 0,
+      totalBookings: 0,
+      averageBookingValue: 0,
+      thisWeek: 0,
+      thisMonth: 0,
+      lastMonth: 0,
+      growth: 0,
+      transactions: []
+    });
+  }
+});
+
+// =========================================================================
 // PROVIDER SERVICES
 // =========================================================================
 
+// GET /api/provider/services - Get all services
 router.get('/services', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -776,10 +565,7 @@ router.get('/services', async (req, res) => {
   }
 });
 
-// =========================================================================
-// PROVIDER SERVICE DETAILS
-// =========================================================================
-
+// GET /api/provider/services/:id - Get service by ID
 router.get('/services/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -801,10 +587,7 @@ router.get('/services/:id', async (req, res) => {
   }
 });
 
-// =========================================================================
-// PROVIDER SERVICE CREATION
-// =========================================================================
-
+// POST /api/provider/services - Create service
 router.post('/services',
   authorize('provider', 'admin'),
   uploadMultiple('images', 5),
@@ -903,10 +686,7 @@ router.post('/services',
   }
 );
 
-// =========================================================================
-// PROVIDER SERVICE UPDATE
-// =========================================================================
-
+// PUT /api/provider/services/:id - Update service
 router.put('/services/:id',
   authorize('provider', 'admin'),
   uploadMultiple('images', 5),
@@ -1040,10 +820,7 @@ router.put('/services/:id',
   }
 );
 
-// =========================================================================
-// PROVIDER SERVICE DELETION
-// =========================================================================
-
+// DELETE /api/provider/services/:id - Delete service
 router.delete('/services/:id',
   authorize('provider', 'admin'),
   async (req, res) => {
@@ -1082,6 +859,7 @@ router.delete('/services/:id',
 // PROVIDER BOOKINGS
 // =========================================================================
 
+// GET /api/provider/bookings - Get all bookings
 router.get('/bookings', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1197,6 +975,7 @@ router.get('/bookings', async (req, res) => {
   }
 });
 
+// GET /api/provider/bookings/:id - Get booking by ID
 router.get('/bookings/:id', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1228,6 +1007,7 @@ router.get('/bookings/:id', async (req, res) => {
   }
 });
 
+// PUT /api/provider/bookings/:id/status - Update booking status
 router.put('/bookings/:id/status', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1255,6 +1035,7 @@ router.put('/bookings/:id/status', async (req, res) => {
   }
 });
 
+// POST /api/provider/bookings/:id/start - Start booking
 router.post('/bookings/:id/start', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1283,6 +1064,7 @@ router.post('/bookings/:id/start', async (req, res) => {
   }
 });
 
+// POST /api/provider/bookings/:id/complete - Complete booking
 router.post('/bookings/:id/complete', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1311,6 +1093,7 @@ router.post('/bookings/:id/complete', async (req, res) => {
   }
 });
 
+// PUT /api/provider/bookings/:id/reschedule - Reschedule booking
 router.put('/bookings/:id/reschedule', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1357,6 +1140,7 @@ router.put('/bookings/:id/reschedule', async (req, res) => {
 // PROVIDER SCHEDULE
 // =========================================================================
 
+// GET /api/provider/schedule - Get schedule
 router.get('/schedule', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1389,6 +1173,7 @@ router.get('/schedule', async (req, res) => {
   }
 });
 
+// POST /api/provider/schedule - Add schedule slot
 router.post('/schedule', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1412,6 +1197,7 @@ router.post('/schedule', async (req, res) => {
   }
 });
 
+// PUT /api/provider/schedule/:id - Update schedule slot
 router.put('/schedule/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1440,6 +1226,7 @@ router.put('/schedule/:id', async (req, res) => {
   }
 });
 
+// DELETE /api/provider/schedule/:id - Delete schedule slot
 router.delete('/schedule/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1455,96 +1242,67 @@ router.delete('/schedule/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER EARNINGS
+// PROVIDER PROFILE
 // =========================================================================
 
-router.get('/earnings', async (req, res) => {
+// GET /api/provider/profile - Get provider profile
+router.get('/profile', async (req, res) => {
   try {
     const providerId = req.user.id;
-    const { range = 'month' } = req.query;
-    
-    let dateFilter;
-    switch(range) {
-      case 'week': dateFilter = "INTERVAL '7 days'"; break;
-      case 'month': dateFilter = "INTERVAL '30 days'"; break;
-      case 'quarter': dateFilter = "INTERVAL '90 days'"; break;
-      case 'year': dateFilter = "INTERVAL '365 days'"; break;
-      default: dateFilter = "INTERVAL '30 days'";
-    }
     
     const result = await pool.query(`
       SELECT 
-        COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) as total,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' THEN total_amount ELSE 0 END), 0) as available,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status != 'paid' THEN total_amount ELSE 0 END), 0) as pending,
-        COUNT(*) as total_bookings,
-        COALESCE(AVG(total_amount), 0) as average_booking_value,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
-                   AND booking_date >= NOW() - INTERVAL '7 days' THEN total_amount ELSE 0 END), 0) as this_week,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
-                   AND booking_date >= NOW() - INTERVAL '30 days' THEN total_amount ELSE 0 END), 0) as this_month,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND payment_status = 'paid' 
-                   AND booking_date BETWEEN NOW() - INTERVAL '60 days' AND NOW() - INTERVAL '30 days' 
-                   THEN total_amount ELSE 0 END), 0) as last_month
-      FROM bookings
-      WHERE provider_id = $1 AND booking_date >= NOW() - $2
-    `, [providerId, dateFilter]);
+        u.id, u.name, u.email, u.phone, u.address, u.city, u.state, u.zip_code,
+        u.bio, u.avatar, u.verified, u.created_at,
+        (SELECT COUNT(*) FROM services WHERE provider_id = u.id AND status = 'approved' AND deleted_at IS NULL) as active_services,
+        (SELECT COUNT(*) FROM bookings WHERE provider_id = u.id AND status = 'completed') as completed_bookings,
+        (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r 
+         JOIN services s ON r.service_id = s.id 
+         WHERE s.provider_id = u.id) as average_rating
+      FROM users u
+      WHERE u.id = $1 AND u.role = 'provider'
+    `, [providerId]);
     
-    const transactions = await pool.query(`
-      SELECT 
-        b.id,
-        b.booking_date as date,
-        u.name as customer,
-        s.title as service,
-        b.total_amount as amount,
-        b.status,
-        b.payment_status,
-        b.created_at
-      FROM bookings b
-      JOIN users u ON b.customer_id = u.id
-      JOIN services s ON b.service_id = s.id
-      WHERE b.provider_id = $1 AND b.booking_date >= NOW() - $2
-      ORDER BY b.booking_date DESC
-      LIMIT 20
-    `, [providerId, dateFilter]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Provider not found' });
+    }
     
-    const row = result.rows[0];
-    res.json({
-      total: parseFloat(row.total || 0),
-      available: parseFloat(row.available || 0),
-      pending: parseFloat(row.pending || 0),
-      totalBookings: parseInt(row.total_bookings || 0),
-      averageBookingValue: parseFloat(row.average_booking_value || 0),
-      thisWeek: parseFloat(row.this_week || 0),
-      thisMonth: parseFloat(row.this_month || 0),
-      lastMonth: parseFloat(row.last_month || 0),
-      growth: row.last_month > 0 
-        ? ((row.this_month - row.last_month) / row.last_month * 100).toFixed(1)
-        : 0,
-      transactions: transactions.rows.map(t => ({
-        id: t.id,
-        date: t.date,
-        customer: t.customer || 'Unknown',
-        service: t.service || 'Unknown',
-        amount: parseFloat(t.amount || 0),
-        status: t.status || 'pending',
-        paymentStatus: t.payment_status || 'pending'
-      }))
-    });
+    res.json(result.rows[0]);
   } catch (err) {
-    console.error('Earnings error:', err);
-    res.json({
-      total: 0,
-      available: 0,
-      pending: 0,
-      totalBookings: 0,
-      averageBookingValue: 0,
-      thisWeek: 0,
-      thisMonth: 0,
-      lastMonth: 0,
-      growth: 0,
-      transactions: []
-    });
+    console.error('Profile fetch error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// PUT /api/provider/profile - Update provider profile
+router.put('/profile', async (req, res) => {
+  try {
+    const providerId = req.user.id;
+    const { name, phone, address, city, state, zip_code, bio } = req.body;
+    
+    await pool.query(
+      `UPDATE users SET 
+        name = COALESCE($1, name),
+        phone = COALESCE($2, phone),
+        address = COALESCE($3, address),
+        city = COALESCE($4, city),
+        state = COALESCE($5, state),
+        zip_code = COALESCE($6, zip_code),
+        bio = COALESCE($7, bio),
+        updated_at = NOW()
+      WHERE id = $8 AND role = 'provider'`,
+      [name, phone, address, city, state, zip_code, bio, providerId]
+    );
+    
+    const result = await pool.query(
+      'SELECT id, name, email, phone, address, city, state, zip_code, bio, avatar FROM users WHERE id = $1',
+      [providerId]
+    );
+    
+    res.json({ message: 'Profile updated successfully', profile: result.rows[0] });
+  } catch (err) {
+    console.error('Profile update error:', err);
+    res.status(500).json({ message: 'Failed to update profile' });
   }
 });
 
@@ -1552,6 +1310,7 @@ router.get('/earnings', async (req, res) => {
 // PROVIDER REVIEWS
 // =========================================================================
 
+// GET /api/provider/reviews - Get reviews
 router.get('/reviews', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1637,6 +1396,7 @@ router.get('/reviews', async (req, res) => {
   }
 });
 
+// POST /api/provider/reviews/:id/respond - Respond to review
 router.post('/reviews/:id/respond', async (req, res) => {
   try {
     const { response } = req.body;
@@ -1671,96 +1431,30 @@ router.post('/reviews/:id/respond', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER PROFILE
+// PROVIDER IMAGE UPLOAD
 // =========================================================================
 
-router.get('/profile', async (req, res) => {
+// POST /api/provider/upload-service-image - Upload service image
+router.post('/upload-service-image', uploadSingle('image'), async (req, res) => {
   try {
-    const providerId = req.user.id;
-    
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.name, u.email, u.phone, u.address, u.city, u.state, u.zip_code,
-        u.bio, u.avatar, u.verified, u.created_at,
-        (SELECT COUNT(*) FROM services WHERE provider_id = u.id AND status = 'approved' AND deleted_at IS NULL) as active_services,
-        (SELECT COUNT(*) FROM bookings WHERE provider_id = u.id AND status = 'completed') as completed_bookings,
-        (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r 
-         JOIN services s ON r.service_id = s.id 
-         WHERE s.provider_id = u.id) as average_rating
-      FROM users u
-      WHERE u.id = $1 AND u.role = 'provider'
-    `, [providerId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Provider not found' });
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
     }
-    
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Profile fetch error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
 
-router.put('/profile', async (req, res) => {
-  try {
-    const providerId = req.user.id;
-    const { name, phone, address, city, state, zip_code, bio } = req.body;
+    const imageUrl = `/uploads/services/${req.file.filename}`;
+    console.log('✅ Image uploaded successfully:', imageUrl);
     
-    await pool.query(
-      `UPDATE users SET 
-        name = COALESCE($1, name),
-        phone = COALESCE($2, phone),
-        address = COALESCE($3, address),
-        city = COALESCE($4, city),
-        state = COALESCE($5, state),
-        zip_code = COALESCE($6, zip_code),
-        bio = COALESCE($7, bio),
-        updated_at = NOW()
-      WHERE id = $8 AND role = 'provider'`,
-      [name, phone, address, city, state, zip_code, bio, providerId]
-    );
-    
-    const result = await pool.query(
-      'SELECT id, name, email, phone, address, city, state, zip_code, bio, avatar FROM users WHERE id = $1',
-      [providerId]
-    );
-    
-    res.json({ message: 'Profile updated successfully', profile: result.rows[0] });
-  } catch (err) {
-    console.error('Profile update error:', err);
-    res.status(500).json({ message: 'Failed to update profile' });
-  }
-});
-
-// =========================================================================
-// PROVIDER NOTIFICATIONS
-// =========================================================================
-
-router.get('/notifications', async (req, res) => {
-  try {
-    const providerId = req.user.id;
-    const { limit = 10, unread = false } = req.query;
-    
-    let query = `
-      SELECT * FROM notifications
-      WHERE user_id = $1
-    `;
-    const params = [providerId];
-    
-    if (unread === 'true') {
-      query += ` AND is_read = false`;
-    }
-    
-    query += ` ORDER BY created_at DESC LIMIT $2`;
-    params.push(parseInt(limit));
-    
-    const result = await pool.query(query, params);
-    
-    res.json(result.rows || []);
-  } catch (err) {
-    console.error('Notifications fetch error:', err);
-    res.json([]);
+    return res.status(200).json({ 
+      success: true,
+      url: imageUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('❌ Error uploading service image:', error);
+    return res.status(500).json({ 
+      message: 'Failed to upload service image',
+      error: error.message 
+    });
   }
 });
 
@@ -1768,6 +1462,7 @@ router.get('/notifications', async (req, res) => {
 // PROVIDER WITHDRAWAL METHODS
 // =========================================================================
 
+// GET /api/provider/withdrawal-methods - Get withdrawal methods
 router.get('/withdrawal-methods', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1787,6 +1482,7 @@ router.get('/withdrawal-methods', async (req, res) => {
   }
 });
 
+// POST /api/provider/withdrawal-methods - Add withdrawal method
 router.post('/withdrawal-methods', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1823,6 +1519,7 @@ router.post('/withdrawal-methods', async (req, res) => {
   }
 });
 
+// DELETE /api/provider/withdrawal-methods/:id - Delete withdrawal method
 router.delete('/withdrawal-methods/:id', async (req, res) => {
   try {
     const providerId = req.user.id;
@@ -1841,6 +1538,356 @@ router.delete('/withdrawal-methods/:id', async (req, res) => {
   } catch (err) {
     console.error('Delete withdrawal method error:', err);
     res.status(500).json({ message: 'Failed to delete withdrawal method' });
+  }
+});
+
+// =========================================================================
+// PROVIDER TICKETS
+// =========================================================================
+
+// GET /api/provider/tickets - Get provider's tickets
+router.get('/tickets', async (req, res) => {
+  console.log('📋 GET /tickets - Request received');
+  try {
+    const userId = req.user.id;
+    const { limit = 10, page = 1, status } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    console.log(`📋 Fetching tickets for user ${userId}, page ${page}, limit ${limit}`);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('⚠️ support_tickets table does not exist - returning empty array');
+      return res.json({
+        tickets: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['user_id = $1'];
+    let params = [userId];
+    let paramIndex = 2;
+    
+    if (status && status !== 'all') {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM support_tickets WHERE ${whereClause}
+    `, params.slice(0, paramIndex - 1));
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const result = await pool.query(`
+      SELECT * FROM support_tickets 
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, [...params, parseInt(limit), offset]);
+    
+    const ticketsWithMessages = await Promise.all(result.rows.map(async (ticket) => {
+      const messages = await pool.query(
+        'SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
+        [ticket.id]
+      );
+      return { ...ticket, messages: messages.rows };
+    }));
+    
+    console.log(`✅ Found ${ticketsWithMessages.length} tickets`);
+    
+    res.json({
+      tickets: ticketsWithMessages,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('❌ Error fetching provider tickets:', error);
+    res.status(500).json({
+      tickets: [],
+      total: 0,
+      page: 1,
+      totalPages: 0,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /api/provider/tickets - Create ticket
+router.post('/tickets', async (req, res) => {
+  console.log('📝 POST /tickets - Request received');
+  try {
+    const userId = req.user.id;
+    const { subject, category, priority = 'medium', message } = req.body;
+    
+    if (!subject || !message) {
+      return res.status(400).json({ 
+        message: 'Subject and message are required' 
+      });
+    }
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_tickets'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        message: 'Support tickets table not available' 
+      });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO support_tickets (user_id, subject, category, priority, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
+      RETURNING *
+    `, [userId, subject, category || 'general', priority]);
+    
+    const ticket = result.rows[0];
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticket.id, userId, message]);
+    
+    console.log(`✅ Ticket created: ${ticket.id}`);
+    res.status(201).json(ticket);
+  } catch (error) {
+    console.error('❌ Error creating ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to create ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /api/provider/tickets/:id/reply - Reply to ticket
+router.post('/tickets/:id/reply', async (req, res) => {
+  console.log('📝 POST /tickets/:id/reply - Request received');
+  try {
+    const userId = req.user.id;
+    const ticketId = req.params.id;
+    const { message } = req.body;
+    
+    if (!message || !message.trim()) {
+      return res.status(400).json({ message: 'Reply message is required' });
+    }
+    
+    const ticketCheck = await pool.query(
+      'SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2',
+      [ticketId, userId]
+    );
+    
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+    
+    await pool.query(`
+      INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message, created_at)
+      VALUES ($1, $2, 'user', $3, NOW())
+    `, [ticketId, userId, message.trim()]);
+    
+    await pool.query(`
+      UPDATE support_tickets 
+      SET status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [ticketId]);
+    
+    console.log(`✅ Reply sent to ticket: ${ticketId}`);
+    res.status(201).json({ message: 'Reply sent successfully' });
+  } catch (error) {
+    console.error('❌ Error replying to ticket:', error);
+    res.status(500).json({ 
+      message: 'Failed to reply to ticket',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// =========================================================================
+// PROVIDER KNOWLEDGE BASE
+// =========================================================================
+
+// GET /api/provider/knowledge-base - Get knowledge base articles
+router.get('/knowledge-base', async (req, res) => {
+  console.log('📚 GET /knowledge-base - Request received');
+  try {
+    const { search, category, limit = 10, page = 1 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'knowledge_base'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('⚠️ knowledge_base table does not exist - returning empty array');
+      return res.json({
+        articles: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      });
+    }
+    
+    let conditions = ['is_published = true'];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR content ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM knowledge_base WHERE ${whereClause}
+    `, params);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    
+    const query = `
+      SELECT id, title, content, category, tags, read_time, created_at, updated_at
+      FROM knowledge_base
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit), offset);
+    
+    const result = await pool.query(query, params);
+    
+    const articles = result.rows.map(article => ({
+      ...article,
+      read_time: article.read_time || Math.ceil((article.content || '').length / 1000) + 1
+    }));
+    
+    console.log(`✅ Found ${articles.length} knowledge base articles`);
+    
+    res.json({
+      articles: articles,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)) || 1
+    });
+  } catch (error) {
+    console.error('❌ Error fetching provider knowledge base:', error);
+    res.status(500).json({
+      articles: [],
+      total: 0,
+      page: 1,
+      totalPages: 0,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// =========================================================================
+// PROVIDER FAQs
+// =========================================================================
+
+// GET /api/provider/faqs - Get FAQs
+router.get('/faqs', async (req, res) => {
+  console.log('❓ GET /faqs - Request received');
+  try {
+    const { limit = 20, category, search } = req.query;
+    
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'faqs'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json([]);
+    }
+    
+    let conditions = ["status = 'published'"];
+    let params = [];
+    let paramIndex = 1;
+    
+    if (category) {
+      conditions.push(`category = $${paramIndex}`);
+      params.push(category);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(question ILIKE $${paramIndex} OR answer ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.join(' AND ');
+    
+    const query = `
+      SELECT id, question, answer, category, icon, helpful_count, created_at
+      FROM faqs
+      WHERE ${whereClause}
+      ORDER BY helpful_count DESC, created_at DESC
+      LIMIT $${paramIndex}
+    `;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('❌ Error fetching provider FAQs:', error);
+    res.json([]);
+  }
+});
+
+// =========================================================================
+// PROVIDER NOTIFICATIONS
+// =========================================================================
+
+// GET /api/provider/notifications - Get notifications
+router.get('/notifications', async (req, res) => {
+  try {
+    const providerId = req.user.id;
+    const { limit = 10, unread = false } = req.query;
+    
+    let query = `
+      SELECT * FROM notifications
+      WHERE user_id = $1
+    `;
+    const params = [providerId];
+    
+    if (unread === 'true') {
+      query += ` AND is_read = false`;
+    }
+    
+    query += ` ORDER BY created_at DESC LIMIT $2`;
+    params.push(parseInt(limit));
+    
+    const result = await pool.query(query, params);
+    
+    res.json(result.rows || []);
+  } catch (err) {
+    console.error('Notifications fetch error:', err);
+    res.json([]);
   }
 });
 

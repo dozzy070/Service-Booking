@@ -3,10 +3,27 @@ import express from 'express';
 import { body } from 'express-validator';
 import { protect, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { uploadMultiple } from '../middleware/upload.js';
+import { uploadMultiple, uploadSingle } from '../middleware/upload.js';
 import pool from '../config/db.js';
 
 const router = express.Router();
+
+// =========================================================================
+// POST /api/services/upload-service-image - Upload a single service image
+// =========================================================================
+router.post('/upload-service-image', protect, authorize('provider', 'admin'), uploadSingle('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const imageUrl = `/uploads/services/${req.file.filename}`;
+    return res.status(200).json({ url: imageUrl });
+  } catch (error) {
+    console.error('Error uploading service image:', error);
+    return res.status(500).json({ message: 'Failed to upload service image' });
+  }
+});
 
 // =========================================================================
 // GET /api/services - Get all services with filters - ✅ FIXED TYPE ERROR

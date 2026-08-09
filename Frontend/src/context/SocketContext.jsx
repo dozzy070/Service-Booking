@@ -1,12 +1,15 @@
 // src/context/SocketContext.jsx
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
 // Create the context
 const SocketContext = createContext(null);
 
-// Custom hook - MUST be named useSocket and exported as a named export
+// =========================================================================
+// CUSTOM HOOK - ALWAYS CALLED AT TOP LEVEL
+// =========================================================================
+
 export const useSocket = () => {
   const context = useContext(SocketContext);
   if (!context) {
@@ -15,7 +18,10 @@ export const useSocket = () => {
   return context;
 };
 
-// Integrated SocketService class with all features from both files
+// =========================================================================
+// SOCKET SERVICE CLASS - FIXED
+// =========================================================================
+
 class SocketService {
   constructor() {
     this.socket = null;
@@ -23,31 +29,23 @@ class SocketService {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
     this.userId = null;
-    this.isConnected = false;
+    // ✅ FIXED: Use a different property name or remove the setter conflict
+    this._isConnected = false; // Use underscore for internal state
   }
 
   getSocketUrl() {
-    // Priority 1: Socket specific env
     if (import.meta.env.VITE_SOCKET_URL) {
       return import.meta.env.VITE_SOCKET_URL;
     }
-    
-    // Priority 2: API URL env (fallback)
     if (import.meta.env.VITE_API_URL) {
       return import.meta.env.VITE_API_URL;
     }
-    
-    // Priority 3: Production fallback (Render.com)
     if (import.meta.env.PROD) {
       return 'https://service-booking-3l1j.onrender.com';
     }
-    
-    // Priority 4: Same origin for production
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
       return window.location.origin;
     }
-    
-    // Priority 5: Local development
     return 'http://localhost:5000';
   }
 
@@ -86,10 +84,10 @@ class SocketService {
 
     this.socket.on('connect', () => {
       console.log('✅ Socket.IO connected successfully');
-      this.isConnected = true;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = true;
       this.reconnectAttempts = 0;
       
-      // Join user's room
       if (this.userId) {
         this.socket.emit('join-user', this.userId);
         console.log(`📡 Joined room: user-${this.userId}`);
@@ -101,7 +99,8 @@ class SocketService {
 
     this.socket.on('disconnect', (reason) => {
       console.log('🔌 Socket.IO disconnected:', reason);
-      this.isConnected = false;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = false;
       onConnectionChange?.(false, null, reason);
       this.emitInternal('socket_disconnected', { reason });
     });
@@ -109,7 +108,8 @@ class SocketService {
     this.socket.on('connect_error', (error) => {
       console.error('❌ Socket.IO connection error:', error.message);
       this.reconnectAttempts++;
-      this.isConnected = false;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = false;
       onConnectionChange?.(false, null, error.message);
       
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
@@ -120,10 +120,10 @@ class SocketService {
 
     this.socket.on('reconnect', (attemptNumber) => {
       console.log('🔄 Socket.IO reconnected after', attemptNumber, 'attempts');
-      this.isConnected = true;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = true;
       onConnectionChange?.(true, this.socket.id);
       
-      // Re-join user's room after reconnect
       if (this.userId) {
         this.socket.emit('join-user', this.userId);
       }
@@ -173,21 +173,19 @@ class SocketService {
       this.emitInternal('booking_message', data);
     });
 
-    // Connection timeout
     this.socket.on('connect_timeout', () => {
       console.warn('⏱️ Socket.IO connection timeout');
-      this.isConnected = false;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = false;
       onConnectionChange?.(false, null, 'Connection timeout');
     });
 
-    // General error
     this.socket.on('error', (error) => {
       console.error('❌ Socket.IO error:', error);
       this.emitInternal('socket_error', error);
     });
   }
 
-  // Internal event emitter for class-based listeners
   emitInternal(event, data) {
     if (this.listeners.has(event)) {
       this.listeners.get(event).forEach(callback => callback(data));
@@ -198,16 +196,16 @@ class SocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.isConnected = false;
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      this._isConnected = false;
       this.userId = null;
       this.reconnectAttempts = 0;
       console.log('Socket.IO disconnected manually');
     }
   }
 
-  // Chat methods
   sendMessage(recipientId, message, bookingId = null, senderName = '') {
-    if (!this.socket || !this.isConnected) {
+    if (!this.socket || !this._isConnected) {
       console.warn('⚠️ Cannot send message: socket not connected');
       return false;
     }
@@ -222,32 +220,31 @@ class SocketService {
   }
 
   joinBookingRoom(bookingId) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('join-booking', bookingId);
     return true;
   }
 
   joinProviderRoom(providerId) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('join-provider', providerId);
     return true;
   }
 
   leaveRoom(roomName) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('leave-room', roomName);
     return true;
   }
 
   sendTyping(recipientId, bookingId, isTyping) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('typing', { recipientId, bookingId, isTyping });
     return true;
   }
 
-  // Notification methods
   sendNotification(recipientId, message, type = 'info', bookingId = null) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('send-notification', {
       recipientId,
       message,
@@ -258,13 +255,13 @@ class SocketService {
   }
 
   markNotificationRead(notificationId) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('mark-notification-read', { notificationId });
     return true;
   }
 
   sendBulkNotification(userIds, message, type = 'info', data = {}) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('send-bulk-notification', {
       userIds,
       type,
@@ -274,16 +271,14 @@ class SocketService {
     return true;
   }
 
-  // Booking methods
   updateBookingStatus(bookingId, status) {
-    if (!this.socket || !this.isConnected) return false;
+    if (!this.socket || !this._isConnected) return false;
     this.socket.emit('update-booking-status', { bookingId, status });
     return true;
   }
 
-  // Generic event emitters
   emit(event, data) {
-    if (!this.socket || !this.isConnected) {
+    if (!this.socket || !this._isConnected) {
       console.warn(`⚠️ Cannot emit ${event}: socket not connected`);
       return false;
     }
@@ -292,7 +287,6 @@ class SocketService {
     return true;
   }
 
-  // Class-based event handling (for non-React usage)
   on(event, callback) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
@@ -306,25 +300,29 @@ class SocketService {
     }
   }
 
-  // Check connection status
   getConnectionStatus() {
     return {
-      isConnected: this.isConnected,
+      // ✅ FIXED: Use _isConnected instead of isConnected
+      isConnected: this._isConnected,
       socketId: this.socket?.id || null,
       userId: this.userId,
       reconnectAttempts: this.reconnectAttempts
     };
   }
 
-  isConnected() {
-    return this.socket?.connected || false;
+  // ✅ FIXED: Keep the getter but use it to return the internal state
+  get isConnected() {
+    return this._isConnected;
   }
 }
 
-// Create singleton instance for class-based usage
+// Create singleton instance
 export const socketService = new SocketService();
 
-// Provider component - MUST be exported as a named export
+// =========================================================================
+// SOCKET PROVIDER
+// =========================================================================
+
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -333,7 +331,6 @@ export const SocketProvider = ({ children }) => {
   const socketRef = useRef(null);
   const { user, token } = useAuth();
 
-  // Connect to socket when user is authenticated
   useEffect(() => {
     if (!user || !token) {
       if (socketRef.current) {
@@ -350,7 +347,6 @@ export const SocketProvider = ({ children }) => {
 
     console.log('🔌 Setting up socket connection for user:', user.id);
 
-    // Define callback handlers
     const handleConnectionChange = (connected, id, error = null) => {
       setIsConnected(connected);
       setSocketId(id || null);
@@ -366,16 +362,13 @@ export const SocketProvider = ({ children }) => {
     };
 
     const handleNewMessage = (message) => {
-      // You can add additional handling here (toasts, etc.)
       console.log('💬 New message in context:', message);
     };
 
     const handleNewNotification = (notification) => {
       console.log('🔔 New notification in context:', notification);
-      // You can show a toast notification here if desired
     };
 
-    // Connect using the integrated service
     const newSocket = socketService.connect(
       token,
       user.id,
@@ -388,14 +381,11 @@ export const SocketProvider = ({ children }) => {
     socketRef.current = newSocket;
     setSocket(newSocket);
 
-    // Cleanup on unmount
     return () => {
-      // Don't disconnect here if other components might still use it
-      // The service will handle disconnection when user logs out
+      // Cleanup if needed
     };
   }, [user, token]);
 
-  // Update user ID if it changes
   useEffect(() => {
     if (socketService.isConnected && user?.id && socketService.userId !== user.id) {
       console.log('🔄 User ID changed, rejoining room');
@@ -404,7 +394,6 @@ export const SocketProvider = ({ children }) => {
     }
   }, [user?.id]);
 
-  // Socket event handlers wrapper for React components
   const emit = useCallback((event, data) => {
     return socketService.emit(event, data);
   }, []);
@@ -414,7 +403,6 @@ export const SocketProvider = ({ children }) => {
     return () => socketService.off(event, callback);
   }, []);
 
-  // Convenience methods for common operations
   const sendMessage = useCallback((recipientId, message, bookingId = null, senderName = '') => {
     return socketService.sendMessage(recipientId, message, bookingId, senderName);
   }, []);
@@ -443,7 +431,7 @@ export const SocketProvider = ({ children }) => {
     return socketService.sendBulkNotification(userIds, message, type, data);
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     socket,
     onlineUsers,
     isConnected,
@@ -458,8 +446,22 @@ export const SocketProvider = ({ children }) => {
     updateBookingStatus,
     sendBulkNotification,
     getConnectionStatus: () => socketService.getConnectionStatus(),
-    socketService // Expose the service for advanced use cases
-  };
+    socketService
+  }), [
+    socket,
+    onlineUsers,
+    isConnected,
+    socketId,
+    emit,
+    on,
+    sendMessage,
+    sendNotification,
+    joinBookingRoom,
+    joinProviderRoom,
+    sendTyping,
+    updateBookingStatus,
+    sendBulkNotification
+  ]);
 
   return (
     <SocketContext.Provider value={value}>
@@ -468,5 +470,4 @@ export const SocketProvider = ({ children }) => {
   );
 };
 
-// Default export for backward compatibility
 export default SocketProvider;
