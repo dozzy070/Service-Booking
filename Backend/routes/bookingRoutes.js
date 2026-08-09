@@ -13,7 +13,7 @@ const router = express.Router();
 router.use(protect);
 
 // =========================================================================
-// BOOKING CREATION - COMPLETELY REWRITTEN
+// BOOKING CREATION - FIXED with subtotal handling
 // =========================================================================
 
 // POST /api/bookings - Create a new booking
@@ -121,13 +121,15 @@ router.post('/', async (req, res) => {
     }
 
     // Prepare booking data
+    const totalAmount = parseFloat(service.price) || 0;
     const bookingData = {
       customer_id: userId,
       provider_id: service.provider_id,
       service_id: parseInt(normalizedServiceId),
       booking_date: normalizedBookingDate,
       booking_time: normalizedBookingTime,
-      total_amount: parseFloat(service.price) || 0,
+      total_amount: totalAmount,
+      subtotal: totalAmount,  // ✅ FIXED: Add subtotal
       notes: notes || '',
       location: location || '',
       customer_name: customer_name || req.user?.name || 'Customer',
@@ -139,7 +141,7 @@ router.post('/', async (req, res) => {
 
     console.log('📝 Creating booking with data:', JSON.stringify(bookingData, null, 2));
 
-    // Create booking using only columns that actually exist in the database schema.
+    // Get available columns from the bookings table
     const bookingColumnsResult = await pool.query(`
       SELECT column_name
       FROM information_schema.columns
@@ -150,33 +152,41 @@ router.post('/', async (req, res) => {
       bookingColumnsResult.rows.map((row) => row.column_name.toLowerCase())
     );
 
+    console.log('📋 Available columns:', Array.from(availableColumns));
+
     const insertFields = [];
     const insertValues = [];
     const queryParams = [];
     let paramIndex = 1;
 
     const pushInsertField = (column, value) => {
-      insertFields.push(column);
-      insertValues.push(`$${paramIndex}`);
-      queryParams.push(value);
-      paramIndex += 1;
+      if (availableColumns.has(column.toLowerCase())) {
+        insertFields.push(column);
+        insertValues.push(`$${paramIndex}`);
+        queryParams.push(value);
+        paramIndex += 1;
+      } else {
+        console.log(`⚠️ Column "${column}" not found in bookings table, skipping`);
+      }
     };
 
-    if (availableColumns.has('customer_id')) pushInsertField('customer_id', bookingData.customer_id);
-    if (availableColumns.has('provider_id')) pushInsertField('provider_id', bookingData.provider_id);
-    if (availableColumns.has('service_id')) pushInsertField('service_id', bookingData.service_id);
-    if (availableColumns.has('booking_date')) pushInsertField('booking_date', bookingData.booking_date);
-    if (availableColumns.has('booking_time')) pushInsertField('booking_time', bookingData.booking_time);
-    if (availableColumns.has('total_amount')) pushInsertField('total_amount', bookingData.total_amount);
-    if (availableColumns.has('unit_price')) pushInsertField('unit_price', bookingData.total_amount || 0);
-    if (availableColumns.has('status')) pushInsertField('status', bookingData.status);
-    if (availableColumns.has('payment_status')) pushInsertField('payment_status', bookingData.payment_status);
-    if (availableColumns.has('notes')) pushInsertField('notes', bookingData.notes);
-    if (availableColumns.has('location')) pushInsertField('location', bookingData.location);
-    if (availableColumns.has('customer_name')) pushInsertField('customer_name', bookingData.customer_name);
-    if (availableColumns.has('customer_phone')) pushInsertField('customer_phone', bookingData.customer_phone);
-    if (availableColumns.has('customer_address')) pushInsertField('customer_address', bookingData.customer_address);
-    if (availableColumns.has('created_at')) pushInsertField('created_at', new Date());
+    // Push all fields that exist in the table
+    pushInsertField('customer_id', bookingData.customer_id);
+    pushInsertField('provider_id', bookingData.provider_id);
+    pushInsertField('service_id', bookingData.service_id);
+    pushInsertField('booking_date', bookingData.booking_date);
+    pushInsertField('booking_time', bookingData.booking_time);
+    pushInsertField('total_amount', bookingData.total_amount);
+    pushInsertField('subtotal', bookingData.subtotal);  // ✅ FIXED: Include subtotal
+    pushInsertField('unit_price', bookingData.total_amount);
+    pushInsertField('status', bookingData.status);
+    pushInsertField('payment_status', bookingData.payment_status);
+    pushInsertField('notes', bookingData.notes);
+    pushInsertField('location', bookingData.location);
+    pushInsertField('customer_name', bookingData.customer_name);
+    pushInsertField('customer_phone', bookingData.customer_phone);
+    pushInsertField('customer_address', bookingData.customer_address);
+    pushInsertField('created_at', new Date());
 
     if (insertFields.length === 0) {
       throw new Error('No compatible booking columns found in the bookings table');
