@@ -168,6 +168,7 @@ router.post('/', async (req, res) => {
     if (availableColumns.has('booking_date')) pushInsertField('booking_date', bookingData.booking_date);
     if (availableColumns.has('booking_time')) pushInsertField('booking_time', bookingData.booking_time);
     if (availableColumns.has('total_amount')) pushInsertField('total_amount', bookingData.total_amount);
+    if (availableColumns.has('unit_price')) pushInsertField('unit_price', bookingData.total_amount || 0);
     if (availableColumns.has('status')) pushInsertField('status', bookingData.status);
     if (availableColumns.has('payment_status')) pushInsertField('payment_status', bookingData.payment_status);
     if (availableColumns.has('notes')) pushInsertField('notes', bookingData.notes);
