@@ -588,7 +588,7 @@ router.get('/services/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER SERVICE CREATION - FIXED ✅ (short_description & preparation_time removed)
+// PROVIDER SERVICE CREATION - FIXED ✅ (All missing columns removed)
 // =========================================================================
 
 router.post('/services', authorize('provider', 'admin'), uploadMultiple('images', 5), async (req, res) => {
@@ -617,8 +617,7 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       languages,
       tags,
       is_remote,
-      is_active,
-      certifications
+      is_active
     } = req.body;
 
     // ✅ FIX: Handle category properly - support both ID and name
@@ -651,7 +650,7 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
     // Handle uploaded images
     const uploadedImages = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : [];
 
-    // ✅ FIX: Removed short_description and preparation_time - only use columns that exist
+    // ✅ FIX: Only use columns that exist in the database
     const result = await pool.query(`
       INSERT INTO services (
         provider_id, 
@@ -678,12 +677,11 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
         languages, 
         tags, 
         is_remote, 
-        is_active, 
-        certifications,
+        is_active,
         status,
         created_at, 
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW())
       RETURNING *
     `, [
       providerId,
@@ -711,7 +709,6 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       tags || [],
       is_remote || false,
       is_active !== false,
-      certifications || [],
       'pending'
     ]);
 
@@ -787,8 +784,7 @@ router.put('/services/:id',
         languages,
         tags,
         is_remote,
-        is_active,
-        certifications
+        is_active
       } = req.body;
 
       // ✅ FIX: Handle category properly for update too
@@ -814,7 +810,7 @@ router.put('/services/:id',
 
       const images = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : null;
 
-      // ✅ FIX: Removed short_description and preparation_time from UPDATE
+      // ✅ FIX: Only update columns that exist
       const result = await pool.query(`
         UPDATE services SET
           title = COALESCE($1, title),
@@ -841,9 +837,8 @@ router.put('/services/:id',
           tags = COALESCE($22, tags),
           is_remote = COALESCE($23, is_remote),
           is_active = COALESCE($24, is_active),
-          certifications = COALESCE($25, certifications),
           updated_at = NOW()
-        WHERE id = $26
+        WHERE id = $25
         RETURNING *
       `, [
         title,
@@ -870,7 +865,6 @@ router.put('/services/:id',
         tags || [],
         is_remote,
         is_active,
-        certifications || [],
         serviceId
       ]);
 
