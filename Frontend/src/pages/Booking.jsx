@@ -42,7 +42,9 @@ const Booking = () => {
   const [selectedTime, setSelectedTime] = useState('');
   const [bookingDetails, setBookingDetails] = useState({
     notes: '',
-    phone: user?.phone || ''
+    phone: user?.phone || '',
+    name: user?.name || '',
+    address: user?.address || ''
   });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
@@ -112,6 +114,7 @@ const Booking = () => {
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
+  // ✅ FIXED: handleBooking with correct field names
   const handleBooking = async () => {
     if (!selectedDate || !selectedTime) {
       toast.error('Please select date and time');
@@ -124,17 +127,27 @@ const Booking = () => {
 
     try {
       setSubmitting(true);
-      const bookingDateTime = new Date(selectedDate);
-      const [hours, minutes] = selectedTime.split(':');
-      bookingDateTime.setHours(parseInt(hours), parseInt(minutes));
-
-      const response = await api.post('/bookings', {
+      
+      // Format date for backend
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      
+      // ✅ FIXED: Send correct field names that backend expects
+      const bookingData = {
         service_id: parseInt(id),
-        booking_date: bookingDateTime.toISOString(),
-        notes: bookingDetails.notes
-      });
+        booking_date: dateStr,
+        booking_time: selectedTime,
+        notes: bookingDetails.notes || '',
+        location: bookingDetails.address || '',
+        customer_name: bookingDetails.name || user?.name || '',
+        customer_phone: bookingDetails.phone || user?.phone || '',
+        customer_address: bookingDetails.address || user?.address || ''
+      };
 
-      setBookingId(response.data.id);
+      console.log('📤 Sending booking data:', bookingData);
+
+      const response = await api.post('/bookings', bookingData);
+      
+      setBookingId(response.data.id || response.data.booking?.id);
       setBookingComplete(true);
       setShowConfirmModal(false);
       toast.success('Booking created successfully!');
@@ -207,7 +220,6 @@ const Booking = () => {
             <Card.Body>
               <Row>
                 <Col md={4}>
-                  {/* ✅ FIXED: Correct image src with proper function call */}
                   <img
                     src={service.images?.[0] || getServiceImage(service.title, service.id, 300, 200)}
                     alt={service.title}
@@ -300,8 +312,15 @@ const Booking = () => {
               <Row>
                 <Col md={6}>
                   <Form.Group className="mb-3">
-                    <Form.Label>Your Name</Form.Label>
-                    <Form.Control type="text" value={user?.name || ''} disabled readOnly />
+                    <Form.Label>Your Name *</Form.Label>
+                    <Form.Control
+                      type="text"
+                      name="name"
+                      value={bookingDetails.name}
+                      onChange={handleInputChange}
+                      placeholder="Enter your full name"
+                      required
+                    />
                   </Form.Group>
                 </Col>
                 <Col md={6}>
@@ -311,17 +330,33 @@ const Booking = () => {
                   </Form.Group>
                 </Col>
               </Row>
-              <Form.Group className="mb-3">
-                <Form.Label>Phone Number *</Form.Label>
-                <Form.Control
-                  type="tel"
-                  name="phone"
-                  value={bookingDetails.phone}
-                  onChange={handleInputChange}
-                  placeholder="Enter your phone number"
-                  required
-                />
-              </Form.Group>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Phone Number *</Form.Label>
+                    <Form.Control
+                      type="tel"
+                      name="phone"
+                      value={bookingDetails.phone}
+                      onChange={handleInputChange}
+                      placeholder="Enter your phone number"
+                      required
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Address</Form.Label>
+                    <Form.Control
+                      type="text"
+                      name="address"
+                      value={bookingDetails.address}
+                      onChange={handleInputChange}
+                      placeholder="Enter your address"
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
               <Form.Group className="mb-3">
                 <Form.Label>Additional Notes</Form.Label>
                 <Form.Control
@@ -373,7 +408,7 @@ const Booking = () => {
                   variant="primary"
                   size="lg"
                   onClick={() => setShowConfirmModal(true)}
-                  disabled={!selectedTime || !bookingDetails.phone}
+                  disabled={!selectedTime || !bookingDetails.phone || !bookingDetails.name}
                 >
                   Confirm Booking
                 </Button>
@@ -404,6 +439,10 @@ const Booking = () => {
             <ListGroup.Item><strong>Date:</strong> {formatDate(selectedDate)} at {selectedTime}</ListGroup.Item>
             <ListGroup.Item><strong>Provider:</strong> {service.provider_name || 'Service Provider'}</ListGroup.Item>
             <ListGroup.Item><strong>Total Amount:</strong> {formatCurrency(service.price)}</ListGroup.Item>
+            <ListGroup.Item><strong>Phone:</strong> {bookingDetails.phone}</ListGroup.Item>
+            {bookingDetails.address && (
+              <ListGroup.Item><strong>Address:</strong> {bookingDetails.address}</ListGroup.Item>
+            )}
           </ListGroup>
           <p className="mt-3 mb-0 text-muted small">
             By confirming, you agree to our terms of service and cancellation policy.
