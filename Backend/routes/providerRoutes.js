@@ -588,7 +588,7 @@ router.get('/services/:id', async (req, res) => {
 });
 
 // =========================================================================
-// PROVIDER SERVICE CREATION - FIXED ✅ (short_description removed)
+// PROVIDER SERVICE CREATION - FIXED ✅ (short_description & preparation_time removed)
 // =========================================================================
 
 router.post('/services', authorize('provider', 'admin'), uploadMultiple('images', 5), async (req, res) => {
@@ -618,7 +618,6 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       tags,
       is_remote,
       is_active,
-      preparation_time,
       certifications
     } = req.body;
 
@@ -652,7 +651,7 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
     // Handle uploaded images
     const uploadedImages = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : [];
 
-    // ✅ FIX: Removed short_description - only use columns that exist
+    // ✅ FIX: Removed short_description and preparation_time - only use columns that exist
     const result = await pool.query(`
       INSERT INTO services (
         provider_id, 
@@ -680,12 +679,11 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
         tags, 
         is_remote, 
         is_active, 
-        preparation_time, 
         certifications,
         status,
         created_at, 
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
       RETURNING *
     `, [
       providerId,
@@ -713,7 +711,6 @@ router.post('/services', authorize('provider', 'admin'), uploadMultiple('images'
       tags || [],
       is_remote || false,
       is_active !== false,
-      preparation_time || null,
       certifications || [],
       'pending'
     ]);
@@ -791,7 +788,6 @@ router.put('/services/:id',
         tags,
         is_remote,
         is_active,
-        preparation_time,
         certifications
       } = req.body;
 
@@ -818,7 +814,7 @@ router.put('/services/:id',
 
       const images = req.files ? req.files.map(f => `/uploads/services/${f.filename}`) : null;
 
-      // ✅ FIX: Removed short_description from UPDATE
+      // ✅ FIX: Removed short_description and preparation_time from UPDATE
       const result = await pool.query(`
         UPDATE services SET
           title = COALESCE($1, title),
@@ -845,10 +841,9 @@ router.put('/services/:id',
           tags = COALESCE($22, tags),
           is_remote = COALESCE($23, is_remote),
           is_active = COALESCE($24, is_active),
-          preparation_time = COALESCE($25, preparation_time),
-          certifications = COALESCE($26, certifications),
+          certifications = COALESCE($25, certifications),
           updated_at = NOW()
-        WHERE id = $27
+        WHERE id = $26
         RETURNING *
       `, [
         title,
@@ -875,7 +870,6 @@ router.put('/services/:id',
         tags || [],
         is_remote,
         is_active,
-        preparation_time,
         certifications || [],
         serviceId
       ]);
