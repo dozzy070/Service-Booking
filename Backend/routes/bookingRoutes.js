@@ -1,6 +1,6 @@
 // routes/bookingRoutes.js
 import express from 'express';
-import { body, query, param, validationResult } from 'express-validator';
+import { body, query, param } from 'express-validator';
 import { protect, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import pool from '../config/db.js';
@@ -8,33 +8,12 @@ import pool from '../config/db.js';
 const router = express.Router();
 
 // =========================================================================
-// VALIDATION RULES - FIXED with better error messages
-// =========================================================================
-
-const bookingValidation = [
-  body('service_id')
-    .notEmpty().withMessage('Service ID is required')
-    .isInt().withMessage('Service ID must be a number'),
-  body('booking_date')
-    .notEmpty().withMessage('Booking date is required')
-    .isISO8601().withMessage('Booking date must be in YYYY-MM-DD format'),
-  body('booking_time')
-    .notEmpty().withMessage('Booking time is required')
-    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Booking time must be in HH:MM format'),
-  body('customer_name').optional().isString(),
-  body('customer_phone').optional().isString(),
-  body('customer_address').optional().isString(),
-  body('notes').optional().isString(),
-  body('location').optional().isString()
-];
-
-// =========================================================================
 // ALL BOOKING ROUTES REQUIRE AUTHENTICATION
 // =========================================================================
 router.use(protect);
 
 // =========================================================================
-// BOOKING CREATION - COMPLETELY REWRITTEN WITH BETTER DEBUGGING
+// BOOKING CREATION - COMPLETELY REWRITTEN
 // =========================================================================
 
 // POST /api/bookings - Create a new booking
@@ -45,7 +24,6 @@ router.post('/', async (req, res) => {
     const userId = req.user.id;
     console.log('👤 User ID:', userId);
     
-    // Extract and validate fields
     const { 
       service_id, 
       booking_date, 
@@ -238,7 +216,6 @@ router.get('/', async (req, res) => {
     let params = [];
     let paramIndex = 1;
     
-    // Role-based filtering
     if (userRole === 'customer') {
       conditions.push(`b.customer_id = $${paramIndex}`);
       params.push(userId);
@@ -249,7 +226,6 @@ router.get('/', async (req, res) => {
       paramIndex++;
     }
     
-    // Additional filters
     if (status && status !== 'all') {
       conditions.push(`b.status = $${paramIndex}`);
       params.push(status);
@@ -338,10 +314,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// =========================================================================
-// GET /api/bookings/upcoming - MUST COME BEFORE /:id
-// =========================================================================
-
 // GET /api/bookings/upcoming - Get upcoming bookings
 router.get('/upcoming', async (req, res) => {
   try {
@@ -395,10 +367,6 @@ router.get('/upcoming', async (req, res) => {
   }
 });
 
-// =========================================================================
-// GET /api/bookings/:id - MUST COME AFTER SPECIFIC ROUTES
-// =========================================================================
-
 // GET /api/bookings/:id - Get a single booking
 router.get('/:id', async (req, res) => {
   try {
@@ -406,7 +374,6 @@ router.get('/:id', async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Check if it's a valid integer
     if (isNaN(bookingId)) {
       return res.status(400).json({ message: 'Invalid booking ID' });
     }
@@ -447,7 +414,6 @@ router.get('/:id', async (req, res) => {
     
     const booking = result.rows[0];
     
-    // Check authorization
     const isAuthorized = userRole === 'admin' || 
                          booking.customer_id === userId || 
                          booking.provider_id === userId;
@@ -493,11 +459,7 @@ router.put('/:id', authorize('admin'), async (req, res) => {
   }
 });
 
-// =========================================================================
-// BOOKING STATUS MANAGEMENT
-// =========================================================================
-
-// PUT /api/bookings/:id/status - Update booking status (provider/admin)
+// PUT /api/bookings/:id/status - Update booking status
 router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
   try {
     const bookingId = req.params.id;
@@ -505,7 +467,6 @@ router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Get booking details
     const bookingCheck = await pool.query(
       `SELECT b.*, s.title as service_title, s.provider_id
        FROM bookings b
@@ -520,12 +481,10 @@ router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
 
     const booking = bookingCheck.rows[0];
 
-    // Check authorization
     if (userRole !== 'admin' && booking.provider_id !== userId) {
       return res.status(403).json({ message: 'Not authorized to update this booking' });
     }
 
-    // Validate status transition
     const validTransitions = {
       'pending': ['confirmed', 'cancelled', 'rejected'],
       'confirmed': ['in_progress', 'cancelled'],
@@ -542,7 +501,6 @@ router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
       });
     }
 
-    // Update booking status
     const result = await pool.query(
       `UPDATE bookings 
        SET status = $1, 
@@ -553,7 +511,6 @@ router.put('/:id/status', authorize('provider', 'admin'), async (req, res) => {
       [status, reason || null, bookingId]
     );
 
-    // Create notification for customer
     await pool.query(
       `INSERT INTO notifications (user_id, type, title, message, data, link)
        VALUES ($1, 'booking', 'Booking Status Updated', 
@@ -584,7 +541,6 @@ router.put('/:id/cancel', async (req, res) => {
     const userRole = req.user.role;
     const { reason } = req.body;
 
-    // Get booking details
     const bookingCheck = await pool.query(
       `SELECT b.*, s.title as service_title
        FROM bookings b
@@ -599,7 +555,6 @@ router.put('/:id/cancel', async (req, res) => {
 
     const booking = bookingCheck.rows[0];
 
-    // Check authorization
     const isAuthorized = userRole === 'admin' || 
                          booking.customer_id === userId || 
                          booking.provider_id === userId;
@@ -608,12 +563,10 @@ router.put('/:id/cancel', async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to cancel this booking' });
     }
 
-    // Check if booking can be cancelled
     if (booking.status === 'completed' || booking.status === 'cancelled') {
       return res.status(400).json({ message: 'This booking cannot be cancelled' });
     }
 
-    // Update booking
     const result = await pool.query(
       `UPDATE bookings 
        SET status = 'cancelled', 
@@ -624,7 +577,6 @@ router.put('/:id/cancel', async (req, res) => {
       [reason || 'Customer requested cancellation', bookingId]
     );
 
-    // Create notification for other party
     const notifyUserId = booking.customer_id === userId ? booking.provider_id : booking.customer_id;
     await pool.query(
       `INSERT INTO notifications (user_id, type, title, message, data, link)
@@ -656,7 +608,6 @@ router.put('/:id/reschedule', async (req, res) => {
     const userRole = req.user.role;
     const { new_date, new_time, reason } = req.body;
 
-    // Get booking details
     const bookingCheck = await pool.query(
       `SELECT b.*, s.title as service_title
        FROM bookings b
@@ -671,7 +622,6 @@ router.put('/:id/reschedule', async (req, res) => {
 
     const booking = bookingCheck.rows[0];
 
-    // Check authorization
     const isAuthorized = userRole === 'admin' || 
                          booking.customer_id === userId || 
                          booking.provider_id === userId;
@@ -680,12 +630,10 @@ router.put('/:id/reschedule', async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to reschedule this booking' });
     }
 
-    // Check if booking can be rescheduled
     if (booking.status === 'completed' || booking.status === 'cancelled') {
       return res.status(400).json({ message: 'This booking cannot be rescheduled' });
     }
 
-    // Check if new time slot is available
     if (new_time) {
       const existingBooking = await pool.query(
         `SELECT id FROM bookings 
@@ -702,7 +650,6 @@ router.put('/:id/reschedule', async (req, res) => {
       }
     }
 
-    // Update booking
     const result = await pool.query(
       `UPDATE bookings 
        SET booking_date = COALESCE($1, booking_date),
@@ -715,7 +662,6 @@ router.put('/:id/reschedule', async (req, res) => {
       [new_date, new_time || booking.booking_time, reason || null, bookingId]
     );
 
-    // Create notification for other party
     const notifyUserId = booking.customer_id === userId ? booking.provider_id : booking.customer_id;
     await pool.query(
       `INSERT INTO notifications (user_id, type, title, message, data, link)
@@ -739,14 +685,13 @@ router.put('/:id/reschedule', async (req, res) => {
   }
 });
 
-// PUT /api/bookings/:id/complete - Complete a booking (provider/admin)
+// PUT /api/bookings/:id/complete - Complete a booking
 router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Get booking details
     const bookingCheck = await pool.query(
       `SELECT b.*, s.title as service_title, s.provider_id
        FROM bookings b
@@ -761,17 +706,14 @@ router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => 
 
     const booking = bookingCheck.rows[0];
 
-    // Check authorization
     if (userRole !== 'admin' && booking.provider_id !== userId) {
       return res.status(403).json({ message: 'Not authorized to complete this booking' });
     }
 
-    // Check if booking can be completed
     if (booking.status !== 'in_progress') {
       return res.status(400).json({ message: 'Booking must be in progress to complete' });
     }
 
-    // Update booking
     const result = await pool.query(
       `UPDATE bookings 
        SET status = 'completed', 
@@ -782,7 +724,6 @@ router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => 
       [bookingId]
     );
 
-    // Update provider wallet earnings
     await pool.query(
       `UPDATE wallets 
        SET balance = balance + $1,
@@ -791,7 +732,6 @@ router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => 
       [booking.total_amount, booking.provider_id]
     );
 
-    // Create notification for customer
     await pool.query(
       `INSERT INTO notifications (user_id, type, title, message, data, link)
        VALUES ($1, 'booking', 'Booking Completed', 
@@ -814,11 +754,7 @@ router.put('/:id/complete', authorize('provider', 'admin'), async (req, res) => 
   }
 });
 
-// =========================================================================
-// BOOKING RATING
-// =========================================================================
-
-// PUT /api/bookings/:id/rate - Rate a booking (customer only)
+// PUT /api/bookings/:id/rate - Rate a booking
 router.put('/:id/rate', async (req, res) => {
   try {
     const bookingId = req.params.id;
@@ -829,7 +765,6 @@ router.put('/:id/rate', async (req, res) => {
       return res.status(400).json({ message: 'Rating must be between 1 and 5' });
     }
 
-    // Get booking details
     const bookingCheck = await pool.query(
       `SELECT b.*, s.id as service_id
        FROM bookings b
@@ -844,12 +779,10 @@ router.put('/:id/rate', async (req, res) => {
 
     const booking = bookingCheck.rows[0];
 
-    // Check if booking is completed
     if (booking.status !== 'completed') {
       return res.status(400).json({ message: 'Can only rate completed bookings' });
     }
 
-    // Check if already rated
     const existingReview = await pool.query(
       'SELECT id FROM reviews WHERE booking_id = $1 AND user_id = $2',
       [bookingId, userId]
@@ -859,14 +792,12 @@ router.put('/:id/rate', async (req, res) => {
       return res.status(400).json({ message: 'This booking has already been rated' });
     }
 
-    // Create review
     const result = await pool.query(
       `INSERT INTO reviews (user_id, service_id, booking_id, rating, comment, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *`,
       [userId, booking.service_id, bookingId, rating, comment || '']
     );
 
-    // Update service average rating
     await pool.query(`
       UPDATE services 
       SET avg_rating = (
@@ -878,7 +809,6 @@ router.put('/:id/rate', async (req, res) => {
       WHERE id = $1
     `, [booking.service_id]);
 
-    // Update booking with rating
     await pool.query(
       'UPDATE bookings SET rating = $1 WHERE id = $2',
       [rating, bookingId]
@@ -893,10 +823,6 @@ router.put('/:id/rate', async (req, res) => {
     res.status(500).json({ message: 'Failed to submit rating' });
   }
 });
-
-// =========================================================================
-// BOOKING STATISTICS
-// =========================================================================
 
 // GET /api/bookings/stats - Get booking statistics
 router.get('/stats', async (req, res) => {
@@ -944,10 +870,6 @@ router.get('/stats', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch booking stats' });
   }
 });
-
-// =========================================================================
-// USER BOOKINGS
-// =========================================================================
 
 // GET /api/bookings/my-bookings - Get user's bookings
 router.get('/my-bookings', async (req, res) => {
@@ -1017,11 +939,7 @@ router.get('/my-bookings', async (req, res) => {
   }
 });
 
-// =========================================================================
-// AVAILABLE SLOTS
-// =========================================================================
-
-// GET /api/bookings/available-slots - Get available slots for a service
+// GET /api/bookings/available-slots - Get available slots
 router.get('/available-slots', async (req, res) => {
   try {
     const { service_id, date } = req.query;
@@ -1030,7 +948,6 @@ router.get('/available-slots', async (req, res) => {
       return res.status(400).json({ message: 'Service ID and date are required' });
     }
 
-    // Get service details
     const service = await pool.query(
       'SELECT provider_id, duration FROM services WHERE id = $1',
       [service_id]
@@ -1043,7 +960,6 @@ router.get('/available-slots', async (req, res) => {
     const providerId = service.rows[0].provider_id;
     const duration = service.rows[0].duration || 60;
 
-    // Get provider's schedule for the day
     const dayOfWeek = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
     const schedule = await pool.query(
@@ -1057,7 +973,6 @@ router.get('/available-slots', async (req, res) => {
       return res.json({ available: [], booked: [], peak_hours: [] });
     }
 
-    // Generate time slots (30-minute intervals)
     const slots = [];
     const durationMinutes = parseInt(duration);
     const intervalMinutes = 30;
@@ -1074,7 +989,6 @@ router.get('/available-slots', async (req, res) => {
       }
     });
 
-    // Get existing bookings for the date
     const bookings = await pool.query(
       `SELECT booking_time FROM bookings
        WHERE service_id = $1 AND booking_date::date = $2
@@ -1085,7 +999,6 @@ router.get('/available-slots', async (req, res) => {
     const bookedSlots = bookings.rows.map(b => b.booking_time);
     const availableSlots = slots.filter(s => !bookedSlots.includes(s));
 
-    // Peak hours (10am-12pm and 4pm-6pm)
     const peakHours = ['09:00', '10:00', '11:00', '12:00', '16:00', '17:00', '18:00'];
 
     res.json({
@@ -1101,10 +1014,6 @@ router.get('/available-slots', async (req, res) => {
   }
 });
 
-// =========================================================================
-// PROVIDER BOOKINGS (Legacy - kept for backward compatibility)
-// =========================================================================
-
 // GET /api/bookings/provider/:providerId - Get provider's bookings
 router.get('/provider/:providerId', authorize('provider', 'admin'), async (req, res) => {
   try {
@@ -1112,7 +1021,6 @@ router.get('/provider/:providerId', authorize('provider', 'admin'), async (req, 
     const { page = 1, limit = 10, status } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Check authorization
     if (req.user.role !== 'admin' && req.user.id !== parseInt(providerId)) {
       return res.status(403).json({ message: 'Not authorized' });
     }

@@ -32,7 +32,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${cleanToken}`;
     }
     
-    // Only log in development and skip expected 404 endpoints
     if (process.env.NODE_ENV === 'development') {
       const skipLogging = ['/customer/reminders', '/customer/reviews/stats'];
       const shouldSkip = skipLogging.some(path => config.url?.includes(path));
@@ -64,7 +63,6 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const url = error.config?.url;
     
-    // SILENT HANDLING for expected 404s
     const expected404s = [
       '/customer/reminders',
       '/customer/reviews/stats',
@@ -88,7 +86,6 @@ api.interceptors.response.use(
       });
     }
     
-    // Log other errors
     if (error.response) {
       console.error(`❌ API Error ${status}:`, error.response.data?.message || error.message);
       if (status === 401) {
@@ -213,7 +210,11 @@ export const customerAPI = {
   // ✅ FIXED: Bookings - createBooking with proper field mapping
   createBooking: async (data) => {
     try {
+      console.log('📤 createBooking received data:', JSON.stringify(data, null, 2));
+      
       // Map frontend field names to backend expected names
+      // Frontend sends: serviceId, date, time
+      // Backend expects: service_id, booking_date, booking_time
       const formattedData = {
         service_id: data.service_id || data.serviceId,
         booking_date: data.booking_date || data.date,
@@ -225,23 +226,33 @@ export const customerAPI = {
         customer_address: data.customer_address || data.address || ''
       };
 
+      console.log('📤 Formatted booking data for backend:', JSON.stringify(formattedData, null, 2));
+
       // Validate required fields
+      const errors = [];
       if (!formattedData.service_id) {
-        throw new Error('Service ID is required');
+        errors.push('Service ID is required');
       }
       if (!formattedData.booking_date) {
-        throw new Error('Booking date is required');
+        errors.push('Booking date is required');
       }
       if (!formattedData.booking_time) {
-        throw new Error('Booking time is required');
+        errors.push('Booking time is required');
       }
 
-      console.log('📤 Creating booking with data:', formattedData);
-      
+      if (errors.length > 0) {
+        console.error('❌ Validation errors:', errors);
+        throw new Error(`Validation failed: ${errors.join(', ')}`);
+      }
+
       const response = await api.post('/bookings', formattedData);
+      console.log('✅ Booking created successfully:', response.data);
       return response;
     } catch (error) {
       console.error('❌ Booking creation failed:', error.response?.data || error.message);
+      if (error.response?.data) {
+        console.error('❌ Server response:', JSON.stringify(error.response.data, null, 2));
+      }
       throw error;
     }
   },
@@ -560,7 +571,6 @@ export const providerAPI = {
 // =========================================================================
 
 export const adminAPI = {
-  // Dashboard
   getStats: () => api.get('/admin/dashboard/stats'),
   getRevenueChart: (view = 'monthly') => api.get(`/admin/dashboard/revenue-chart?view=${view}`),
   getActivities: () => api.get('/admin/dashboard/activities'),
@@ -569,7 +579,6 @@ export const adminAPI = {
   getPendingApprovals: () => api.get('/admin/dashboard/pending-approvals'),
   getSystemHealth: () => api.get('/admin/dashboard/system-health'),
   
-  // Users
   getUsers: () => api.get('/admin/users'),
   getUserById: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
@@ -578,11 +587,9 @@ export const adminAPI = {
   suspendUser: (id) => api.put(`/admin/users/${id}/suspend`),
   unsuspendUser: (id) => api.put(`/admin/users/${id}/unsuspend`),
   
-  // Providers
   getProviders: () => api.get('/admin/providers'),
   getProviderDetails: (id) => api.get(`/admin/providers/${id}`),
   
-  // Services
   getServices: () => api.get('/admin/services'),
   getServiceById: (id) => api.get(`/admin/services/${id}`),
   approveService: (id) => api.put(`/admin/services/${id}/approve`),
@@ -595,19 +602,16 @@ export const adminAPI = {
   bulkUpdateServices: (payload) => api.post('/admin/services/bulk', payload),
   bulkDeleteServices: (payload) => api.delete('/admin/services/bulk', { data: payload }),
   
-  // Bookings
   getBookings: () => api.get('/admin/bookings'),
   getBookingById: (id) => api.get(`/admin/bookings/${id}`),
   updateBookingStatus: (id, status) => api.put(`/admin/bookings/${id}/status`, { status }),
   
-  // Categories
   getCategories: () => api.get('/admin/categories'),
   getCategoryList: () => api.get('/admin/categories'),
   createCategory: (data) => api.post('/admin/categories', data),
   updateCategory: (id, data) => api.put(`/admin/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/admin/categories/${id}`),
   
-  // Help Center - FAQs
   getFAQs: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -624,7 +628,6 @@ export const adminAPI = {
   deleteFAQ: (id) => api.delete(`/admin/faqs/${id}`),
   removeFAQ: (id) => adminAPI.deleteFAQ(id),
   
-  // Help Center - Announcements
   getAnnouncements: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -641,7 +644,6 @@ export const adminAPI = {
   deleteAnnouncement: (id) => api.delete(`/admin/announcements/${id}`),
   removeAnnouncement: (id) => adminAPI.deleteAnnouncement(id),
   
-  // Help Center - Knowledge Base
   getKnowledgeBase: (params) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -659,7 +661,6 @@ export const adminAPI = {
   deleteKnowledgeArticle: (id) => api.delete(`/admin/knowledge-base/${id}`),
   removeKnowledgeArticle: (id) => adminAPI.deleteKnowledgeArticle(id),
   
-  // Help Center - FAQ Feedback
   getFAQFeedback: (faqId) => api.get(`/admin/faqs/${faqId}/feedback`),
   getFAQStats: (faqId) => api.get(`/admin/faqs/${faqId}/stats`),
 };
@@ -704,21 +705,17 @@ export const paymentAPI = {
   getProviderPayoutSummary: (providerId) => api.get(`/admin/payouts/provider/${providerId}`),
   processBulkPayouts: (data) => api.post('/admin/payouts/bulk', data),
   
-  // Settings
   getSettings: () => api.get('/admin/settings'),
   updateSettings: (data) => api.put('/admin/settings', data),
   getPlatformSettings: () => api.get('/admin/settings'),
   updatePlatformSettings: (data) => api.put('/admin/settings', data),
   
-  // Reports & Analytics
   getReports: (params) => api.get('/admin/reports', { params }),
   getAnalyticsOverview: (params) => api.get('/admin/analytics/overview', { params }),
   
-  // Notifications
   getNotifications: () => api.get('/admin/notifications'),
   markAllRead: () => api.put('/admin/notifications/read-all'),
   
-  // Activity Log
   getActivityLog: (params) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page);

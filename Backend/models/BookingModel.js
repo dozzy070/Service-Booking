@@ -7,7 +7,6 @@ const BookingModel = {
   // =========================================================================
 
   async create(data) {
-    // Handle both camelCase and snake_case field names
     const {
       service_id,
       serviceId,
@@ -34,7 +33,6 @@ const BookingModel = {
       payment_status = 'pending'
     } = data;
 
-    // Normalize field names
     const normalizedData = {
       service_id: service_id || serviceId,
       customer_id: customer_id || customerId,
@@ -51,7 +49,6 @@ const BookingModel = {
       payment_status: payment_status || 'pending'
     };
 
-    // Validate required fields
     if (!normalizedData.service_id) {
       throw new Error('Service ID is required');
     }
@@ -120,7 +117,6 @@ const BookingModel = {
     let params = [];
     let paramIndex = 1;
 
-    // Role-based filtering
     if (userRole === 'customer' && userId) {
       conditions.push(`b.customer_id = $${paramIndex}`);
       params.push(userId);
@@ -131,7 +127,6 @@ const BookingModel = {
       paramIndex++;
     }
 
-    // Additional filters
     if (status && status !== 'all') {
       conditions.push(`b.status = $${paramIndex}`);
       params.push(status);
@@ -170,7 +165,6 @@ const BookingModel = {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Count query
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM bookings b
@@ -181,7 +175,6 @@ const BookingModel = {
     const countResult = await pool.query(countQuery, params);
     const total = parseInt(countResult.rows[0].total);
 
-    // Main query
     const query = `
       SELECT 
         b.*,
